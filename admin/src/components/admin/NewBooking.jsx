@@ -154,61 +154,60 @@ export function NewBooking({ onBack, onBookingCreated, fromEnqId }) {
     onBookingCreated(id, code);
   };
 
+  const inputCls =
+    'w-full rounded-lg border border-slate-200 bg-white px-3.5 py-2 text-xs sm:text-[13px] text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-[#0E2F5A] focus:border-[#0E2F5A] shadow-2xs transition min-h-[40px]';
+  const labelCls = 'block text-xs sm:text-[13px] font-medium text-slate-600 mb-1.5';
+
   return (
-    <div className="space-y-6 max-w-3xl mx-auto">
-      {/* Header */}
+    <div className="p-4 sm:p-4 w-full space-y-4">
+      {/* 1. Header: Back Button + Title */}
       <div className="flex items-center gap-3">
         <button
           type="button"
           onClick={onBack}
-          className="p-2 rounded-xl bg-white hover:bg-slate-100 border border-slate-200 text-slate-700 transition cursor-pointer"
-          aria-label="Back"
+          className="w-9 h-9 rounded-xl bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 flex items-center justify-center transition cursor-pointer shadow-2xs shrink-0"
+          aria-label="Back to bookings"
         >
-          <Icon name="back" size={20} />
+          <Icon name="back" size={18} />
         </button>
-        <div>
-          <h1 className="text-2xl font-black text-slate-900 tracking-tight">New booking</h1>
-          <p className="text-xs text-slate-500 font-medium">
-            {enq
-              ? `Creating direct booking from help request ${enq.code}`
-              : 'Log requests received over phone, WhatsApp or walk-in'}
-          </p>
-        </div>
+        <h1 className="text-2xl font-bold text-slate-900 tracking-tight">
+          New booking
+        </h1>
       </div>
 
+      <p className="text-xs sm:text-[13px] text-slate-500 max-w-[70ch] leading-relaxed">
+        Log a request that came in by phone or WhatsApp. The client sees it in their app when they
+        log in with the same mobile number.
+      </p>
+
       {enq && (
-        <div className="p-4 rounded-2xl bg-blue-50 border border-blue-200 text-blue-900 text-xs">
-          <b>Converting Help Request:</b> The request {enq.code} will be marked as Booked and the
-          family will receive automated notification with booking code.
+        <div className="p-3.5 rounded-xl bg-[#e4ecf7] border border-[#c3d5eb] text-[#0e2f5a] text-xs font-medium">
+          Creating direct booking from help request <b>{enq.code}</b>. The request is marked as booked and the client is notified.
         </div>
       )}
 
-      {/* Form Card */}
+      {/* 2. Form Card */}
       <form
         onSubmit={handleSubmit}
-        className="bg-white rounded-2xl p-6 border border-slate-200/80 shadow-2xs space-y-6"
+        className="bg-white rounded-lg border border-slate-200 p-5 sm:p-6 shadow-2xs space-y-4"
       >
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          {/* Client Name */}
+        {/* Form Fields: 5-column responsive grid matching reference index (4).html */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3 sm:gap-3.5">
+          {/* 1. Client Name */}
           <div>
-            <label className="block text-xs font-bold text-slate-700 mb-1">
-              Client full name <span className="text-red-500">*</span>
-            </label>
+            <label className={labelCls}>Client name</label>
             <input
               type="text"
               required
               value={form.clientName}
               onChange={(e) => setForm({ ...form, clientName: e.target.value })}
-              placeholder="e.g. Rahul Sharma"
-              className="w-full rounded-xl border border-slate-200 p-2.5 text-xs text-slate-900 focus:outline-none focus:ring-1 focus:ring-teal-500"
+              className={inputCls}
             />
           </div>
 
-          {/* Client Phone */}
+          {/* 2. Client Mobile */}
           <div>
-            <label className="block text-xs font-bold text-slate-700 mb-1">
-              Client mobile (10 digits) <span className="text-red-500">*</span>
-            </label>
+            <label className={labelCls}>Client mobile (10 digits)</label>
             <input
               type="tel"
               required
@@ -216,20 +215,17 @@ export function NewBooking({ onBack, onBookingCreated, fromEnqId }) {
               maxLength={10}
               value={form.clientPhone}
               onChange={(e) => setForm({ ...form, clientPhone: e.target.value })}
-              placeholder="9820012345"
-              className="w-full rounded-xl border border-slate-200 p-2.5 text-xs font-mono text-slate-900 focus:outline-none focus:ring-1 focus:ring-teal-500"
+              className={`${inputCls} font-mono`}
             />
           </div>
 
-          {/* Request Source */}
+          {/* 3. Request came via */}
           <div>
-            <label className="block text-xs font-bold text-slate-700 mb-1">
-              Request came via
-            </label>
+            <label className={labelCls}>Request came via</label>
             <select
               value={form.source}
               onChange={(e) => setForm({ ...form, source: e.target.value })}
-              className="w-full rounded-xl border border-slate-200 bg-white p-2.5 text-xs text-slate-900 focus:outline-none focus:ring-1 focus:ring-teal-500 cursor-pointer"
+              className={`${inputCls} cursor-pointer`}
             >
               {['Call', 'WhatsApp', 'App', 'Walk-in'].map((o) => (
                 <option key={o} value={o}>
@@ -239,13 +235,13 @@ export function NewBooking({ onBack, onBookingCreated, fromEnqId }) {
             </select>
           </div>
 
-          {/* City */}
+          {/* 4. City */}
           <div>
-            <label className="block text-xs font-bold text-slate-700 mb-1">City hub</label>
+            <label className={labelCls}>City</label>
             <select
               value={form.city}
               onChange={(e) => setForm({ ...form, city: e.target.value })}
-              className="w-full rounded-xl border border-slate-200 bg-white p-2.5 text-xs text-slate-900 focus:outline-none focus:ring-1 focus:ring-teal-500 cursor-pointer"
+              className={`${inputCls} cursor-pointer`}
             >
               {cities().map((c) => (
                 <option key={c.id} value={c.id}>
@@ -255,60 +251,54 @@ export function NewBooking({ onBack, onBookingCreated, fromEnqId }) {
             </select>
           </div>
 
-          {/* Patient Name */}
+          {/* 5. Patient Name */}
           <div>
-            <label className="block text-xs font-bold text-slate-700 mb-1">
-              Patient name <span className="text-red-500">*</span>
-            </label>
+            <label className={labelCls}>Patient name</label>
             <input
               type="text"
               required
               value={form.patientName}
               onChange={(e) => setForm({ ...form, patientName: e.target.value })}
-              placeholder="e.g. Savita Sharma"
-              className="w-full rounded-xl border border-slate-200 p-2.5 text-xs text-slate-900 focus:outline-none focus:ring-1 focus:ring-teal-500"
+              className={inputCls}
             />
           </div>
 
-          {/* Patient Age & Relation */}
-          <div className="grid grid-cols-2 gap-2">
-            <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1">Age</label>
-              <input
-                type="text"
-                inputMode="numeric"
-                maxLength={3}
-                value={form.patientAge}
-                onChange={(e) => setForm({ ...form, patientAge: e.target.value })}
-                placeholder="72"
-                className="w-full rounded-xl border border-slate-200 p-2.5 text-xs text-slate-900 focus:outline-none focus:ring-1 focus:ring-teal-500"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1">Relation</label>
-              <select
-                value={form.relation}
-                onChange={(e) => setForm({ ...form, relation: e.target.value })}
-                className="w-full rounded-xl border border-slate-200 bg-white p-2.5 text-xs text-slate-900 focus:outline-none focus:ring-1 focus:ring-teal-500 cursor-pointer"
-              >
-                {RELATIONS.map((r) => (
-                  <option key={r} value={r}>
-                    {r}
-                  </option>
-                ))}
-              </select>
-            </div>
+          {/* 6. Patient Age */}
+          <div>
+            <label className={labelCls}>Patient age</label>
+            <input
+              type="text"
+              inputMode="numeric"
+              maxLength={3}
+              value={form.patientAge}
+              onChange={(e) => setForm({ ...form, patientAge: e.target.value })}
+              className={inputCls}
+            />
           </div>
 
-          {/* Service */}
+          {/* 7. Relation to client */}
           <div>
-            <label className="block text-xs font-bold text-slate-700 mb-1">
-              Care service <span className="text-teal-600">({priceLabel(selectedServiceObj)})</span>
-            </label>
+            <label className={labelCls}>Relation to client</label>
+            <select
+              value={form.relation}
+              onChange={(e) => setForm({ ...form, relation: e.target.value })}
+              className={`${inputCls} cursor-pointer`}
+            >
+              {RELATIONS.map((r) => (
+                <option key={r} value={r}>
+                  {r}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* 8. Service */}
+          <div>
+            <label className={labelCls}>Service</label>
             <select
               value={form.service}
               onChange={(e) => handleServiceChange(e.target.value)}
-              className="w-full rounded-xl border border-slate-200 bg-white p-2.5 text-xs font-bold text-slate-900 focus:outline-none focus:ring-1 focus:ring-teal-500 cursor-pointer"
+              className={`${inputCls} cursor-pointer`}
             >
               {catsAll().map((c) => {
                 const list = svcInCat(c.id, false);
@@ -324,15 +314,18 @@ export function NewBooking({ onBack, onBookingCreated, fromEnqId }) {
                 );
               })}
             </select>
+            <span className="text-[11px] text-slate-500 mt-1 block">
+              {priceLabel(selectedServiceObj)}
+            </span>
           </div>
 
-          {/* Plan / Option */}
+          {/* 9. Plan / Option */}
           <div>
-            <label className="block text-xs font-bold text-slate-700 mb-1">Plan / Shift option</label>
+            <label className={labelCls}>Plan / option</label>
             <select
               value={form.plan}
               onChange={(e) => setForm({ ...form, plan: e.target.value })}
-              className="w-full rounded-xl border border-slate-200 bg-white p-2.5 text-xs text-slate-900 focus:outline-none focus:ring-1 focus:ring-teal-500 cursor-pointer"
+              className={`${inputCls} cursor-pointer`}
             >
               {(selectedServiceObj.options || ['Single visit']).map((o) => (
                 <option key={o} value={o}>
@@ -342,27 +335,25 @@ export function NewBooking({ onBack, onBookingCreated, fromEnqId }) {
             </select>
           </div>
 
-          {/* Date */}
+          {/* 10. Date */}
           <div>
-            <label className="block text-xs font-bold text-slate-700 mb-1">
-              Visit date <span className="text-red-500">*</span>
-            </label>
+            <label className={labelCls}>Date</label>
             <input
               type="date"
               required
               value={form.date}
               onChange={(e) => setForm({ ...form, date: e.target.value })}
-              className="w-full rounded-xl border border-slate-200 p-2.5 text-xs text-slate-900 focus:outline-none focus:ring-1 focus:ring-teal-500"
+              className={inputCls}
             />
           </div>
 
-          {/* Time Slot */}
+          {/* 11. Time */}
           <div>
-            <label className="block text-xs font-bold text-slate-700 mb-1">Preferred slot</label>
+            <label className={labelCls}>Time</label>
             <select
               value={form.time}
               onChange={(e) => setForm({ ...form, time: e.target.value })}
-              className="w-full rounded-xl border border-slate-200 bg-white p-2.5 text-xs text-slate-900 focus:outline-none focus:ring-1 focus:ring-teal-500 cursor-pointer"
+              className={`${inputCls} cursor-pointer`}
             >
               {SLOTS.map((t) => (
                 <option key={t} value={t}>
@@ -373,32 +364,26 @@ export function NewBooking({ onBack, onBookingCreated, fromEnqId }) {
           </div>
         </div>
 
-        {/* Full Address */}
+        {/* 12. Address (Full Width) */}
         <div>
-          <label className="block text-xs font-bold text-slate-700 mb-1">
-            Full address &amp; Landmark <span className="text-red-500">*</span>
-          </label>
+          <label className={labelCls}>Address</label>
           <textarea
             required
             rows={2}
             value={form.address}
             onChange={(e) => setForm({ ...form, address: e.target.value })}
-            placeholder="Flat 402, Sea Green Apts, Juhu Tara Road, Juhu"
-            className="w-full rounded-xl border border-slate-200 p-2.5 text-xs text-slate-900 focus:outline-none focus:ring-1 focus:ring-teal-500"
+            className="w-full rounded-xl border border-slate-200 bg-white p-3 text-xs sm:text-[13px] text-slate-800 focus:outline-none focus:ring-1 focus:ring-[#0E2F5A] focus:border-[#0E2F5A] shadow-2xs transition min-h-[70px]"
           />
         </div>
 
-        {/* Care Notes */}
+        {/* 13. Care Notes (Full Width) */}
         <div>
-          <label className="block text-xs font-bold text-slate-700 mb-1">
-            Care notes &amp; Medical condition
-          </label>
+          <label className={labelCls}>Care notes</label>
           <textarea
             rows={2}
             value={form.notes}
             onChange={(e) => setForm({ ...form, notes: e.target.value })}
-            placeholder="Bedridden post-hip surgery, needs vital checks and mobility support."
-            className="w-full rounded-xl border border-slate-200 p-2.5 text-xs text-slate-900 focus:outline-none focus:ring-1 focus:ring-teal-500"
+            className="w-full rounded-xl border border-slate-200 bg-white p-3 text-xs sm:text-[13px] text-slate-800 focus:outline-none focus:ring-1 focus:ring-[#0E2F5A] focus:border-[#0E2F5A] shadow-2xs transition min-h-[70px]"
           />
         </div>
 
@@ -408,18 +393,18 @@ export function NewBooking({ onBack, onBookingCreated, fromEnqId }) {
           </div>
         )}
 
-        {/* Actions */}
-        <div className="flex items-center gap-3 pt-3 border-t border-slate-100">
+        {/* 14. Action Buttons */}
+        <div className="flex items-center gap-3 pt-1">
           <button
             type="submit"
-            className="px-5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs sm:text-sm shadow-xs transition cursor-pointer"
+            className="px-5 py-2.5 rounded-lg bg-[#F2A01F] hover:bg-[#e09115] text-[#0A2342] font-bold text-xs sm:text-sm shadow-xs transition cursor-pointer"
           >
             Create confirmed booking
           </button>
           <button
             type="button"
             onClick={onBack}
-            className="px-4 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs sm:text-sm transition cursor-pointer"
+            className="px-4.5 py-2.5 rounded-lg bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 font-semibold text-xs sm:text-sm transition cursor-pointer shadow-2xs"
           >
             Cancel
           </button>

@@ -2,7 +2,7 @@ import React, { createContext, useContext, useState, useEffect } from 'react';
 import { demoData, DEFAULT_CITIES, starterCatalog } from '../constants/data';
 
 const StoreContext = createContext(null);
-const STORE_KEY = 'eldoria:data:v1';
+const STORE_KEY = 'eldoria:data:v5';
 
 export function StoreProvider({ children }) {
   const [data, setData] = useState(() => {
@@ -231,6 +231,7 @@ export function StoreProvider({ children }) {
   const enqAll = () => Object.values(data.enquiries || {}).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
   const notesFor = (to = 'admin') => Object.values(data.notifications || {}).filter((n) => n.to === to).sort((a, b) => b.at - a.at);
   const unread = (to = 'admin') => notesFor(to).filter((n) => !n.read).length;
+  const settings = () => data.settings?.app || {};
 
   return (
     <StoreContext.Provider
@@ -272,7 +273,7 @@ export function StoreProvider({ children }) {
         enqAll,
         notesFor,
         unread,
-        settings: data.settings?.app || {}
+        settings
       }}
     >
       {children}

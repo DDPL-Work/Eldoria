@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
 import { Icon } from '../../constants/icons';
-import { StatusBadge } from '../common/StatusBadge';
 import { useStore } from '../../context/StoreContext';
 import { useFiles } from '../../context/FileContext';
 import {
@@ -101,17 +100,13 @@ export function ApplicationDetail({ appId, onBack, onPreviewFile, onShowToast })
 
   const handleRequestChanges = () => {
     if (!note.trim()) {
-      onShowToast?.('Please write a note explaining what documents or details to update');
+      onShowToast?.('Write a note telling the applicant what to change');
       return;
     }
     appDecision('changes', note.trim());
   };
 
   const handleReject = () => {
-    if (!note.trim()) {
-      onShowToast?.('Please write a reason before rejecting the application');
-      return;
-    }
     appDecision('rejected', note.trim());
   };
 
@@ -122,62 +117,76 @@ export function ApplicationDetail({ appId, onBack, onPreviewFile, onShowToast })
   const photoFile = files.photo ? fileGet(files.photo.id) : null;
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
+    <div className="p-4 sm:p-5 lg:p-4 w-full max-w-[1400px] mx-auto space-y-5">
+      {/* 1. Header with Back Button, Name & Status Badge */}
+      <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <button
             type="button"
             onClick={onBack}
-            className="p-2 rounded-xl bg-white hover:bg-slate-100 border border-slate-200 text-slate-700 transition cursor-pointer"
-            aria-label="Back to onboarding"
+            className="w-9 h-9 rounded-xl bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 flex items-center justify-center transition shadow-2xs cursor-pointer"
+            aria-label="Back to applications"
           >
-            <Icon name="back" size={20} />
+            <Icon name="back" size={18} />
           </button>
-          <div>
-            <h1 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight">
-              {a.name}
-            </h1>
-            <p className="text-xs text-slate-500 font-medium">
-              Applied for: {a.role} · {a.experience} years experience
-            </p>
-          </div>
+          <h1 className="text-2xl font-bold text-slate-900 tracking-tight">
+            {a.name}
+          </h1>
         </div>
 
-        <StatusBadge status={st} type="onboarding" />
+        {/* Status Pill Badge */}
+        <span
+          className={`px-3 py-1 rounded-full text-xs font-bold whitespace-nowrap ${
+            st === 'pending'
+              ? 'bg-[#FEF3C7] text-[#92400E]'
+              : st === 'approved'
+              ? 'bg-[#DCFCE7] text-[#166534]'
+              : st === 'changes'
+              ? 'bg-[#E0F2FE] text-[#075985]'
+              : 'bg-[#FEE2E2] text-[#991B1B]'
+          }`}
+        >
+          {st === 'pending'
+            ? 'Under review'
+            : st === 'approved'
+            ? 'Approved'
+            : st === 'changes'
+            ? 'Changes requested'
+            : 'Not approved'}
+        </span>
       </div>
 
-      {/* Grid: 2 Columns */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Left Column (2 Cols): Personal, Profile, Emergency & Documents */}
-        <div className="lg:col-span-2 space-y-6">
-          {/* Personal Info Card */}
-          <section className="bg-white rounded-2xl p-6 border border-slate-200/80 shadow-2xs space-y-5">
-            <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 pb-4 border-b border-slate-100">
+      {/* 2. Main 2-Column Split Layout with Compact Gap */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 sm:gap-3 items-start">
+        {/* Left Column (2 Cols): Profile, Personal details, Work profile, Emergency & Documents */}
+        <div className="lg:col-span-2 space-y-5">
+          <section className="bg-white rounded-lg p-5 sm:p-6 border border-slate-200/90 shadow-2xs space-y-5">
+            {/* Profile Header: Avatar + Name + Phone / WhatsApp Buttons */}
+            <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4.5 pb-5 border-b border-slate-100">
               <button
                 type="button"
                 onClick={() => files.photo && onPreviewFile(files.photo.id)}
                 disabled={!files.photo}
-                className={`w-20 h-20 rounded-2xl bg-teal-50 border border-teal-200 flex items-center justify-center font-bold text-xl text-teal-800 overflow-hidden shrink-0 ${
-                  files.photo ? 'cursor-pointer hover:ring-2 hover:ring-teal-500/40' : ''
+                className={`w-20 h-20 sm:w-24 sm:h-24 rounded-2xl bg-[#EBF2FA] border border-slate-100 flex items-center justify-center font-bold text-2xl text-[#0A2342] overflow-hidden shrink-0 ${
+                  files.photo ? 'cursor-pointer hover:ring-2 hover:ring-[#0A2342]/20' : ''
                 }`}
               >
                 {photoFile?.data ? (
-                  <img src={photoFile.data} alt="" className="w-full h-full object-cover" />
+                  <img src={photoFile.data} alt={a.name} className="w-full h-full object-cover" />
                 ) : (
                   <span>{a.name?.[0] || 'A'}</span>
                 )}
               </button>
 
-              <div className="grow space-y-1">
-                <div className="font-black text-slate-900 text-lg">{a.name}</div>
+              <div className="grow space-y-1.5">
+                <div className="font-extrabold text-slate-900 text-xl">{a.name}</div>
                 <div className="text-xs text-slate-500 font-medium">
-                  {a.role} · {a.experience} yrs experience · {cityName(sCity(a))}
+                  {a.role} · {a.experience} yrs experience
                 </div>
-                <div className="flex flex-wrap gap-2 pt-1">
+                <div className="flex flex-wrap gap-2 pt-1.5">
                   <a
                     href={telHref(a.phone)}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-bold transition"
+                    className="h-9 inline-flex items-center justify-center gap-1.5 px-3 rounded-xl bg-white border border-slate-200 hover:bg-slate-50 text-slate-800 text-xs font-bold transition shadow-2xs whitespace-nowrap leading-none select-none"
                   >
                     <Icon name="phone" size={14} />
                     <span>+91 {a.phone}</span>
@@ -185,11 +194,11 @@ export function ApplicationDetail({ appId, onBack, onPreviewFile, onShowToast })
                   <a
                     href={waHref(
                       a.phone,
-                      `Hello ${a.name}, this is the Eldoria Care at Home desk regarding your caregiver application.`
+                      `Hello ${a.name}, this is the Eldoria Care at Home team about your staff application.`
                     )}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 text-xs font-bold transition"
+                    className="h-9 inline-flex items-center justify-center gap-1.5 px-3.5 rounded-xl bg-[#128C4A] hover:bg-[#0e703b] text-white text-xs font-bold transition shadow-2xs whitespace-nowrap leading-none select-none"
                   >
                     <Icon name="wa" size={14} />
                     <span>WhatsApp</span>
@@ -198,254 +207,257 @@ export function ApplicationDetail({ appId, onBack, onPreviewFile, onShowToast })
               </div>
             </div>
 
-            {/* Details KV */}
-            <div className="space-y-4 text-xs">
-              <div>
-                <h3 className="font-black text-slate-900 uppercase tracking-wider mb-2">
-                  Personal Details
-                </h3>
-                <dl className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div>
-                    <dt className="text-slate-400 font-semibold">Mobile</dt>
-                    <dd className="font-bold text-slate-800 font-mono">+91 {a.phone}</dd>
-                  </div>
-                  <div>
-                    <dt className="text-slate-400 font-semibold">Email</dt>
-                    <dd className="font-bold text-slate-800">{a.email || '—'}</dd>
-                  </div>
-                  <div>
-                    <dt className="text-slate-400 font-semibold">Date of birth &amp; Age</dt>
-                    <dd className="font-bold text-slate-800">
-                      {a.dob || '—'} {a.dob ? `· ${ageOf(a.dob)} yrs` : ''}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt className="text-slate-400 font-semibold">Gender</dt>
-                    <dd className="font-bold text-slate-800">{a.gender || '—'}</dd>
-                  </div>
-                  <div className="sm:col-span-2">
-                    <dt className="text-slate-400 font-semibold">City &amp; Residential Address</dt>
-                    <dd className="font-bold text-slate-800">
-                      {a.address || '—'} ({cityName(sCity(a))})
-                    </dd>
-                  </div>
-                </dl>
-              </div>
+            {/* Personal Details */}
+            <div>
+              <h3 className="text-sm font-bold text-slate-900 mb-3">Personal details</h3>
+              <div className="grid grid-cols-1 sm:grid-cols-[140px_1fr] gap-x-4 gap-y-2.5 text-xs">
+                <div className="text-slate-400 font-medium">Mobile</div>
+                <div className="font-bold text-slate-800 font-mono">+91 {a.phone}</div>
 
-              <div>
-                <h3 className="font-black text-slate-900 uppercase tracking-wider mb-2 pt-3 border-t border-slate-100">
-                  Professional Qualification
-                </h3>
-                <dl className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div>
-                    <dt className="text-slate-400 font-semibold">Role</dt>
-                    <dd className="font-bold text-slate-800">{a.role}</dd>
-                  </div>
-                  <div>
-                    <dt className="text-slate-400 font-semibold">Qualification &amp; Council Reg</dt>
-                    <dd className="font-bold text-slate-800">
-                      {a.qualification || '—'} {a.regNo ? `· Reg: ${a.regNo}` : ''}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt className="text-slate-400 font-semibold">Languages</dt>
-                    <dd className="font-bold text-slate-800">
-                      {(a.languages || []).join(', ') || '—'}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt className="text-slate-400 font-semibold">Availability</dt>
-                    <dd className="font-bold text-slate-800">
-                      {(a.availability || []).join(', ') || '—'}
-                    </dd>
-                  </div>
-                  <div className="sm:col-span-2">
-                    <dt className="text-slate-400 font-semibold mb-1">Key skills</dt>
-                    <dd className="flex flex-wrap gap-1.5">
-                      {(a.skillList || []).map((sk) => (
-                        <span
-                          key={sk}
-                          className="px-2 py-0.5 rounded-lg bg-slate-100 text-slate-700 font-semibold text-[11px]"
-                        >
-                          {sk}
-                        </span>
-                      ))}
-                    </dd>
-                  </div>
-                </dl>
-              </div>
+                <div className="text-slate-400 font-medium">Email</div>
+                <div className="font-bold text-slate-800">{a.email || '—'}</div>
 
-              {em.name && (
-                <div>
-                  <h3 className="font-black text-slate-900 uppercase tracking-wider mb-2 pt-3 border-t border-slate-100">
-                    Emergency Contact
-                  </h3>
-                  <div className="font-bold text-slate-800">
-                    {em.name} {em.relation ? `(${em.relation})` : ''} ·{' '}
-                    <span className="font-mono">+91 {em.phone}</span>
-                  </div>
+                <div className="text-slate-400 font-medium">Date of birth</div>
+                <div className="font-bold text-slate-800">
+                  {a.dob || '—'}{a.dob ? ` · ${ageOf(a.dob)} yrs` : ''}
                 </div>
-              )}
+
+                <div className="text-slate-400 font-medium">Gender</div>
+                <div className="font-bold text-slate-800">{a.gender || '—'}</div>
+
+                <div className="text-slate-400 font-medium">City</div>
+                <div className="font-bold text-slate-800">
+                  {cityName(sCity(a))}{a.area ? ` · ${a.area}` : ''}
+                </div>
+
+                <div className="text-slate-400 font-medium">Address</div>
+                <div className="font-bold text-slate-800 leading-relaxed">{a.address || '—'}</div>
+              </div>
             </div>
-          </section>
 
-          {/* Verification Documents Checklist */}
-          <section className="bg-white rounded-2xl p-6 border border-slate-200/80 shadow-2xs space-y-4">
-            <div className="flex items-center justify-between pb-2 border-b border-slate-100">
-              <h2 className="text-sm font-black text-slate-900 uppercase tracking-wider">
-                Verification Documents
-              </h2>
-              <span className="text-xs font-bold text-slate-500">
-                {okReq} of {req.length} required verified
-              </span>
+            {/* Work Profile */}
+            <div className="pt-4 border-t border-slate-100">
+              <h3 className="text-sm font-bold text-slate-900 mb-3">Work profile</h3>
+              <div className="grid grid-cols-1 sm:grid-cols-[140px_1fr] gap-x-4 gap-y-2.5 text-xs">
+                <div className="text-slate-400 font-medium">Role</div>
+                <div className="font-bold text-slate-800">{a.role}</div>
+
+                <div className="text-slate-400 font-medium">Qualification</div>
+                <div className="font-bold text-slate-800">{a.qualification || '—'}</div>
+
+                <div className="text-slate-400 font-medium">Reg. number</div>
+                <div className="font-bold text-slate-800 font-mono">{a.regNo || '—'}</div>
+
+                <div className="text-slate-400 font-medium">Experience</div>
+                <div className="font-bold text-slate-800">{a.experience} years</div>
+
+                <div className="text-slate-400 font-medium self-center">Skills</div>
+                <div className="flex flex-wrap gap-1.5">
+                  {(a.skillList || []).map((sk) => (
+                    <span
+                      key={sk}
+                      className="px-2.5 py-1 rounded-md bg-[#EDF3FA] text-[#0A2342] font-semibold text-[11px]"
+                    >
+                      {sk}
+                    </span>
+                  ))}
+                </div>
+
+                <div className="text-slate-400 font-medium">Languages</div>
+                <div className="font-bold text-slate-800">{(a.languages || []).join(', ') || '—'}</div>
+
+                <div className="text-slate-400 font-medium">Available for</div>
+                <div className="font-bold text-slate-800">{(a.availability || []).join(', ') || '—'}</div>
+              </div>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
-              {OB_DOCS.map((docDef) => {
-                const meta = files[docDef.k];
-                const cached = meta && fileGet(meta.id);
-                const isVerified = !!chk[docDef.k];
+            {/* Emergency Contact */}
+            <div className="pt-4 border-t border-slate-100">
+              <h3 className="text-sm font-bold text-slate-900 mb-3">Emergency contact</h3>
+              <div className="grid grid-cols-1 sm:grid-cols-[140px_1fr] gap-x-4 gap-y-2.5 text-xs">
+                <div className="text-slate-400 font-medium">Name</div>
+                <div className="font-bold text-slate-800">
+                  {em.name || '—'}{em.relation ? ` (${em.relation})` : ''}
+                </div>
 
-                return (
-                  <div
-                    key={docDef.k}
-                    className={`p-3 rounded-2xl border transition flex flex-col justify-between space-y-3 ${
-                      isVerified
-                        ? 'border-emerald-300 bg-emerald-50/30'
-                        : meta
-                        ? 'border-slate-200 bg-white'
-                        : 'border-slate-100 bg-slate-50 opacity-60'
-                    }`}
-                  >
-                    <div>
-                      {/* Document Preview Thumbnail Box */}
-                      <button
-                        type="button"
-                        disabled={!meta}
-                        onClick={() => meta && onPreviewFile(meta.id)}
-                        className={`w-full h-28 rounded-xl bg-slate-100 border border-slate-200 flex items-center justify-center overflow-hidden mb-2 ${
-                          meta ? 'cursor-pointer hover:opacity-90' : 'cursor-not-allowed'
-                        }`}
-                      >
-                        {cached?.data ? (
-                          cached.type?.startsWith('image/') ? (
-                            <img
-                              src={cached.data}
-                              alt=""
-                              className="w-full h-full object-cover"
-                            />
+                <div className="text-slate-400 font-medium">Mobile</div>
+                <div className="font-bold text-slate-800 font-mono">
+                  {em.phone ? `+91 ${em.phone}` : '—'}
+                </div>
+              </div>
+            </div>
+
+            {/* Documents Section Matching Reference Image 3 */}
+            <div className="pt-5 border-t border-slate-100 space-y-3">
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-bold text-slate-900">Documents</h3>
+                <span className="text-xs text-slate-500 font-medium">
+                  {okReq} of {req.length} required verified
+                </span>
+              </div>
+
+              <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-5 gap-3">
+                {OB_DOCS.map((docDef) => {
+                  const meta = files[docDef.k];
+                  const cached = meta && fileGet(meta.id);
+                  const isVerified = !!chk[docDef.k];
+
+                  return (
+                    <div
+                      key={docDef.k}
+                      className={`p-3 rounded-2xl border transition flex flex-col justify-between space-y-2.5 ${
+                        isVerified
+                          ? 'border-emerald-400 bg-emerald-50/20'
+                          : meta
+                          ? 'border-slate-200 bg-white'
+                          : 'border-slate-100 bg-slate-50/70'
+                      }`}
+                    >
+                      <div className="space-y-1.5 min-w-0">
+                        {/* Preview Box */}
+                        <button
+                          type="button"
+                          disabled={!meta}
+                          onClick={() => meta && onPreviewFile(meta.id)}
+                          className={`w-full aspect-[4/3] rounded-xl overflow-hidden bg-slate-100 border border-slate-200 flex items-center justify-center ${
+                            meta ? 'cursor-pointer hover:opacity-90' : 'cursor-default'
+                          }`}
+                        >
+                          {cached?.data || meta?.data ? (
+                            (cached?.type || meta?.type)?.startsWith('image/') ? (
+                              <img
+                                src={cached?.data || meta?.data}
+                                alt={docDef.label}
+                                className="w-full h-full object-cover"
+                              />
+                            ) : (
+                              <span className="text-xs font-bold text-slate-600">PDF</span>
+                            )
                           ) : (
-                            <div className="text-center p-2 text-xs text-slate-600 font-bold">
-                              📄 PDF Document
-                            </div>
-                          )
-                        ) : (
-                          <span className="text-xs text-slate-400 font-medium">Not uploaded</span>
-                        )}
-                      </button>
+                            <span className="text-xs font-bold text-slate-400">Not provided</span>
+                          )}
+                        </button>
 
-                      <div className="font-bold text-slate-900 text-xs flex items-center justify-between">
-                        <span>{docDef.label}</span>
-                        {docDef.req && (
-                          <span className="text-[10px] font-bold text-red-600 uppercase">
-                            Required
-                          </span>
-                        )}
+                        {/* Document title - single line, never break */}
+                        <div
+                          className="font-bold text-slate-900 text-xs whitespace-nowrap truncate min-w-0"
+                          title={docDef.label}
+                        >
+                          {docDef.label}
+                        </div>
+
+                        {/* Required Badge - Fixed height row for perfect alignment */}
+                        <div className="h-4 flex items-center">
+                          {docDef.req ? (
+                            <span className="bg-[#FEF3C7] text-[#92400E] text-[10px] font-extrabold px-1.5 py-0.5 rounded leading-none shrink-0">
+                              REQUIRED
+                            </span>
+                          ) : (
+                            <span className="invisible text-[10px] py-0.5 leading-none select-none">
+                              OPTIONAL
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Filename & size */}
+                        <div className="text-[11px] text-slate-400 truncate">
+                          {meta ? `${meta.name} · ${Math.round(meta.size / 1024)} KB` : 'Not uploaded'}
+                        </div>
                       </div>
-                      <div className="text-[11px] text-slate-400 truncate mt-0.5">
-                        {meta ? `${Math.round(meta.size / 1024)} KB` : 'Missing file'}
+
+                      {/* Verified Checkbox / Placeholder */}
+                      <div className="pt-2 border-t border-slate-100">
+                        {meta ? (
+                          <label className="flex items-center gap-2 text-xs font-semibold text-slate-700 cursor-pointer select-none">
+                            <input
+                              type="checkbox"
+                              checked={isVerified}
+                              onChange={(e) => handleDocCheck(docDef.k, e.target.checked)}
+                              className="rounded border-slate-300 text-[#0A2342] focus:ring-[#0A2342] w-4 h-4 cursor-pointer shrink-0"
+                            />
+                            <span className="leading-none">Verified</span>
+                          </label>
+                        ) : (
+                          <div className="h-4 text-[11px] text-slate-400 italic select-none">
+                            Not uploaded
+                          </div>
+                        )}
                       </div>
                     </div>
-
-                    {meta && (
-                      <div className="pt-2 border-t border-slate-100 flex items-center justify-between">
-                        <label className="flex items-center gap-2 text-xs font-bold text-slate-700 cursor-pointer">
-                          <input
-                            type="checkbox"
-                            checked={isVerified}
-                            onChange={(e) => handleDocCheck(docDef.k, e.target.checked)}
-                            className="rounded border-slate-300 text-teal-600 focus:ring-teal-500 w-4 h-4 cursor-pointer"
-                          />
-                          <span>Verified</span>
-                        </label>
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
+                  );
+                })}
+              </div>
             </div>
           </section>
         </div>
 
-        {/* Right Column (1 Col): Decision Card & Review History */}
+        {/* Right Column (1 Col): Decision Card & History Card Matching Reference Image 4 */}
         <div className="space-y-6">
-          <section className="bg-white rounded-2xl p-6 border border-slate-200/80 shadow-2xs space-y-4">
-            <h2 className="text-sm font-black text-slate-900 uppercase tracking-wider pb-2 border-b border-slate-100">
-              Desk Decision
-            </h2>
+          {/* Decision Card */}
+          <section className="bg-white rounded-lg p-5 border border-slate-200/90 shadow-2xs space-y-3.5">
+            <h2 className="text-base font-extrabold text-[#0A2342]">Decision</h2>
 
             {st === 'approved' && (
-              <div className="p-3 rounded-xl bg-emerald-50 text-emerald-900 text-xs border border-emerald-200">
-                <b>Approved:</b> {a.name} is activated and can accept visits in {cityName(sCity(a))}.
+              <div className="p-3 rounded-xl bg-emerald-50 text-emerald-800 text-xs font-medium border border-emerald-200">
+                Approved {fmtTs(a.approvedAt)}. {a.name.split(' ')[0]} can sign in and receive visits.
               </div>
             )}
 
             {st === 'rejected' && (
-              <div className="p-3 rounded-xl bg-red-50 text-red-900 text-xs border border-red-200">
-                <b>Not approved:</b> {a.reviewNote || 'Application rejected by care desk.'}
+              <div className="p-3 rounded-xl bg-red-50 text-red-800 text-xs font-medium border border-red-200">
+                Not approved. {a.reviewNote || 'Application rejected by care desk.'}
               </div>
             )}
 
             {st === 'changes' && (
-              <div className="p-3 rounded-xl bg-blue-50 text-blue-900 text-xs border border-blue-200">
-                <b>Awaiting changes:</b> {a.reviewNote}
+              <div className="p-3 rounded-xl bg-sky-50 text-sky-800 text-xs font-medium border border-sky-200">
+                Waiting for applicant to update: {a.reviewNote}
               </div>
             )}
 
             {st !== 'approved' ? (
-              <div className="space-y-4">
-                <div
-                  className={`text-xs font-bold ${
-                    allOk ? 'text-emerald-700' : 'text-amber-700'
-                  }`}
-                >
+              <div className="space-y-3.5">
+                <p className={`text-xs ${allOk ? 'text-emerald-700 font-bold' : 'text-slate-600 font-medium'}`}>
                   {allOk
-                    ? '✓ All required documents are verified and ready for approval.'
-                    : '⚠ Please verify each required document before approving.'}
-                </div>
+                    ? 'All required documents are verified.'
+                    : 'Tick "Verified" on each required document to enable approval.'}
+                </p>
 
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">
-                    Note to applicant (visible in mobile app)
+                <div className="space-y-1">
+                  <label htmlFor="apNote" className="block text-xs font-bold text-slate-800">
+                    Note to the applicant
                   </label>
                   <textarea
+                    id="apNote"
                     rows={3}
                     value={note}
                     onChange={(e) => setNote(e.target.value)}
-                    placeholder="e.g. Please re-upload a clearer photo of your Aadhaar card."
-                    className="w-full rounded-xl border border-slate-200 p-2.5 text-xs text-slate-900 focus:outline-none focus:ring-1 focus:ring-teal-500"
+                    placeholder="Required for changes or rejection, e.g. ID photo is blurry, please upload again."
+                    className="w-full rounded-xl border border-slate-200 p-3 text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-[#0A2342] resize-none"
                   />
                 </div>
 
+                {/* Approve & activate Button */}
                 <button
                   type="button"
                   onClick={handleApprove}
                   disabled={!allOk}
-                  className={`w-full py-2.5 px-4 rounded-xl font-bold text-xs sm:text-sm shadow-xs transition flex items-center justify-center gap-2 cursor-pointer ${
+                  className={`w-full h-11 px-4 rounded-xl font-extrabold text-xs sm:text-sm shadow-xs transition flex items-center justify-center gap-2 select-none whitespace-nowrap leading-none ${
                     allOk
-                      ? 'bg-teal-600 hover:bg-teal-700 text-white'
-                      : 'bg-slate-200 text-slate-400 cursor-not-allowed'
+                      ? 'bg-[#F2A01F] hover:bg-[#e09115] text-[#0A2342] cursor-pointer'
+                      : 'bg-[#F6C580] text-[#A67B40] cursor-not-allowed opacity-90'
                   }`}
                 >
-                  <Icon name="check" size={17} strokeWidth={2.5} />
-                  <span>Approve &amp; activate staff</span>
+                  <Icon name="check" size={17} strokeWidth={2.8} />
+                  <span>Approve &amp; activate</span>
                 </button>
 
-                <div className="flex gap-2">
+                {/* Bottom Action Buttons: Request changes & Reject */}
+                <div className="grid grid-cols-2 gap-2.5 pt-0.5">
                   <button
                     type="button"
                     onClick={handleRequestChanges}
-                    className="flex-1 py-2 px-3 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold text-xs transition cursor-pointer"
+                    className="h-10 px-2 sm:px-3 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-[#0A2342] font-extrabold text-xs transition cursor-pointer shadow-2xs flex items-center justify-center text-center whitespace-nowrap leading-none select-none"
                   >
                     Request changes
                   </button>
@@ -454,7 +466,7 @@ export function ApplicationDetail({ appId, onBack, onPreviewFile, onShowToast })
                     <button
                       type="button"
                       onClick={handleReject}
-                      className="flex-1 py-2 px-3 rounded-xl bg-red-600 hover:bg-red-700 text-white font-bold text-xs transition cursor-pointer"
+                      className="h-10 px-2 sm:px-3 rounded-xl bg-red-600 hover:bg-red-700 text-white font-extrabold text-xs transition cursor-pointer shadow-2xs flex items-center justify-center text-center whitespace-nowrap leading-none select-none"
                     >
                       Confirm reject
                     </button>
@@ -462,7 +474,7 @@ export function ApplicationDetail({ appId, onBack, onPreviewFile, onShowToast })
                     <button
                       type="button"
                       onClick={() => setConfirmReject(true)}
-                      className="flex-1 py-2 px-3 rounded-xl bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 font-bold text-xs transition cursor-pointer"
+                      className="h-10 px-2 sm:px-3 rounded-xl border border-red-200 bg-white hover:bg-red-50 text-[#991B1B] font-extrabold text-xs transition cursor-pointer shadow-2xs flex items-center justify-center text-center whitespace-nowrap leading-none select-none"
                     >
                       Reject
                     </button>
@@ -470,39 +482,55 @@ export function ApplicationDetail({ appId, onBack, onPreviewFile, onShowToast })
                 </div>
               </div>
             ) : (
-              <div className="space-y-2">
+              <div className="grid grid-cols-2 gap-2.5">
+                <button
+                  type="button"
+                  onClick={onBack}
+                  className="h-10 px-3 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-800 font-bold text-xs transition cursor-pointer flex items-center justify-center text-center whitespace-nowrap leading-none select-none"
+                >
+                  Open Staff list
+                </button>
                 <button
                   type="button"
                   onClick={handleRevoke}
-                  className="w-full py-2 px-3 rounded-xl bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 font-bold text-xs transition cursor-pointer"
+                  className="h-10 px-3 rounded-xl border border-red-200 bg-white hover:bg-red-50 text-red-700 font-bold text-xs transition cursor-pointer flex items-center justify-center text-center whitespace-nowrap leading-none select-none"
                 >
-                  Move back to under review
+                  Move back to review
                 </button>
               </div>
             )}
           </section>
 
-          {/* History */}
-          <section className="bg-white rounded-2xl p-6 border border-slate-200/80 shadow-2xs space-y-3">
-            <h2 className="text-sm font-black text-slate-900 uppercase tracking-wider pb-2 border-b border-slate-100">
-              Audit History
-            </h2>
+          {/* History Card */}
+          <section className="bg-white rounded-lg p-5 border border-slate-200/90 shadow-2xs space-y-3.5">
+            <h2 className="text-base font-extrabold text-[#0A2342]">History</h2>
 
             <div className="space-y-3">
               {hist.map((h, idx) => (
                 <div key={idx} className="flex items-start gap-2.5 text-xs">
-                  <span className="w-2 h-2 rounded-full bg-teal-600 shrink-0 mt-1.5" />
-                  <div>
-                    <span className="font-bold text-slate-800">
-                      {(APPR[h.status] || [h.status])[0]}
-                    </span>{' '}
-                    <span className="text-slate-400">· {h.by === 'admin' ? 'Care desk' : 'Applicant'}</span>
+                  <span
+                    className={`w-2.5 h-2.5 rounded-full shrink-0 mt-1 ${
+                      h.status === 'approved'
+                        ? 'bg-emerald-600'
+                        : h.status === 'rejected'
+                        ? 'bg-red-600'
+                        : h.status === 'changes'
+                        ? 'bg-sky-600'
+                        : 'bg-[#F59E0B]'
+                    }`}
+                  />
+                  <div className="space-y-0.5 grow">
+                    <div className="font-extrabold text-[#0A2342] text-xs">
+                      {(APPR[h.status] || [h.status])[0]} · {h.by === 'admin' ? 'Care desk' : 'Applicant'}
+                    </div>
                     {h.note && (
-                      <p className="text-slate-600 bg-slate-50 p-2 rounded-lg mt-1 border border-slate-100">
+                      <div className="text-slate-600 text-xs bg-slate-50 p-2 rounded-lg border border-slate-100">
                         {h.note}
-                      </p>
+                      </div>
                     )}
-                    <div className="text-[11px] text-slate-400 font-mono mt-0.5">{fmtTs(h.at)}</div>
+                    <div className="text-[11px] text-slate-400 font-medium">
+                      {fmtTs(h.at)}
+                    </div>
                   </div>
                 </div>
               ))}

@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState } from "react";
 import { Outlet, useNavigate, useLocation } from "react-router-dom";
 import { Header } from "./Header/Header";
 import { Sidebar } from "./Sidebar/Sidebar";
@@ -10,7 +10,8 @@ import { useUI } from "../context/UIContext";
 export function AdminLayout() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { toastMessage, clearToast, previewFileId, closePreview } = useUI();
+  const { toastMessage, clearToast, previewFileId, closePreview, sidebarCollapsed, toggleSidebarCollapse } = useUI();
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   // Determine current active tab from pathname
   const path = location.pathname;
@@ -31,25 +32,31 @@ export function AdminLayout() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-800 antialiased font-sans flex flex-col">
-      {/* Top Application Header */}
+    <div className="min-h-screen bg-[#eef3f8] text-slate-800 antialiased font-sans flex flex-col">
+      {/* Top Global Advanced Navbar matching Image 1 with official logo, switcher, notifications, profile */}
       <Header
         onNewBooking={() => navigate("/bookings/new")}
         onOpenAlerts={() => navigate("/alerts")}
+        onOpenMobileMenu={() => setMobileMenuOpen(true)}
+        onToggleCollapse={toggleSidebarCollapse}
+        isCollapsed={sidebarCollapsed}
       />
 
-      {/* Main Layout Container */}
-      <div className="flex-1 flex max-w-7xl w-full mx-auto">
-        {/* Navigation Sidebar */}
-        <Sidebar currentTab={currentTab} onSelectTab={handleSelectTab} />
+      {/* Main Layout: Fixed Left Sidebar + Main Content Canvas */}
+      <div className="flex-1 flex min-w-0">
+        <Sidebar
+          currentTab={currentTab}
+          onSelectTab={handleSelectTab}
+          mobileOpen={mobileMenuOpen}
+          onCloseMobile={() => setMobileMenuOpen(false)}
+        />
 
-        {/* Dynamic Nested Content Area */}
-        <main className="flex-1 min-w-0 p-4 sm:p-6 lg:p-8">
+        <main className="flex-1 min-w-0 bg-[#eef3f8] overflow-x-hidden">
           <Outlet />
         </main>
       </div>
 
-      {/* Global Real-time Incoming Booking Alert */}
+      {/* Global Real-time Incoming Booking Alert - Top Center as in Screenshot 2 */}
       <NewReqPopup onOpenBooking={(id) => navigate(`/bookings/${id}`)} />
 
       {/* Global Document / Photo Preview Modal */}

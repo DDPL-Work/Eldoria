@@ -1,7 +1,9 @@
 import React from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { AdminLayout } from '../layout/AdminLayout';
+import { useAuth } from '../context/AuthContext';
 
+import { LoginPage } from '../pages/LoginPage';
 import { DashboardPage } from '../pages/DashboardPage';
 import { BookingsPage } from '../pages/BookingsPage';
 import { BookingDetailPage } from '../pages/BookingDetailPage';
@@ -18,10 +20,29 @@ import { AlertsPage } from '../pages/AlertsPage';
 import { SettingsPage } from '../pages/SettingsPage';
 import { NotFoundPage } from '../pages/NotFoundPage';
 
+function ProtectedRoute({ children }) {
+  const { isAuthenticated } = useAuth();
+  if (!isAuthenticated) {
+    return <Navigate to="/login" replace />;
+  }
+  return children;
+}
+
 export function AppRoutes() {
   return (
     <Routes>
-      <Route path="/" element={<AdminLayout />}>
+      {/* Standalone Login Route */}
+      <Route path="/login" element={<LoginPage />} />
+
+      {/* Admin Layout with Protected Child Routes */}
+      <Route
+        path="/"
+        element={
+          <ProtectedRoute>
+            <AdminLayout />
+          </ProtectedRoute>
+        }
+      >
         {/* Default redirect to /dashboard */}
         <Route index element={<Navigate to="/dashboard" replace />} />
 
