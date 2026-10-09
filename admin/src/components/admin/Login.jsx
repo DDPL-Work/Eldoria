@@ -10,12 +10,17 @@ export function Login() {
   const { login } = useAuth();
   const { showToast } = useUI();
 
-  const [email, setEmail] = useState('admin@eldoria.care');
-  const [password, setPassword] = useState('admin123');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(true);
   const [isLoading, setIsLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
+  const [emailFocused, setEmailFocused] = useState(false);
+  const [passwordFocused, setPasswordFocused] = useState(false);
+
+  const isEmailActive = emailFocused || email.trim().length > 0;
+  const isPasswordActive = passwordFocused || password.length > 0;
 
   const handleSubmit = (e) => {
     if (e) e.preventDefault();
@@ -59,7 +64,7 @@ export function Login() {
       </div>
 
       {/* ==================== RIGHT LOGIN CANVAS ==================== */}
-      <div className="w-full lg:w-1/2 flex-1 min-h-screen lg:h-full bg-white flex flex-col justify-center items-center px-6 sm:px-10 lg:px-12 xl:px-16 py-8 lg:py-0 overflow-y-auto">
+      <div className="w-full lg:w-1/2 flex-1 min-h-screen lg:h-full bg-white flex flex-col justify-center items-center px-6 sm:px-10 lg:px-11 xl:px-16 py-8 lg:py-0 overflow-y-auto">
         <div className="w-full max-w-[440px] sm:max-w-[480px] lg:max-w-[500px] xl:max-w-[520px] py-4 lg:py-8">
 
           {/* Logo & Branding Header - ONLY VISIBLE ON MOBILE/TABLET (< lg), HIDDEN ON DESKTOP */}
@@ -81,11 +86,11 @@ export function Login() {
 
           {/* Sign In Title & Subtitle */}
           <div className="mb-6 lg:mb-8">
-            <h1 className="text-3xl sm:text-4xl lg:text-[38px] font-extrabold text-[#0B1E36] tracking-tight leading-tight">
+            <h1 className="text-3xl sm:text-4xl lg:text-[36px] font-extrabold text-[#0B1E36] tracking-tight leading-tight">
               Sign In
             </h1>
-            <p className="text-sm lg:text-[15px] text-slate-500 font-medium mt-1.5 leading-relaxed">
-              Welcome to <span className="text-[#0B1E36] font-bold">Eldoria</span>. Enter your credentials to sign in.
+            <p className="text-sm lg:text-[15px] text-slate-500 font-medium mt-1 leading-relaxed">
+              Welcome to <span className="text-[#0B1E36] font-bold">Eldoria Admin</span>. Enter your administrator credentials to sign in.
             </p>
           </div>
 
@@ -98,42 +103,78 @@ export function Login() {
           )}
 
           {/* Sign In Form */}
-          <form onSubmit={handleSubmit} className="space-y-4 lg:space-y-5">
+          <form onSubmit={handleSubmit} className="space-y-5 lg:space-y-6 pt-2">
 
-            {/* Email Field */}
+            {/* Email Field with Floating Notch Label */}
             <div className="relative">
               <input
                 type="text"
                 id="login-email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                placeholder="admin@eldoria.care"
-                className="w-full h-12 lg:h-[52px] px-4 pr-11 rounded-xl border border-slate-200 focus:border-[#0B1E36] focus:ring-2 focus:ring-[#0B1E36]/10 outline-none text-sm lg:text-[15px] font-semibold text-slate-900 placeholder-slate-400 transition bg-slate-50/40 focus:bg-white"
+                onFocus={() => setEmailFocused(true)}
+                onBlur={() => setEmailFocused(false)}
+                placeholder={isEmailActive ? "Enter your Admin Email ID" : ""}
+                className={`w-full h-12 lg:h-[52px] px-4 pr-11 rounded-xl outline-none text-sm lg:text-[15px] font-semibold text-slate-900 bg-white placeholder-slate-400 placeholder:font-normal transition-all duration-200 ${
+                  emailFocused
+                    ? "border-2 border-[#3EA38A] ring-3 ring-[#3EA38A]/15 shadow-2xs"
+                    : isEmailActive
+                    ? "border border-[#4EBA9F] hover:border-[#3EA38A]"
+                    : "border border-[#55BFA4] hover:border-[#3EA38A]"
+                }`}
                 required
               />
+              <label
+                htmlFor="login-email"
+                className={`absolute left-3.5 z-10 transition-all duration-200 cursor-text select-none ${
+                  isEmailActive
+                    ? "-top-2.5 bg-white px-1.5 text-xs font-bold " + (emailFocused ? "text-[#1F5647]" : "text-slate-800")
+                    : "top-1/2 -translate-y-1/2 text-sm text-slate-400 font-medium px-0.5"
+                }`}
+              >
+                Admin Email ID
+              </label>
               <span className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none">
                 <Icon name="mail" size={19} />
               </span>
             </div>
 
-            {/* Password Field */}
+            {/* Password Field with Floating Notch Label */}
             <div className="relative">
               <input
-                type={showPassword ? 'text' : 'password'}
+                type={showPassword ? "text" : "password"}
                 id="login-password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                placeholder="••••••••"
-                className="w-full h-12 lg:h-[52px] px-4 pr-11 rounded-xl border border-slate-200 focus:border-[#0B1E36] focus:ring-2 focus:ring-[#0B1E36]/10 outline-none text-sm lg:text-[15px] font-semibold text-slate-900 placeholder-slate-400 transition bg-slate-50/40 focus:bg-white"
+                onFocus={() => setPasswordFocused(true)}
+                onBlur={() => setPasswordFocused(false)}
+                placeholder={isPasswordActive ? (showPassword ? "Enter your password" : "••••••••••••") : ""}
+                className={`w-full h-12 lg:h-[52px] px-4 pr-11 rounded-xl outline-none text-sm lg:text-[15px] font-semibold text-slate-900 bg-white placeholder-slate-400 placeholder:font-normal transition-all duration-200 ${
+                  passwordFocused
+                    ? "border-2 border-[#3EA38A] ring-3 ring-[#3EA38A]/15 shadow-2xs"
+                    : isPasswordActive
+                    ? "border border-[#4EBA9F] hover:border-[#3EA38A]"
+                    : "border border-[#55BFA4] hover:border-[#3EA38A]"
+                }`}
                 required
               />
+              <label
+                htmlFor="login-password"
+                className={`absolute left-3.5 z-10 transition-all duration-200 cursor-text select-none ${
+                  isPasswordActive
+                    ? "-top-2.5 bg-white px-1.5 text-xs font-bold " + (passwordFocused ? "text-[#1F5647]" : "text-slate-800")
+                    : "top-1/2 -translate-y-1/2 text-sm text-slate-400 font-medium px-0.5"
+                }`}
+              >
+                Password
+              </label>
               <button
                 type="button"
                 onClick={() => setShowPassword(!showPassword)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition p-1 cursor-pointer"
-                aria-label={showPassword ? 'Hide password' : 'Show password'}
+                className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-800 transition p-1 cursor-pointer"
+                aria-label={showPassword ? "Hide password" : "Show password"}
               >
-                <Icon name={showPassword ? 'eyeOff' : 'eye'} size={19} />
+                <Icon name={showPassword ? "eyeOff" : "eye"} size={20} />
               </button>
             </div>
 
@@ -164,7 +205,7 @@ export function Login() {
               <button
                 type="submit"
                 disabled={isLoading}
-                className="w-full h-12 lg:h-[52px] rounded-xl bg-[#0B1E36] hover:bg-[#182D49] text-white font-bold text-sm lg:text-base shadow-md hover:shadow-lg transition-all active:scale-[0.99] disabled:opacity-70 disabled:cursor-not-allowed cursor-pointer flex items-center justify-center gap-2"
+                className="w-full h-12 lg:h-[52px] rounded-2xl bg-[#0B1E36] hover:bg-[#182D49] text-white font-bold text-sm lg:text-base shadow-md hover:shadow-lg transition-all active:scale-[0.99] disabled:opacity-70 disabled:cursor-not-allowed cursor-pointer flex items-center justify-center gap-2"
               >
                 {isLoading ? (
                   <>
@@ -172,20 +213,20 @@ export function Login() {
                     <span>Signing in...</span>
                   </>
                 ) : (
-                  <span>Sign In</span>
+                  <span>Sign In as Admin</span>
                 )}
               </button>
             </div>
 
             {/* Quick Demo Helper */}
-            <div className="text-center pt-2">
+            <div className="text-center pt-1.5">
               <button
                 type="button"
                 onClick={handleQuickDemo}
                 className="w-full py-2.5 sm:py-3 px-3 rounded-xl bg-amber-50 text-[#B45309] hover:bg-amber-100/80 font-bold text-xs sm:text-[13px] transition cursor-pointer border border-amber-200/60 flex items-center justify-center gap-1.5 shadow-2xs"
               >
                 <span>⚡</span>
-                <span className="truncate">Auto-fill Demo Credentials (admin@eldoria.care)</span>
+                <span className="truncate">Auto-fill Admin Demo Credentials (admin@eldoria.care)</span>
               </button>
             </div>
 

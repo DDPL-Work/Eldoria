@@ -29,12 +29,35 @@ function ProtectedRoute({ children }) {
 }
 
 export function AppRoutes() {
+  const { isAuthenticated } = useAuth();
+
   return (
     <Routes>
-      {/* Standalone Login Route */}
-      <Route path="/login" element={<LoginPage />} />
+      {/* Home Route: Redirect based on authentication */}
+      <Route
+        path="/"
+        element={
+          isAuthenticated ? (
+            <Navigate to="/dashboard" replace />
+          ) : (
+            <Navigate to="/login" replace />
+          )
+        }
+      />
 
-      {/* Admin Layout with Protected Child Routes */}
+      {/* Login Route */}
+      <Route
+        path="/login"
+        element={
+          isAuthenticated ? (
+            <Navigate to="/dashboard" replace />
+          ) : (
+            <LoginPage />
+          )
+        }
+      />
+
+      {/* Protected Admin Routes */}
       <Route
         path="/"
         element={
@@ -43,40 +66,26 @@ export function AppRoutes() {
           </ProtectedRoute>
         }
       >
-        {/* Default redirect to /dashboard */}
-        <Route index element={<Navigate to="/dashboard" replace />} />
-
-        {/* Dashboard */}
         <Route path="dashboard" element={<DashboardPage />} />
 
-        {/* Bookings */}
         <Route path="bookings" element={<BookingsPage />} />
         <Route path="bookings/new" element={<NewBookingPage />} />
         <Route path="bookings/:id" element={<BookingDetailPage />} />
 
-        {/* Staff & Onboarding */}
         <Route path="staff" element={<StaffPage />} />
         <Route path="onboarding" element={<OnboardingPage />} />
         <Route path="onboarding/:id" element={<ApplicationDetailPage />} />
 
-        {/* Clients Directory */}
         <Route path="clients" element={<ClientsPage />} />
-
-        {/* Operational Hubs */}
         <Route path="cities" element={<CitiesPage />} />
-
-        {/* Services & Pricing */}
         <Route path="services" element={<ServicesPage />} />
 
-        {/* Help Enquiries */}
         <Route path="enquiries" element={<EnquiriesPage />} />
         <Route path="enquiries/:id" element={<EnquiryDetailPage />} />
 
-        {/* Notifications & System Settings */}
         <Route path="alerts" element={<AlertsPage />} />
         <Route path="settings" element={<SettingsPage />} />
 
-        {/* 404 Catch-All */}
         <Route path="*" element={<NotFoundPage />} />
       </Route>
     </Routes>

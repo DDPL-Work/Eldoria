@@ -16,20 +16,20 @@ export function AuthProvider({ children }) {
   const [isAuthenticated, setIsAuthenticated] = useState(() => {
     try {
       const stored = localStorage.getItem(AUTH_KEY);
-      // If explicitly logged out, false. Otherwise default true for seamless initial dev experience
-      if (stored === 'false') return false;
-      return true;
+      return stored === 'true';
     } catch {
-      return true;
+      return false;
     }
   });
 
   const [user, setUser] = useState(() => {
     try {
+      const isAuth = localStorage.getItem(AUTH_KEY) === 'true';
+      if (!isAuth) return null;
       const storedUser = localStorage.getItem(USER_KEY);
       return storedUser ? JSON.parse(storedUser) : DEFAULT_ADMIN_USER;
     } catch {
-      return DEFAULT_ADMIN_USER;
+      return null;
     }
   });
 
@@ -53,8 +53,10 @@ export function AuthProvider({ children }) {
 
   const logout = () => {
     setIsAuthenticated(false);
+    setUser(null);
     try {
-      localStorage.setItem(AUTH_KEY, 'false');
+      localStorage.removeItem(AUTH_KEY);
+      localStorage.removeItem(USER_KEY);
     } catch (e) {
       console.warn('Auth logout error:', e);
     }
