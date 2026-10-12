@@ -5,6 +5,13 @@ const UIContext = createContext(null);
 export function UIProvider({ children }) {
   const [toastMessage, setToastMessage] = useState('');
   const [previewFileId, setPreviewFileId] = useState(null);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
+    try {
+      return localStorage.getItem('eldoria_sidebar_collapsed') === 'true';
+    } catch {
+      return false;
+    }
+  });
 
   const showToast = (msg) => {
     setToastMessage(msg);
@@ -22,6 +29,16 @@ export function UIProvider({ children }) {
     setPreviewFileId(null);
   };
 
+  const toggleSidebarCollapse = () => {
+    setSidebarCollapsed((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem('eldoria_sidebar_collapsed', String(next));
+      } catch {}
+      return next;
+    });
+  };
+
   return (
     <UIContext.Provider
       value={{
@@ -30,7 +47,10 @@ export function UIProvider({ children }) {
         clearToast,
         previewFileId,
         openPreview,
-        closePreview
+        closePreview,
+        sidebarCollapsed,
+        toggleSidebarCollapse,
+        setSidebarCollapsed
       }}
     >
       {children}

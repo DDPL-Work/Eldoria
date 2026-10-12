@@ -12,13 +12,21 @@ export function Settings({ onShowToast }) {
     data
   } = useStore();
 
-  const st = settings();
+  const st = (typeof settings === 'function' ? settings() : settings) || {};
 
   const [form, setForm] = useState({
     phone: st.phone || '',
     whatsapp: st.whatsapp || '',
     heroVideo: st.heroVideo || ''
   });
+
+  React.useEffect(() => {
+    setForm({
+      phone: st.phone || '',
+      whatsapp: st.whatsapp || '',
+      heroVideo: st.heroVideo || ''
+    });
+  }, [st.phone, st.whatsapp, st.heroVideo]);
 
   const [confirmReset, setConfirmReset] = useState(false);
   const [confirmDemo, setConfirmDemo] = useState(false);
@@ -128,10 +136,10 @@ export function Settings({ onShowToast }) {
   };
 
   return (
-    <div className="space-y-6 max-w-3xl">
+    <div className="p-4 sm:p-6 lg:p-1.5 w-full max-w-4xl mx-auto space-y-4">
       {/* Header */}
       <div>
-        <h1 className="text-2xl font-black text-slate-900 tracking-tight">Settings</h1>
+        <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Settings</h1>
         <p className="text-xs text-slate-500 font-medium">
           Global care desk configuration, permissions, backups and storage management
         </p>
@@ -140,9 +148,9 @@ export function Settings({ onShowToast }) {
       {/* Global Contact Settings Form */}
       <form
         onSubmit={handleSaveContact}
-        className="bg-white rounded-2xl p-6 border border-slate-200/80 shadow-2xs space-y-4"
+        className="bg-white rounded-lg p-6 border border-slate-200/80 shadow-2xs space-y-4"
       >
-        <h2 className="text-base font-black text-slate-900">Default Care Desk Contact</h2>
+        <h2 className="text-base font-bold text-slate-900">Default Care Desk Contact</h2>
         <p className="text-xs text-slate-500">
           Used on the client app's Call and WhatsApp buttons for any city that does not have its own
           dedicated numbers configured in the Cities tab.
@@ -160,7 +168,7 @@ export function Settings({ onShowToast }) {
               value={form.phone}
               onChange={(e) => setForm({ ...form, phone: e.target.value })}
               placeholder="9820012345"
-              className="w-full rounded-xl border border-slate-200 p-2.5 text-xs font-mono text-slate-900 focus:outline-none focus:ring-1 focus:ring-teal-500"
+              className="w-full rounded-lg border border-slate-200 p-2.5 text-xs font-mono text-slate-900 focus:outline-none focus:ring-1 focus:ring-teal-500"
             />
           </div>
 
@@ -175,7 +183,7 @@ export function Settings({ onShowToast }) {
               value={form.whatsapp}
               onChange={(e) => setForm({ ...form, whatsapp: e.target.value })}
               placeholder="9820012345"
-              className="w-full rounded-xl border border-slate-200 p-2.5 text-xs font-mono text-slate-900 focus:outline-none focus:ring-1 focus:ring-teal-500"
+              className="w-full rounded-lg border border-slate-200 p-2.5 text-xs font-mono text-slate-900 focus:outline-none focus:ring-1 focus:ring-teal-500"
             />
           </div>
         </div>
@@ -189,7 +197,7 @@ export function Settings({ onShowToast }) {
             value={form.heroVideo}
             onChange={(e) => setForm({ ...form, heroVideo: e.target.value })}
             placeholder="https://yourdomain.com/eldoria-care.mp4"
-            className="w-full rounded-xl border border-slate-200 p-2.5 text-xs text-slate-900 focus:outline-none focus:ring-1 focus:ring-teal-500"
+            className="w-full rounded-lg border border-slate-200 p-2.5 text-xs text-slate-900 focus:outline-none focus:ring-1 focus:ring-teal-500"
           />
           <p className="text-[11px] text-slate-400 mt-1">
             Plays silently behind animated headers on client and staff screens. Leave empty to use
@@ -199,16 +207,16 @@ export function Settings({ onShowToast }) {
 
         <button
           type="submit"
-          className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs shadow-xs transition cursor-pointer"
+          className="px-4 py-2 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs shadow-xs transition cursor-pointer"
         >
           Save contact settings
         </button>
       </form>
 
       {/* Staff Confirmation Toggle */}
-      <section className="bg-white rounded-2xl p-6 border border-slate-200/80 shadow-2xs flex items-center justify-between gap-4">
+      <section className="bg-white rounded-lg p-6 border border-slate-200/80 shadow-2xs flex items-center justify-between gap-4">
         <div className="space-y-1 max-w-xl">
-          <h2 className="text-sm font-black text-slate-900">
+          <h2 className="text-sm font-bold text-slate-900">
             Caregivers can confirm &amp; assign bookings
           </h2>
           <p className="text-xs text-slate-500 leading-relaxed">
@@ -235,8 +243,8 @@ export function Settings({ onShowToast }) {
       </section>
 
       {/* Backup and Restore */}
-      <section className="bg-white rounded-2xl p-6 border border-slate-200/80 shadow-2xs space-y-3">
-        <h2 className="text-sm font-black text-slate-900">Data &amp; Backup Management</h2>
+      <section className="bg-white rounded-lg p-6 border border-slate-200/80 shadow-2xs space-y-3">
+        <h2 className="text-sm font-bold text-slate-900">Data &amp; Backup Management</h2>
         <p className="text-xs text-slate-500">
           Export a complete JSON backup of bookings, caregivers, catalog services, cities and
           settings, or restore a backup file created on another machine.
@@ -246,12 +254,12 @@ export function Settings({ onShowToast }) {
           <button
             type="button"
             onClick={handleExportBackup}
-            className="px-4 py-2 rounded-xl bg-teal-600 hover:bg-teal-700 text-white font-bold text-xs transition cursor-pointer"
+            className="px-4 py-2 rounded-lg bg-teal-600 hover:bg-teal-700 text-white font-bold text-xs transition cursor-pointer"
           >
             Download backup (.json)
           </button>
 
-          <label className="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs transition cursor-pointer border border-slate-200">
+          <label className="px-4 py-2 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs transition cursor-pointer border border-slate-200">
             Restore backup
             <input type="file" accept=".json,application/json" onChange={handleImportBackup} hidden />
           </label>
@@ -262,7 +270,7 @@ export function Settings({ onShowToast }) {
               <button
                 type="button"
                 onClick={handleConfirmReset}
-                className="px-3 py-1.5 rounded-xl bg-red-600 text-white font-bold text-xs cursor-pointer"
+                className="px-3 py-1.5 rounded-lg bg-red-600 text-white font-bold text-xs cursor-pointer"
               >
                 Delete everything
               </button>
@@ -278,7 +286,7 @@ export function Settings({ onShowToast }) {
             <button
               type="button"
               onClick={() => setConfirmReset(true)}
-              className="px-3 py-2 rounded-xl bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 font-bold text-xs transition cursor-pointer"
+              className="px-3 py-2 rounded-lg bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 font-bold text-xs transition cursor-pointer"
             >
               Reset all data
             </button>
@@ -287,8 +295,8 @@ export function Settings({ onShowToast }) {
       </section>
 
       {/* Sample Demo Data */}
-      <section className="bg-white rounded-2xl p-6 border border-slate-200/80 shadow-2xs space-y-3">
-        <h2 className="text-sm font-black text-slate-900">Sample Mock Datasets</h2>
+      <section className="bg-white rounded-lg p-6 border border-slate-200/80 shadow-2xs space-y-3">
+        <h2 className="text-sm font-bold text-slate-900">Sample Mock Datasets</h2>
         <p className="text-xs text-slate-500">
           Reset and reload the sample bookings, verified staff members, onboarding applications,
           notifications and services catalog.
@@ -300,7 +308,7 @@ export function Settings({ onShowToast }) {
             <button
               type="button"
               onClick={handleConfirmDemo}
-              className="px-3.5 py-1.5 rounded-xl bg-teal-600 text-white font-bold text-xs cursor-pointer"
+              className="px-3.5 py-1.5 rounded-lg bg-teal-600 text-white font-bold text-xs cursor-pointer"
             >
               Load data
             </button>
@@ -316,7 +324,7 @@ export function Settings({ onShowToast }) {
           <button
             type="button"
             onClick={() => setConfirmDemo(true)}
-            className="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold text-xs transition cursor-pointer"
+            className="px-4 py-2 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold text-xs transition cursor-pointer"
           >
             Load sample data
           </button>

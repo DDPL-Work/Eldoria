@@ -27,13 +27,13 @@ export const SLOTS = ['7:00 AM', '9:00 AM', '11:00 AM', '2:00 PM', '5:00 PM', '8
 export const RELATIONS = ['Mother', 'Father', 'Self', 'Spouse', 'Grandparent', 'Other'];
 
 export const ST = {
-  requested: { label: 'Request received', cls: 'bg-amber-100 text-amber-800' },
-  confirmed: { label: 'Confirmed', cls: 'bg-blue-100 text-blue-900' },
-  assigned: { label: 'Staff assigned', cls: 'bg-blue-100 text-blue-900' },
-  on_the_way: { label: 'On the way', cls: 'bg-amber-100 text-amber-800' },
-  in_progress: { label: 'Visit in progress', cls: 'bg-amber-100 text-amber-800' },
-  completed: { label: 'Completed', cls: 'bg-emerald-100 text-emerald-800' },
-  cancelled: { label: 'Cancelled', cls: 'bg-red-100 text-red-800' }
+  requested: { label: 'Request received', cls: 'bg-[#FDF0D9] text-[#8A5000]' },
+  confirmed: { label: 'Confirmed', cls: 'bg-[#E4ECF7] text-[#0E2F5A]' },
+  assigned: { label: 'Staff assigned', cls: 'bg-[#E4ECF7] text-[#0E2F5A]' },
+  on_the_way: { label: 'On the way', cls: 'bg-[#FDF0D9] text-[#8A5000]' },
+  in_progress: { label: 'Visit in progress', cls: 'bg-[#FDF0D9] text-[#8A5000]' },
+  completed: { label: 'Completed', cls: 'bg-[#E3F4EA] text-[#1E6B42]' },
+  cancelled: { label: 'Cancelled', cls: 'bg-[#FBE7E7] text-[#A12B2B]' }
 };
 
 export const FLOW = ['requested', 'confirmed', 'assigned', 'on_the_way', 'in_progress', 'completed'];
@@ -48,17 +48,17 @@ export const FLOW_TXT = {
 export const ACTIVE = ['requested', 'confirmed', 'assigned', 'on_the_way', 'in_progress'];
 
 export const ENQ_ST = {
-  new: ['New', 'bg-amber-100 text-amber-800'],
-  contacted: ['Contacted', 'bg-blue-100 text-blue-900'],
-  converted: ['Booked', 'bg-emerald-100 text-emerald-800'],
-  closed: ['Closed', 'bg-slate-200 text-slate-700']
+  new: ['New', 'bg-[#FDF0D9] text-[#8A5000]'],
+  contacted: ['Contacted', 'bg-[#E4ECF7] text-[#0E2F5A]'],
+  converted: ['Booked', 'bg-[#E3F4EA] text-[#1E6B42]'],
+  closed: ['Closed', 'bg-[#EAF0F7] text-[#566275]']
 };
 
 export const APPR = {
-  pending: ['Under review', 'bg-amber-100 text-amber-800'],
-  changes: ['Changes requested', 'bg-blue-100 text-blue-900'],
-  approved: ['Approved', 'bg-emerald-100 text-emerald-800'],
-  rejected: ['Not approved', 'bg-red-100 text-red-800']
+  pending: ['Under review', 'bg-[#FDF0D9] text-[#8A5000]'],
+  changes: ['Changes requested', 'bg-[#E4ECF7] text-[#0E2F5A]'],
+  approved: ['Approved', 'bg-[#E3F4EA] text-[#1E6B42]'],
+  rejected: ['Not approved', 'bg-[#FBE7E7] text-[#A12B2B]']
 };
 
 export const OB_DOCS = [
@@ -285,11 +285,11 @@ export function demoData() {
 
   const staff = {
     s1: { name: 'Anjali Patil', role: 'GNM Nurse', phone: '9876543210', city: 'mumbai', area: 'Andheri, Versova', skills: 'Diabetic care, injections', docs: 'verified', onDuty: true },
-    s2: { name: 'Rahul Kadam', role: 'Physiotherapist', phone: '9876543211', city: 'mumbai', area: 'Dadar, Worli', skills: 'Post-stroke, ortho rehab', docs: 'verified', onDuty: true },
-    s3: { name: 'Sushma More', role: 'Elder Caregiver', phone: '9876543212', city: 'mumbai', area: 'Borivali, Kandivali', skills: 'Bedridden care, 24-hr', docs: 'verified', onDuty: true },
     s4: { name: "Joseph D'Souza", role: 'ANM Nurse', phone: '9876543213', city: 'mumbai', area: 'Bandra, Khar', skills: 'Wound dressing, IV', docs: 'verified', onDuty: false },
+    s6: { name: 'Kiran Jadhav', role: 'Attendant', phone: '9876543215', city: 'pune', area: 'Kothrud', skills: 'Mobility, night shift', docs: 'pending', onDuty: false },
     s5: { name: 'Lata Pawar', role: 'GNM Nurse', phone: '9876543214', city: 'thane', area: 'Thane West', skills: 'Post-surgery, catheter', docs: 'verified', onDuty: true },
-    s6: { name: 'Kiran Jadhav', role: 'Attendant', phone: '9876543215', city: 'pune', area: 'Kothrud', skills: 'Mobility, night shift', docs: 'pending', onDuty: false }
+    s2: { name: 'Rahul Kadam', role: 'Physiotherapist', phone: '9876543211', city: 'mumbai', area: 'Dadar, Worli', skills: 'Post-stroke, ortho rehab', docs: 'verified', onDuty: true },
+    s3: { name: 'Sushma More', role: 'Elder Caregiver', phone: '9876543212', city: 'mumbai', area: 'Borivali, Kandivali', skills: 'Bedridden care, 24-hr', docs: 'verified', onDuty: true }
   };
   Object.values(staff).forEach((s) => (s.createdAt = ago(60 * 24 * 30)));
 
@@ -315,9 +315,9 @@ export function demoData() {
   staff.app1 = appl(
     {
       photo: 'fph1',
-      name: 'Neha Sawant',
+      name: 'Rakhi Sawant',
       phone: '9811122233',
-      email: 'neha@example.com',
+      email: 'rakhi@example.com',
       dob: '1996-08-14',
       gender: 'Female',
       city: 'mumbai',
@@ -471,17 +471,57 @@ export function demoData() {
       patientName: 'Ramesh Mehta',
       patientAge: '76',
       relation: 'Father',
-      service: 'caregiver',
-      plan: '12-hr shift',
+      service: 'nursing',
+      plan: 'Single visit',
       date: day(2),
       time: '9:00 AM',
-      address: home + ', Mumbai 400053',
-      notes: 'Needs help walking and with evening medicines.',
+      address: 'Flat 402, Sea Breeze CHS, Lokhandwala, Andheri West',
+      notes: 'Diabetic, needs morning insulin and vitals monitoring.',
       source: 'App',
       status: 'requested',
       staffId: '',
       history: H(['requested', 12, 'client']),
       createdAt: ago(12)
+    },
+    b14: {
+      code: 'ELD-20448',
+      city: 'mumbai',
+      clientName: 'Rajesh Shah',
+      clientPhone: '9820123456',
+      patientName: 'Kiran Shah',
+      patientAge: '64',
+      relation: 'Self',
+      service: 'physio',
+      plan: 'Single visit',
+      date: day(0),
+      time: '6:00 PM',
+      address: 'Juhu Tara Road, Juhu',
+      notes: 'Shoulder rehabilitation session.',
+      source: 'App',
+      status: 'requested',
+      staffId: '',
+      history: H(['requested', 15, 'client']),
+      createdAt: ago(15)
+    },
+    b15: {
+      code: 'ELD-20452',
+      city: 'mumbai',
+      clientName: 'Sunita Rao',
+      clientPhone: '9820234567',
+      patientName: 'Vinod Rao',
+      patientAge: '81',
+      relation: 'Father',
+      service: 'caregiver',
+      plan: '12-hr shift',
+      date: day(1),
+      time: '10:00 AM',
+      address: 'Yari Road, Versova',
+      notes: 'Assistance with daily living and hygiene.',
+      source: 'Call',
+      status: 'requested',
+      staffId: '',
+      history: H(['requested', 20, 'client']),
+      createdAt: ago(20)
     },
     b4: {
       code: 'ELD-20431',
@@ -726,21 +766,22 @@ export function demoData() {
 
   const enquiries = {
     q1: {
-      code: 'HLP-89211',
-      clientName: 'Sanjay Verma',
-      clientPhone: '9820011223',
+      code: 'HLP-40213',
+      clientName: 'Priya Mehta',
+      clientPhone: '9123456780',
       city: 'mumbai',
       area: 'Andheri West',
-      address: 'Plot 42, Lokhandwala Complex, Andheri West',
-      description: 'Father (76) had a stroke last week and cannot walk or turn in bed by himself. Need daily nursing care and physio.',
+      address: 'Flat 402, Sea Breeze CHS, Lokhandwala, Andheri West',
+      description:
+        'My father had a mild stroke last month. He can walk with support but needs help with bathing and exercises. Not sure if we need a nurse, a caregiver or physiotherapy.',
       patientType: 'Stroke / paralysis',
       patientAge: '76',
       duration: '1 month or more',
       timing: 'Daytime',
       files: [{ id: 'fexp', name: 'discharge-summary.jpg', type: 'image/jpeg', size: 12000 }],
       status: 'new',
-      history: [{ status: 'new', at: ago(18), by: 'client' }],
-      createdAt: ago(18)
+      history: [{ status: 'new', at: ago(25), by: 'client' }],
+      createdAt: ago(25)
     },
     q2: {
       code: 'HLP-40198',
@@ -749,18 +790,19 @@ export function demoData() {
       city: 'mumbai',
       area: 'Borivali East',
       address: 'B-12, Gokul Dham, Borivali East',
-      description: 'Mother is bedridden after a fall. We need someone to stay with her and also want to know about a hospital bed.',
+      description:
+        'Mother is bedridden after a fall. We need someone to stay with her and also want to know about a hospital bed.',
       patientType: 'Bedridden patient',
       patientAge: '81',
       duration: '1 month or more',
-      timing: '24 hours',
+      timing: '24-hr live-in',
       files: [],
       status: 'contacted',
-      adminNote: 'Called Kavita. Recommended 24-Hour Care plus a hospital bed on rent.',
-      recommended: 'attendant',
+      recommended: 'care-bedridden',
+      adminNote: 'Spoke to Kavita. Suggested 24-hr caregiver.',
       history: [
         { status: 'new', at: ago(120), by: 'client' },
-        { status: 'contacted', at: ago(60), by: 'admin', note: 'Called Kavita. Recommended 24-Hour Care plus a hospital bed on rent.' }
+        { status: 'contacted', at: ago(45), by: 'admin', note: 'Called client' }
       ],
       createdAt: ago(120)
     }

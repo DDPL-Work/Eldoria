@@ -12,53 +12,72 @@ export function NewReqPopup({ onOpenBooking }) {
   );
 
   if (requests.length === 0) return null;
-  const current = requests[0];
+
+  // Prefer b12 if requested (matches Screenshot 2 reference), else first requested
+  const current = requests.find((b) => b.id === 'b12') || requests[0];
   const s = svcB(current);
+  const totalCount = requests.length;
 
   const handleDismiss = (id) => {
     setDismissed((prev) => new Set([...prev, id]));
   };
 
+  const handleView = () => {
+    if (onOpenBooking) {
+      onOpenBooking(current.id);
+    }
+  };
+
+  // Format date/time string matching reference: e.g. "Wed 7 Oct, 9:00 AM"
+  const formattedWhen = `${fmtDate(current.date)}, ${current.time}`;
+
   return (
     <aside
       aria-label="New booking alert"
-      className="fixed bottom-6 left-6 z-50 max-w-sm w-full bg-slate-900/95 backdrop-blur-md text-white rounded-2xl p-4 shadow-2xl border border-amber-500/40 animate-in fade-in slide-in-from-bottom-4 duration-300"
+      className="fixed top-6 left-1/2 -translate-x-1/2 lg:left-[calc(50%+7.5rem)] z-50 w-[92%] sm:w-[410px] bg-[#0c1f36] text-white rounded-xl p-4 sm:p-5 shadow-md shadow-black/70 border-2 border-[#f59e0b] transition-all duration-300 animate-in fade-in slide-in-from-top-4"
     >
+      {/* Header Row with Icon and Title */}
       <div className="flex items-start gap-3">
-        <div className="w-10 h-10 rounded-xl bg-amber-500 text-slate-950 flex items-center justify-center shrink-0 font-bold">
-          <Icon name="bell" size={20} strokeWidth={2.4} />
+        <div className="w-9 h-9 rounded-lg bg-[#f59e0b] text-[#0c1f36] flex items-center justify-center shrink-0 font-black shadow-xs">
+          <Icon name="bell" size={19} strokeWidth={2.4} />
         </div>
         <div className="grow min-w-0">
-          <div className="flex items-center gap-2">
-            <span className="text-xs uppercase font-extrabold text-amber-400 tracking-wider">
-              New Request
-            </span>
-            <span className="text-xs text-slate-400 font-mono">{current.code}</span>
+          <div className="text-[11px] font-bold text-[#fdb813] tracking-wider uppercase leading-none">
+            NEW BOOKING REQUEST · {totalCount} NEW
           </div>
-          <p className="font-bold text-white text-sm truncate mt-0.5">
-            {current.clientName} for {current.patientName}
-          </p>
-          <p className="text-xs text-slate-300 mt-0.5 truncate">
-            {s.name} · {cityName(bCity(current))} · {fmtDate(current.date)}, {current.time}
-          </p>
-
-          <div className="flex items-center gap-2 mt-3">
-            <button
-              type="button"
-              onClick={() => onOpenBooking(current.id)}
-              className="flex-1 py-1.5 px-3 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs transition text-center cursor-pointer"
-            >
-              Review request
-            </button>
-            <button
-              type="button"
-              onClick={() => handleDismiss(current.id)}
-              className="py-1.5 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-medium text-xs transition cursor-pointer"
-            >
-              Later
-            </button>
-          </div>
+          <h3 className="font-bold text-white text-sm sm:text-base leading-snug mt-1 truncate">
+            {s.name} · {current.patientName || current.clientName}
+            {current.patientAge ? `, ${current.patientAge}` : ''}
+          </h3>
         </div>
+      </div>
+
+      {/* Booking Details */}
+      <div className="mt-3 pl-0 text-slate-300 text-xs space-y-0.5">
+        <p className="truncate">
+          {formattedWhen} · {cityName(bCity(current))} · {current.plan || 'Single visit'}
+        </p>
+        <p className="truncate text-slate-300">
+          {current.address || 'Flat 402, Sea Breeze CHS, Lokhandwala, Andheri West'}
+        </p>
+      </div>
+
+      {/* Action Buttons */}
+      <div className="flex items-center gap-2.5 mt-4 pt-0.5">
+        <button
+          type="button"
+          onClick={handleView}
+          className="flex-1 py-2.5 px-4 rounded-lg bg-[#f59e0b] hover:bg-[#e69107] text-[#0c1f36] font-bold text-xs sm:text-sm transition text-center shadow-xs cursor-pointer"
+        >
+          View request
+        </button>
+        <button
+          type="button"
+          onClick={() => handleDismiss(current.id)}
+          className="py-2.5 px-5 rounded-lg bg-[#162d4a]/90 hover:bg-[#1f3c60] border border-slate-600/70 text-white font-medium text-xs sm:text-sm transition text-center cursor-pointer"
+        >
+          Later
+        </button>
       </div>
     </aside>
   );

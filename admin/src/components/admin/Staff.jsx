@@ -20,7 +20,8 @@ export function Staff({ onShowToast }) {
     put,
     patch,
     remove,
-    selectedCity
+    selectedCity,
+    setSelectedCity
   } = useStore();
 
   const list = inCity(staffList(), (s) => s.city || DEFAULT_CITIES[0].id);
@@ -110,21 +111,39 @@ export function Staff({ onShowToast }) {
   };
 
   return (
-    <div className="space-y-6">
-      {/* Top Header */}
+    <div className="p-4 sm:p-4 w-full space-y-3">
+      {/* City Dropdown at Top matching Reference Screenshot */}
+      <div className="flex items-center gap-2 self-start bg-white border border-slate-200/90 rounded-lg px-3 py-1 shadow-2xs w-fit">
+        <Icon name="pin" size={15} className="text-slate-500" />
+        <span className="text-xs font-semibold text-slate-500">City</span>
+        <select
+          value={selectedCity}
+          onChange={(e) => setSelectedCity(e.target.value)}
+          className="bg-transparent text-xs font-bold text-slate-800 focus:outline-none cursor-pointer py-1 pr-1"
+        >
+          <option value="all">All cities</option>
+          {cities().map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.name}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      {/* Header Row: Title & Count on Left, Add Staff Button on Right */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-black text-slate-900 tracking-tight">Staff</h1>
-          <p className="text-xs text-slate-500 font-medium">
-            {list.length} total caregivers · {list.filter((s) => s.onDuty).length} currently on duty
+          <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Staff</h1>
+          <p className="text-xs text-slate-500 font-medium mt-0.5">
+            {list.length} staff · {list.filter((s) => s.onDuty).length} on duty
           </p>
         </div>
         <button
           type="button"
           onClick={handleOpenNew}
-          className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs sm:text-sm shadow-xs transition duration-150 self-start sm:self-auto cursor-pointer"
+          className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-[#F2A01F] hover:bg-[#e09115] text-[#0A2342] font-extrabold text-xs sm:text-sm shadow-xs transition duration-150 cursor-pointer self-start sm:self-auto shrink-0"
         >
-          <Icon name="plus" size={16} strokeWidth={2.5} />
+          <Icon name="plus" size={16} strokeWidth={2.6} />
           <span>Add staff</span>
         </button>
       </div>
@@ -133,10 +152,10 @@ export function Staff({ onShowToast }) {
       {editingStaff && (
         <form
           onSubmit={handleFormSubmit}
-          className="bg-white rounded-2xl p-6 border border-slate-200/80 shadow-md space-y-4 animate-in fade-in duration-150"
+          className="bg-white rounded-lg p-5 sm:p-6 border border-slate-200/90 shadow-sm space-y-4 animate-in fade-in duration-150"
         >
           <div className="flex items-center justify-between pb-3 border-b border-slate-100">
-            <h2 className="text-base font-black text-slate-900">
+            <h2 className="text-base font-bold text-slate-900">
               {editingStaff.id ? 'Edit Staff Member' : 'Add New Staff Member'}
             </h2>
             <button
@@ -150,23 +169,23 @@ export function Staff({ onShowToast }) {
 
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1">Full name *</label>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">Full name *</label>
               <input
                 type="text"
                 required
                 value={editingStaff.name}
                 onChange={(e) => setEditingStaff({ ...editingStaff, name: e.target.value })}
                 placeholder="e.g. Sister Anjali Rao"
-                className="w-full rounded-xl border border-slate-200 p-2.5 text-xs text-slate-900 focus:outline-none focus:ring-1 focus:ring-teal-500"
+                className="w-full rounded-xl border border-slate-200 p-2.5 text-xs text-slate-900 focus:outline-none focus:ring-1 focus:ring-[#0E2F5A]"
               />
             </div>
 
             <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1">Designation role</label>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">Designation role</label>
               <select
                 value={editingStaff.role}
                 onChange={(e) => setEditingStaff({ ...editingStaff, role: e.target.value })}
-                className="w-full rounded-xl border border-slate-200 bg-white p-2.5 text-xs text-slate-900 focus:outline-none focus:ring-1 focus:ring-teal-500 cursor-pointer"
+                className="w-full rounded-xl border border-slate-200 bg-white p-2.5 text-xs text-slate-900 focus:outline-none focus:ring-1 focus:ring-[#0E2F5A] cursor-pointer"
               >
                 {OB_ROLES.map((r) => (
                   <option key={r} value={r}>
@@ -177,7 +196,7 @@ export function Staff({ onShowToast }) {
             </div>
 
             <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1">
+              <label className="block text-xs font-semibold text-slate-700 mb-1">
                 Mobile (10 digits) *
               </label>
               <input
@@ -188,16 +207,16 @@ export function Staff({ onShowToast }) {
                 value={editingStaff.phone}
                 onChange={(e) => setEditingStaff({ ...editingStaff, phone: e.target.value })}
                 placeholder="9820012345"
-                className="w-full rounded-xl border border-slate-200 p-2.5 text-xs font-mono text-slate-900 focus:outline-none focus:ring-1 focus:ring-teal-500"
+                className="w-full rounded-xl border border-slate-200 p-2.5 text-xs font-mono text-slate-900 focus:outline-none focus:ring-1 focus:ring-[#0E2F5A]"
               />
             </div>
 
             <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1">City hub</label>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">City hub</label>
               <select
                 value={editingStaff.city}
                 onChange={(e) => setEditingStaff({ ...editingStaff, city: e.target.value })}
-                className="w-full rounded-xl border border-slate-200 bg-white p-2.5 text-xs text-slate-900 focus:outline-none focus:ring-1 focus:ring-teal-500 cursor-pointer"
+                className="w-full rounded-xl border border-slate-200 bg-white p-2.5 text-xs text-slate-900 focus:outline-none focus:ring-1 focus:ring-[#0E2F5A] cursor-pointer"
               >
                 {cities().map((c) => (
                   <option key={c.id} value={c.id}>
@@ -208,22 +227,22 @@ export function Staff({ onShowToast }) {
             </div>
 
             <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1">Service area</label>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">Service area</label>
               <input
                 type="text"
                 value={editingStaff.area}
                 onChange={(e) => setEditingStaff({ ...editingStaff, area: e.target.value })}
                 placeholder="e.g. Andheri West, Versova"
-                className="w-full rounded-xl border border-slate-200 p-2.5 text-xs text-slate-900 focus:outline-none focus:ring-1 focus:ring-teal-500"
+                className="w-full rounded-xl border border-slate-200 p-2.5 text-xs text-slate-900 focus:outline-none focus:ring-1 focus:ring-[#0E2F5A]"
               />
             </div>
 
             <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1">Documents status</label>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">Documents status</label>
               <select
                 value={editingStaff.docs}
                 onChange={(e) => setEditingStaff({ ...editingStaff, docs: e.target.value })}
-                className="w-full rounded-xl border border-slate-200 bg-white p-2.5 text-xs text-slate-900 focus:outline-none focus:ring-1 focus:ring-teal-500 cursor-pointer"
+                className="w-full rounded-xl border border-slate-200 bg-white p-2.5 text-xs text-slate-900 focus:outline-none focus:ring-1 focus:ring-[#0E2F5A] cursor-pointer"
               >
                 <option value="pending">Pending verification</option>
                 <option value="verified">Verified (ID &amp; Background)</option>
@@ -231,7 +250,7 @@ export function Staff({ onShowToast }) {
             </div>
 
             <div className="sm:col-span-3">
-              <label className="block text-xs font-bold text-slate-700 mb-1">
+              <label className="block text-xs font-semibold text-slate-700 mb-1">
                 Specialized skills &amp; Experience
               </label>
               <input
@@ -239,7 +258,7 @@ export function Staff({ onShowToast }) {
                 value={editingStaff.skills}
                 onChange={(e) => setEditingStaff({ ...editingStaff, skills: e.target.value })}
                 placeholder="e.g. Diabetic care, Injections, Ryles tube, Post-stroke care"
-                className="w-full rounded-xl border border-slate-200 p-2.5 text-xs text-slate-900 focus:outline-none focus:ring-1 focus:ring-teal-500"
+                className="w-full rounded-xl border border-slate-200 p-2.5 text-xs text-slate-900 focus:outline-none focus:ring-1 focus:ring-[#0E2F5A]"
               />
             </div>
           </div>
@@ -254,14 +273,14 @@ export function Staff({ onShowToast }) {
             <div className="flex items-center gap-2">
               <button
                 type="submit"
-                className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs shadow-xs transition cursor-pointer"
+                className="px-4.5 py-2.5 rounded-xl bg-[#F2A01F] hover:bg-[#e09115] text-[#0A2342] font-bold text-xs sm:text-sm shadow-xs transition cursor-pointer"
               >
-                {editingStaff.id ? 'Save changes' : 'Add staff member'}
+                {editingStaff.id ? 'Save changes' : 'Add staff'}
               </button>
               <button
                 type="button"
                 onClick={() => setEditingStaff(null)}
-                className="px-3.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs transition cursor-pointer"
+                className="px-4 py-2.5 rounded-xl bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 font-semibold text-xs sm:text-sm transition cursor-pointer shadow-2xs"
               >
                 Cancel
               </button>
@@ -302,8 +321,8 @@ export function Staff({ onShowToast }) {
         </form>
       )}
 
-      {/* Staff Table */}
-      <section className="bg-white rounded-2xl border border-slate-200/80 shadow-2xs overflow-hidden">
+      {/* Staff Table Section */}
+      <section className="bg-white rounded-lg border border-slate-200/90 shadow-2xs overflow-hidden">
         {list.length === 0 ? (
           <div className="p-12 text-center text-slate-400 space-y-2">
             <p className="font-bold text-slate-700 text-sm">No staff added yet</p>
@@ -313,18 +332,18 @@ export function Staff({ onShowToast }) {
             </p>
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm">
+          <div className="w-full overflow-x-auto">
+            <table className="w-full text-left text-xs min-w-[1050px]">
               <thead>
-                <tr className="bg-slate-50/70 border-b border-slate-100 text-slate-500 text-xs uppercase tracking-wider font-semibold">
-                  <th className="py-3.5 px-4">Staff member</th>
-                  <th className="py-3.5 px-4">City</th>
-                  <th className="py-3.5 px-4">Skills</th>
-                  <th className="py-3.5 px-4">Area</th>
-                  <th className="py-3.5 px-4">Documents</th>
-                  <th className="py-3.5 px-4">On duty</th>
-                  <th className="py-3.5 px-4">Visits</th>
-                  <th className="py-3.5 px-4 text-right">Contact</th>
+                <tr className="bg-[#F8FAFC] border-b border-slate-200/80 text-slate-600 text-[11px] font-bold uppercase tracking-wider">
+                  <th scope="col" className="py-3.5 pl-4 pr-3 text-left min-w-[210px]">Staff member</th>
+                  <th scope="col" className="py-3.5 px-3 text-left min-w-[100px]">City</th>
+                  <th scope="col" className="py-3.5 px-3 text-left min-w-[220px]">Skills</th>
+                  <th scope="col" className="py-3.5 px-3 text-left min-w-[150px]">Area</th>
+                  <th scope="col" className="py-3.5 px-3 text-left min-w-[110px]">Documents</th>
+                  <th scope="col" className="py-3.5 px-3 text-center min-w-[85px]">On duty</th>
+                  <th scope="col" className="py-3.5 px-3 text-left min-w-[125px]">Visits</th>
+                  <th scope="col" className="py-3.5 pl-3 pr-4 text-right min-w-[95px]">Contact</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -341,82 +360,101 @@ export function Staff({ onShowToast }) {
                     : 'S';
 
                   return (
-                    <tr key={s.id} className="hover:bg-slate-50/60 transition">
-                      <td className="py-3.5 px-4">
+                    <tr key={s.id} className="hover:bg-slate-50/70 transition">
+                      {/* Staff: Avatar + Name + Role */}
+                      <td className="py-3.5 pl-4 pr-3 min-w-[210px]">
                         <button
                           type="button"
                           onClick={() => handleOpenEdit(s)}
-                          className="flex items-center gap-3 text-left group cursor-pointer"
+                          className="flex items-center gap-3 text-left group cursor-pointer w-full min-w-0"
                         >
-                          <div className="w-9 h-9 rounded-full bg-teal-50 text-teal-800 font-bold text-xs flex items-center justify-center shrink-0 border border-teal-200">
+                          <div className="w-9 h-9 rounded-full bg-[#FDE8CD] text-[#7A4100] font-bold text-xs flex items-center justify-center shrink-0">
                             {initials}
                           </div>
-                          <div>
-                            <div className="font-bold text-slate-900 group-hover:text-teal-700">
+                          <div className="min-w-0">
+                            <div className="font-bold text-slate-900 group-hover:text-[#0E2F5A] text-xs sm:text-[13px] truncate">
                               {s.name}
                             </div>
-                            <div className="text-[11px] text-slate-400">
+                            <div className="text-[11px] text-slate-400 truncate">
                               {s.role}
                               {isBusy && (
-                                <span className="ml-1 text-amber-600 font-semibold">· On visit</span>
+                                <span className="ml-1 text-[#F2A01F] font-semibold">· On visit</span>
                               )}
                             </div>
                           </div>
                         </button>
                       </td>
-                      <td className="py-3.5 px-4 text-xs font-semibold text-slate-700">
+
+                      {/* City */}
+                      <td className="py-3.5 px-3 text-xs text-slate-700 font-semibold whitespace-nowrap min-w-[100px]">
                         {cityName(s.city || DEFAULT_CITIES[0].id)}
                       </td>
-                      <td className="py-3.5 px-4 text-xs text-slate-600 max-w-xs truncate">
+
+                      {/* Skills */}
+                      <td className="py-3.5 px-3 text-xs text-slate-600 min-w-[220px]">
                         {s.skills || '—'}
                       </td>
-                      <td className="py-3.5 px-4 text-xs text-slate-500">{s.area || '—'}</td>
-                      <td className="py-3.5 px-4">
+
+                      {/* Area */}
+                      <td className="py-3.5 px-3 text-xs text-slate-600 min-w-[150px]">
+                        {s.area || '—'}
+                      </td>
+
+                      {/* Documents Status Badge */}
+                      <td className="py-3.5 px-3 min-w-[110px]">
                         <span
-                          className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold border ${
+                          className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-semibold ${
                             s.docs === 'verified'
-                              ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
-                              : 'bg-amber-50 text-amber-800 border-amber-200'
+                              ? 'bg-[#E8F8EE] text-[#1E7E34]'
+                              : 'bg-[#FDF0D9] text-[#8A5000]'
                           }`}
                         >
                           {s.docs === 'verified' ? 'Verified' : 'Pending'}
                         </span>
                       </td>
-                      <td className="py-3.5 px-4">
-                        <button
-                          type="button"
-                          role="switch"
-                          aria-checked={!!s.onDuty}
-                          onClick={() => handleDutyToggle(s)}
-                          className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
-                            s.onDuty ? 'bg-teal-600' : 'bg-slate-300'
-                          }`}
-                        >
-                          <span
-                            className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
-                              s.onDuty ? 'translate-x-4' : 'translate-x-0'
+
+                      {/* On Duty Toggle Switch */}
+                      <td className="py-3.5 px-3 text-center min-w-[85px]">
+                        <div className="flex justify-center">
+                          <button
+                            type="button"
+                            role="switch"
+                            aria-checked={!!s.onDuty}
+                            onClick={() => handleDutyToggle(s)}
+                            className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full transition-colors duration-200 ease-in-out focus:outline-none p-0.5 ${
+                              s.onDuty ? 'bg-[#1E5E41]' : 'bg-slate-200'
                             }`}
-                          />
-                        </button>
+                          >
+                            <span
+                              className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-sm transition duration-200 ease-in-out ${
+                                s.onDuty ? 'translate-x-5' : 'translate-x-0'
+                              }`}
+                            />
+                          </button>
+                        </div>
                       </td>
-                      <td className="py-3.5 px-4 text-xs font-mono text-slate-700 whitespace-nowrap">
+
+                      {/* Visits */}
+                      <td className="py-3.5 px-3 text-xs font-mono text-slate-600 whitespace-nowrap min-w-[125px]">
                         {mine.filter((b) => b.status === 'completed').length} done ·{' '}
                         {mine.filter((b) => ACTIVE.includes(b.status)).length} open
                       </td>
-                      <td className="py-3.5 px-4 text-right">
+
+                      {/* Contact Buttons (Call & WhatsApp) */}
+                      <td className="py-3.5 pl-3 pr-4 text-right min-w-[95px]">
                         <div className="flex items-center justify-end gap-1.5">
                           <a
                             href={telHref(s.phone)}
-                            className="p-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 transition"
+                            className="w-8 h-8 rounded-lg bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 flex items-center justify-center transition shadow-2xs"
                             aria-label={`Call ${s.name}`}
                           >
-                            <Icon name="phone" size={15} />
+                            <Icon name="phone" size={14} />
                           </a>
                           <a
                             href={waHref(s.phone)}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="p-1.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 transition"
+                            className="w-8 h-8 rounded-lg bg-[#128C4A] hover:bg-[#0e703b] text-white flex items-center justify-center transition shadow-2xs"
                             aria-label={`WhatsApp ${s.name}`}
                           >
                             <Icon name="wa" size={15} />

@@ -1,6 +1,5 @@
-import React from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { Icon } from '../../constants/icons';
-import { StatusBadge } from '../common/StatusBadge';
 import { useStore } from '../../context/StoreContext';
 import {
   fmtDate,
@@ -8,8 +7,7 @@ import {
   byDateTime,
   DEFAULT_CITIES,
   DOW,
-  MON,
-  ACTIVE
+  MON
 } from '../../constants/data';
 
 export function Dashboard({ onTab, onOpenBooking, onNewBooking }) {
@@ -26,32 +24,66 @@ export function Dashboard({ onTab, onOpenBooking, onNewBooking }) {
     cityName,
     bCity,
     svcB,
-    assign,
     setStatus,
+    assign,
+    unassign,
     notify
   } = useStore();
+
+  const [cityDropdownOpen, setCityDropdownOpen] = useState(false);
+  const cityDropdownRef = useRef(null);
+
+  // Close dropdowns on outside click
+  useEffect(() => {
+    function handleClickOutside(event) {
+      if (cityDropdownRef.current && !cityDropdownRef.current.contains(event.target)) {
+        setCityDropdownOpen(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   const all = inCity(bookingsAll());
   const t = todayISO();
   const st = inCity(staffList(), (s) => s.city || DEFAULT_CITIES[0].id);
 
+
+  // Cities for "By city" section
+  const targetCityIds = ['mumbai', 'thane', 'navi-mumbai'];
+  const byCityRows = targetCityIds.map((cid) => {
+    const cName = cityName(cid);
+    const cBookings = bookingsAll().filter((b) => bCity(b) === cid);
+    const cNewReq = cBookings.filter((b) => b.status === 'requested').length;
+    const cOpen = cBookings.filter((b) => !['completed', 'cancelled'].includes(b.status)).length;
+    const cVisitsToday = cBookings.filter((b) => b.date === t && b.status !== 'cancelled').length;
+    const cUnassigned = cBookings.filter((b) => ['requested', 'confirmed'].includes(b.status) && !b.staffId).length;
+    const cStaff = staffList().filter((s) => (s.city || 'mumbai') === cid);
+    const cStaffOnDuty = cStaff.filter((s) => s.onDuty).length;
+    const cStaffTotal = cStaff.length;
+
+    return {
+      id: cid,
+      name: cName,
+      newReq: cNewReq,
+      openBookings: cOpen,
+      visitsToday: cVisitsToday,
+      unassigned: cUnassigned,
+      staffOnDuty: cStaffOnDuty,
+      staffTotal: cStaffTotal
+    };
+  });
+
   const newReq = all.filter((b) => b.status === 'requested');
   const todayV = all.filter((b) => b.date === t && b.status !== 'cancelled');
-  const unassigned = all.filter((b) => ['requested', 'confirmed'].includes(b.status) && !b.staffId);
+  const unassigned = all.filter(
+    (b) => ['requested', 'confirmed'].includes(b.status) && !b.staffId
+  );
   const queue = all
     .filter((b) => ['requested', 'confirmed'].includes(b.status))
     .sort(byDateTime);
 
-  const busyIds = new Set(
-    all
-      .filter((b) => ['on_the_way', 'in_progress'].includes(b.status))
-      .map((b) => b.staffId)
-  );
-
-  const d = new Date();
-  const hr = d.getHours();
-  const greet = hr < 12 ? 'Good morning' : hr < 17 ? 'Good afternoon' : 'Good evening';
-
+  // Help requests & pending applications
   const helpRequests = inCity(enqAll(), (e) => e.city).filter((e) => e.status === 'new');
   const pendingApps = inCity(applications()).filter((x) => apprOf(x) === 'pending');
 
@@ -65,422 +97,535 @@ export function Dashboard({ onTab, onOpenBooking, onNewBooking }) {
     );
   };
 
-  const handleAssign = (bookingId, staffId) => {
-    if (staffId) {
-      assign(bookingId, staffId, 'admin');
+  // Date and greeting
+  const d = new Date();
+  const hr = d.getHours();
+  const greet = hr < 12 ? 'Good morning' : hr < 17 ? 'Good afternoon' : 'Good evening';
+  const dayName = DOW[d.getDay()];
+  const monthName = MON[d.getMonth()];
+  const dateNum = d.getDate();
+  const year = d.getFullYear();
+
+  // Source badge styling
+  const renderSourceBadge = (source) => {
+    const s = String(source || 'App').toLowerCase();
+    if (s.includes('wa') || s.includes('whatsapp')) {
+      return (
+        <span className="bg-[#e6f7ec] text-[#13803f] text-xs font-semibold px-2.5 py-0.5 rounded-full inline-block">
+          WhatsApp
+        </span>
+      );
     }
+    if (s.includes('call') || s.includes('phone')) {
+      return (
+        <span className="bg-[#f0f2f5] text-slate-600 text-xs font-semibold px-2.5 py-0.5 rounded-full inline-block">
+          Call
+        </span>
+      );
+    }
+    return (
+      <span className="bg-[#e0effa] text-[#1a649f] text-xs font-semibold px-2.5 py-0.5 rounded-full inline-block">
+        App
+      </span>
+    );
   };
 
-  // City breakdown data
-  const cityRows = cities().map((c) => {
-    const bs = bookingsAll().filter((b) => bCity(b) === c.id);
-    const ss = staffList().filter((s) => (s.city || DEFAULT_CITIES[0].id) === c.id);
-    return {
-      c,
-      req: bs.filter((b) => b.status === 'requested').length,
-      open: bs.filter((b) => ACTIVE.includes(b.status)).length,
-      today: bs.filter((b) => b.date === t && b.status !== 'cancelled').length,
-      staff: ss.length,
-      duty: ss.filter((s) => s.onDuty).length,
-      un: bs.filter((b) => ['requested', 'confirmed'].includes(b.status) && !b.staffId).length
-    };
-  });
+  // Staff avatar initials
+  const getInitials = (name) => {
+    if (!name) return 'ST';
+    const parts = name.trim().split(/\s+/);
+    if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+    return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+  };
+
+  // KPI counts computed directly without falsy fallbacks
+  const countNewReq = newReq.length;
+  const countTodayVisits = todayV.length;
+  const countTodayCompleted = todayV.filter((b) => b.status === 'completed').length;
+  const countTodayOpen = Math.max(0, countTodayVisits - countTodayCompleted);
+  const countStaffOnDuty = st.filter((s) => s.onDuty).length;
+  const countStaffTotal = st.length;
+  const countUnassigned = unassigned.length;
 
   return (
-    <div className="space-y-6">
-      {/* Hero Welcome Banner */}
-      <section className="relative overflow-hidden rounded-3xl bg-gradient-to-r from-slate-900 via-slate-800 to-teal-950 p-6 sm:p-8 text-white shadow-lg border border-slate-700/50">
-        <div className="relative z-10 flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
-          <div className="space-y-1.5 max-w-xl">
-            <span className="inline-block text-xs font-semibold text-teal-300 uppercase tracking-wider bg-teal-950/60 border border-teal-800/60 px-2.5 py-1 rounded-lg">
-              {greet} · {DOW[d.getDay()]}, {d.getDate()} {MON[d.getMonth()]}
-            </span>
-            <h1 className="text-2xl sm:text-3xl font-black text-white tracking-tight">
-              Care Desk {selectedCity !== 'all' && `· ${cityName(selectedCity)}`}
-            </h1>
-            <p className="text-sm text-amber-300 font-medium flex items-center gap-2">
-              <span className="w-2 h-2 rounded-full bg-amber-400 shrink-0" />
-              {newReq.length > 0
-                ? `${newReq.length} new request${newReq.length > 1 ? 's' : ''} waiting for confirmation`
-                : 'No new requests waiting'}
-              {' · '}
-              {unassigned.length > 0
-                ? `${unassigned.length} booking${unassigned.length > 1 ? 's' : ''} need a caregiver`
-                : 'All bookings staffed'}
-            </p>
-          </div>
-
+    <div className="p-4 sm:p-6 lg:p-4 max-w-[1440px] mx-auto space-y-4 sm:space-y-4">
+      {/* 4. DASHBOARD HEADER - Styled City Selector */}
+      <div className="flex items-center justify-between">
+        <div className="relative inline-block" ref={cityDropdownRef}>
           <button
             type="button"
-            onClick={onNewBooking}
-            className="flex items-center gap-2 px-5 py-3 rounded-2xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-sm shadow-md transition duration-150 shrink-0 cursor-pointer"
+            onClick={() => setCityDropdownOpen(!cityDropdownOpen)}
+            className="inline-flex items-center gap-2 bg-white hover:bg-slate-50 border border-slate-200/90 rounded-lg px-3.5 py-1.5 shadow-2xs transition cursor-pointer select-none"
+            aria-expanded={cityDropdownOpen}
+            aria-haspopup="true"
           >
-            <Icon name="plus" size={18} strokeWidth={2.5} />
-            <span>New booking</span>
+            <Icon name="pin" size={15} className="text-slate-500" />
+            <span className="text-slate-500 text-xs sm:text-sm font-medium">City</span>
+            <span className="text-slate-900 text-xs sm:text-sm font-bold ml-0.5">
+              {selectedCity === 'all' ? 'All cities' : cityName(selectedCity)}
+            </span>
+            <Icon name="down" size={13} className="text-slate-500 ml-1" />
           </button>
-        </div>
 
-        {/* Decorative background glow */}
-        <div className="absolute top-0 right-0 -mt-12 -mr-12 w-64 h-64 rounded-full bg-teal-500/10 blur-3xl pointer-events-none" />
-      </section>
-
-      {/* KPI Cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        {/* KPI 1 */}
-        <div className="bg-white rounded-2xl p-5 border border-slate-200/80 shadow-2xs space-y-1">
-          <span className="text-xs font-semibold text-slate-500 block">New requests</span>
-          <div className="text-3xl font-black text-amber-600 tabular-nums">{newReq.length}</div>
-          <span className="text-xs text-slate-500">Awaiting confirmation</span>
-        </div>
-
-        {/* KPI 2 */}
-        <div className="bg-white rounded-2xl p-5 border border-slate-200/80 shadow-2xs space-y-1">
-          <span className="text-xs font-semibold text-slate-500 block">Visits today</span>
-          <div className="text-3xl font-black text-slate-900 tabular-nums">{todayV.length}</div>
-          <span className="text-xs text-slate-500">
-            {todayV.filter((b) => b.status === 'completed').length} done ·{' '}
-            {todayV.filter((b) => b.status !== 'completed').length} open
-          </span>
-        </div>
-
-        {/* KPI 3 */}
-        <div className="bg-white rounded-2xl p-5 border border-slate-200/80 shadow-2xs space-y-1">
-          <span className="text-xs font-semibold text-slate-500 block">Staff on duty</span>
-          <div className="text-3xl font-black text-slate-900 tabular-nums">
-            {st.filter((s) => s.onDuty).length}
-          </div>
-          <span className="text-xs text-slate-500">of {st.length} total staff</span>
-        </div>
-
-        {/* KPI 4 */}
-        <div className="bg-white rounded-2xl p-5 border border-slate-200/80 shadow-2xs space-y-1">
-          <span className="text-xs font-semibold text-slate-500 block">Unassigned</span>
-          <div
-            className={`text-3xl font-black tabular-nums ${
-              unassigned.length ? 'text-red-600' : 'text-emerald-600'
-            }`}
-          >
-            {unassigned.length}
-          </div>
-          <span className="text-xs text-slate-500">Need a nurse or caregiver</span>
+          {/* Dropdown Menu */}
+          {cityDropdownOpen && (
+            <div className="absolute top-full left-0 mt-1 w-44 bg-white rounded-lg shadow-2xl border border-slate-200 py-1 z-40 max-h-64 overflow-y-auto animate-in fade-in zoom-in-95 duration-100">
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedCity('all');
+                  setCityDropdownOpen(false);
+                }}
+                className={`w-full text-left px-3.5 py-1.5 text-xs font-medium transition flex items-center justify-between ${
+                  selectedCity === 'all'
+                    ? 'bg-[#1864AB] text-white font-semibold'
+                    : 'text-slate-700 hover:bg-slate-100'
+                }`}
+              >
+                <span>All cities</span>
+              </button>
+              {cities().map((c) => (
+                <button
+                  key={c.id}
+                  type="button"
+                  onClick={() => {
+                    setSelectedCity(c.id);
+                    setCityDropdownOpen(false);
+                  }}
+                  className={`w-full text-left px-3.5 py-1.5 text-xs font-medium transition flex items-center justify-between ${
+                    selectedCity === c.id
+                      ? 'bg-[#1864AB] text-white font-semibold'
+                      : 'text-slate-700 hover:bg-slate-100'
+                  }`}
+                >
+                  <span>{c.name}</span>
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       </div>
 
-      {/* Action Triage Banners */}
+      {/* 5. CARE DESK HERO BANNER with Official Logo */}
+      <section className="relative overflow-hidden rounded-xl bg-gradient-to-r from-[#0C2B54] via-[#0E3A73] to-[#124991] p-5 sm:p-6 text-white shadow-sm border border-[#164b85]/40 select-none">
+        {/* Subtle yellow decorative chevron peaks at bottom of banner */}
+        <div className="absolute bottom-0 left-1/2 -translate-x-1/4 pointer-events-none opacity-40">
+          <svg width="240" height="24" viewBox="0 0 240 24" fill="none">
+            <path d="M20 24 L40 6 L60 24 M70 24 L90 6 L110 24 M120 24 L140 6 L160 24" stroke="#f59e0b" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        </div>
+
+        <div className="relative z-10 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 sm:gap-6">
+          {/* Left: Official Circular Logo + Greeting Info */}
+          <div className="flex items-center gap-3.5 sm:gap-4.5">
+            <div className="w-13 h-13 sm:w-14 sm:h-14 rounded-full bg-white shadow-md flex items-center justify-center p-0.5 shrink-0 select-none overflow-hidden">
+              <img
+                src="/eldoria-logo.png"
+                alt="Eldoria+ Care at Home"
+                className="w-full h-full object-contain"
+              />
+            </div>
+
+            <div>
+              <p className="text-slate-300 text-xs sm:text-[13px] font-medium leading-none">
+                {greet} · {dayName}, {dateNum} {monthName} {year}
+              </p>
+              <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight leading-tight mt-1.5">
+                Care desk{selectedCity !== 'all' ? ` · ${cityName(selectedCity)}` : ''}
+              </h1>
+              <p className="text-[#f59e0b] font-bold text-xs sm:text-sm mt-1 leading-snug">
+                {countNewReq} new request{countNewReq === 1 ? '' : 's'} waiting for confirmation
+              </p>
+            </div>
+          </div>
+
+          {/* Right: + New booking Button */}
+          <button
+            type="button"
+            onClick={onNewBooking}
+            className="bg-[#f59e0b] hover:bg-[#e69107] text-[#0c1f36] font-bold text-xs sm:text-sm px-4 py-2.5 rounded-lg flex items-center gap-2 shadow-xs transition shrink-0 cursor-pointer"
+          >
+            <span className="text-lg leading-none font-extrabold">+</span>
+            <span>New booking</span>
+          </button>
+        </div>
+      </section>
+
+      {/* 6. KPI CARDS - All with Identical Width, Height & Compact rounded-xl */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5 sm:gap-4">
+        {/* KPI 1: New requests */}
+        <div className="w-full bg-white rounded-xl border border-slate-200/90 border-t-[3px] border-t-[#F59E0B] p-4.5 sm:p-5 shadow-2xs flex flex-col justify-between min-h-[118px]">
+          <span className="text-xs font-semibold text-slate-500 block">New requests</span>
+          <div className="text-3xl sm:text-4xl font-extrabold text-[#D97706] tabular-nums my-1 leading-none">
+            {countNewReq}
+          </div>
+          <span className="text-xs text-slate-400 block">Awaiting confirmation</span>
+        </div>
+
+        {/* KPI 2: Visits today */}
+        <div className="w-full bg-white rounded-xl border border-slate-200/90 border-t-[3px] border-t-[#0284C7] p-4.5 sm:p-5 shadow-2xs flex flex-col justify-between min-h-[118px]">
+          <span className="text-xs font-semibold text-slate-500 block">Visits today</span>
+          <div className="text-3xl sm:text-4xl font-extrabold text-slate-900 tabular-nums my-1 leading-none">
+            {countTodayVisits}
+          </div>
+          <span className="text-xs text-slate-400 block">
+            {countTodayCompleted} completed · {countTodayOpen} open
+          </span>
+        </div>
+
+        {/* KPI 3: Staff on duty */}
+        <div className="w-full bg-white rounded-xl border border-slate-200/90 border-t-[3px] border-t-[#F59E0B] p-4.5 sm:p-5 shadow-2xs flex flex-col justify-between min-h-[118px]">
+          <span className="text-xs font-semibold text-slate-500 block">Staff on duty</span>
+          <div className="text-3xl sm:text-4xl font-extrabold text-slate-900 tabular-nums my-1 leading-none">
+            {countStaffOnDuty}
+          </div>
+          <span className="text-xs text-slate-400 block">of {countStaffTotal} staff</span>
+        </div>
+
+        {/* KPI 4: Unassigned */}
+        <div className="w-full bg-white rounded-xl border border-slate-200/90 border-t-[3px] border-t-[#F59E0B] p-4.5 sm:p-5 shadow-2xs flex flex-col justify-between min-h-[118px]">
+          <span className="text-xs font-semibold text-slate-500 block">Unassigned</span>
+          <div className="text-3xl sm:text-4xl font-extrabold text-[#DC2626] tabular-nums my-1 leading-none">
+            {countUnassigned}
+          </div>
+          <span className="text-xs text-slate-400 block">Need a nurse or caregiver</span>
+        </div>
+      </div>
+
+      {/* 7. HELP REQUEST ALERT (Displayed conditionally) */}
       {helpRequests.length > 0 && (
-        <button
-          type="button"
-          onClick={() => onTab('enquiries')}
-          className="w-full flex items-center justify-between p-4 rounded-2xl bg-blue-50 border border-blue-200 hover:border-blue-300 text-left transition cursor-pointer shadow-2xs"
-        >
-          <div className="flex items-center gap-3 min-w-0">
-            <div className="w-10 h-10 rounded-xl bg-blue-600 text-white flex items-center justify-center shrink-0">
-              <Icon name="help" size={20} />
+        <div className="w-full bg-[#edf4fb] border border-[#d2e2f2] rounded-xl px-4 sm:px-5 py-3.5 flex items-center justify-between gap-3 sm:gap-4 shadow-2xs">
+          <div className="flex items-center gap-3 sm:gap-3.5 min-w-0">
+            <div className="w-8.5 h-8.5 rounded-full bg-[#0d2238] text-white flex items-center justify-center shrink-0">
+              <Icon name="help" size={18} strokeWidth={2.4} />
             </div>
             <div className="truncate">
-              <span className="font-bold text-blue-950 block text-sm sm:text-base">
-                {helpRequests.length} new help request{helpRequests.length > 1 ? 's' : ''}: customers unsure what care they need
+              <span className="font-bold text-slate-900 block text-xs sm:text-sm truncate">
+                {helpRequests.length} new help request: customers not sure what care they need
               </span>
-              <span className="text-xs text-blue-800">
-                {helpRequests.slice(0, 3).map((e) => `${e.clientName} (${e.patientType || 'care'})`).join(', ')}
+              <span className="text-xs text-slate-500 truncate block mt-0.5">
+                {helpRequests.slice(0, 2).map((e) => `${e.clientName} (${e.patientType || 'Elderly care'})`).join(', ')}
               </span>
             </div>
           </div>
-          <span className="shrink-0 text-xs font-bold text-white bg-blue-700 hover:bg-blue-800 px-3.5 py-1.5 rounded-xl ml-3">
+          <button
+            type="button"
+            onClick={() => onTab('enquiries')}
+            className="shrink-0 bg-[#0E2F5A] hover:bg-[#163D70] active:scale-[0.98] text-white text-xs font-bold px-3.5 py-1.5 rounded-lg transition cursor-pointer shadow-xs"
+          >
             Call &amp; recommend
-          </span>
-        </button>
+          </button>
+        </div>
       )}
 
+      {/* 8. STAFF APPLICATION ALERT (Displayed conditionally) */}
       {pendingApps.length > 0 && (
-        <button
-          type="button"
-          onClick={() => onTab('onboarding')}
-          className="w-full flex items-center justify-between p-4 rounded-2xl bg-amber-50 border border-amber-200 hover:border-amber-300 text-left transition cursor-pointer shadow-2xs"
-        >
-          <div className="flex items-center gap-3 min-w-0">
-            <div className="w-10 h-10 rounded-xl bg-amber-500 text-slate-950 flex items-center justify-center shrink-0">
-              <Icon name="shield" size={20} />
+        <div className="w-full bg-[#fef7eb] border border-[#fde4ba] rounded-xl px-4 sm:px-5 py-3.5 flex items-center justify-between gap-3 sm:gap-4 shadow-2xs">
+          <div className="flex items-center gap-3 sm:gap-3.5 min-w-0">
+            <div className="w-8.5 h-8.5 rounded-xl bg-[#f59e0b] text-[#0d2238] flex items-center justify-center shrink-0 font-bold">
+              <Icon name="shield" size={18} strokeWidth={2.4} />
             </div>
             <div className="truncate">
-              <span className="font-bold text-amber-950 block text-sm sm:text-base">
-                {pendingApps.length} staff application{pendingApps.length > 1 ? 's' : ''} waiting for review
+              <span className="font-bold text-slate-900 block text-xs sm:text-sm truncate">
+                {pendingApps.length} staff application waiting for review
               </span>
-              <span className="text-xs text-amber-800">
-                {pendingApps.slice(0, 3).map((x) => `${x.name} (${x.role})`).join(', ')}
-                {pendingApps.length > 3 ? '…' : ''}
+              <span className="text-xs text-slate-500 truncate block mt-0.5">
+                {pendingApps.map((x) => `${x.name} (${x.role})`).join(', ')}
               </span>
             </div>
           </div>
-          <span className="shrink-0 text-xs font-bold text-slate-950 bg-amber-400 hover:bg-amber-500 px-3.5 py-1.5 rounded-xl ml-3">
+          <button
+            type="button"
+            onClick={() => onTab('onboarding')}
+            className="shrink-0 bg-[#0E2F5A] hover:bg-[#163D70] active:scale-[0.98] text-white text-xs font-bold px-4 py-1.5 rounded-lg transition cursor-pointer shadow-xs"
+          >
             Review
-          </span>
-        </button>
+          </button>
+        </div>
       )}
 
-      {/* Split Section: Needs Action vs Staff Availability */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Left (2 Cols): Needs Action */}
-        <section className="lg:col-span-2 bg-white rounded-2xl border border-slate-200/80 shadow-2xs overflow-hidden flex flex-col">
-          <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
-            <div className="flex items-center gap-2">
-              <h2 className="font-black text-slate-900 text-base">Needs action</h2>
-              <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-700">
-                {queue.length}
-              </span>
-            </div>
+      {/* 9 & 10. SPLIT SECTION: NEEDS ACTION VS STAFF AVAILABILITY */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
+        {/* 9. NEEDS ACTION SECTION (Left ~65% / 8 cols) */}
+        <section className="lg:col-span-8 bg-white rounded-xl border border-slate-200/90 shadow-2xs overflow-hidden flex flex-col">
+          {/* Header */}
+          <div className="flex items-center justify-between px-5 py-3.5 border-b border-slate-100">
+            <h2 className="font-extrabold text-slate-900 text-sm sm:text-base">Needs action</h2>
             <button
               type="button"
               onClick={() => onTab('bookings')}
-              className="text-xs font-bold text-teal-700 hover:text-teal-900 transition cursor-pointer"
+              className="bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-semibold px-3 py-1.5 rounded-lg transition cursor-pointer"
             >
-              All bookings →
+              All bookings
             </button>
           </div>
 
-          {queue.length === 0 ? (
-            <div className="p-8 text-center text-slate-400 space-y-1">
-              <div className="font-bold text-slate-700">Nothing waiting</div>
-              <p className="text-xs">New requests from the app, WhatsApp or calls appear here.</p>
-            </div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-sm">
-                <thead>
-                  <tr className="bg-slate-50/70 border-b border-slate-100 text-slate-500 text-xs uppercase tracking-wider font-semibold">
-                    <th className="py-3 px-4">Client</th>
-                    <th className="py-3 px-4">City</th>
-                    <th className="py-3 px-4">Service</th>
-                    <th className="py-3 px-4">When</th>
-                    <th className="py-3 px-4">Source</th>
-                    <th className="py-3 px-4 text-right">Action</th>
+          {/* Table with overflow container & whitespace-nowrap columns */}
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs sm:text-sm min-w-[640px]">
+              <thead>
+                <tr className="bg-[#f1f5f9] text-slate-500 text-[11px] font-bold uppercase tracking-wider">
+                  <th className="py-2.5 px-3.5 sm:px-4 font-bold whitespace-nowrap">CLIENT</th>
+                  <th className="py-2.5 px-3.5 sm:px-4 font-bold whitespace-nowrap">CITY</th>
+                  <th className="py-2.5 px-3.5 sm:px-4 font-bold whitespace-nowrap">SERVICE</th>
+                  <th className="py-2.5 px-3.5 sm:px-4 font-bold whitespace-nowrap">WHEN</th>
+                  <th className="py-2.5 px-3.5 sm:px-4 font-bold whitespace-nowrap">SOURCE</th>
+                  <th className="py-2.5 px-3.5 sm:px-4 font-bold text-right whitespace-nowrap">ACTION</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {queue.length === 0 ? (
+                  <tr className="text-center py-8">
+                    <td colSpan={6} className="py-8 text-slate-400 text-xs">
+                      No bookings currently need action
+                    </td>
                   </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {queue.map((b) => {
-                    const localStaff = st.filter(
-                      (s) => (s.city || DEFAULT_CITIES[0].id) === bCity(b)
-                    );
-                    const otherStaff = st.filter(
-                      (s) => (s.city || DEFAULT_CITIES[0].id) !== bCity(b)
-                    );
+                ) : (
+                  queue.slice(0, 8).map((b) => {
+                    const isToday = b.date === t;
+                    const whenFormatted = isToday ? `Today, ${b.time}` : `${fmtDate(b.date)}, ${b.time}`;
 
                     return (
-                      <tr key={b.id} className="hover:bg-slate-50/50 transition">
-                        <td className="py-3 px-4">
+                      <tr key={b.id} className="hover:bg-slate-50/60 transition">
+                        {/* CLIENT Column */}
+                        <td className="py-2.5 px-3.5 sm:px-4 whitespace-nowrap">
                           <button
                             type="button"
                             onClick={() => onOpenBooking(b.id)}
-                            className="text-left group cursor-pointer"
+                            className="text-left group cursor-pointer block"
                           >
-                            <div className="font-bold text-teal-700 group-hover:underline">
+                            <div className="font-bold text-slate-900 text-xs sm:text-[13px] group-hover:text-teal-700 whitespace-nowrap leading-snug">
                               {b.clientName}
                             </div>
-                            <div className="text-xs text-slate-400">
+                            <div className="text-[11px] text-slate-400 mt-0.5 whitespace-nowrap leading-snug">
                               {b.patientName} · {b.code}
                             </div>
                           </button>
                         </td>
-                        <td className="py-3 px-4 text-slate-700 text-xs font-medium">
+
+                        {/* CITY Column */}
+                        <td className="py-2.5 px-3.5 sm:px-4 text-slate-700 text-xs font-medium whitespace-nowrap">
                           {cityName(bCity(b))}
                         </td>
-                        <td className="py-3 px-4">
-                          <div className="font-medium text-slate-800 text-xs">
+
+                        {/* SERVICE Column */}
+                        <td className="py-2.5 px-3.5 sm:px-4 whitespace-nowrap">
+                          <div className="font-medium text-slate-800 text-xs sm:text-[13px] whitespace-nowrap leading-snug">
                             {svcB(b).name}
                           </div>
-                          <div className="text-[11px] text-slate-400">{b.plan}</div>
+                          <div className="text-[11px] text-slate-400 mt-0.5 whitespace-nowrap leading-snug">
+                            {b.plan || 'Single visit'}
+                          </div>
                         </td>
-                        <td className="py-3 px-4 text-xs font-mono text-slate-700 whitespace-nowrap">
-                          {fmtDate(b.date)}, {b.time}
+
+                        {/* WHEN Column */}
+                        <td className="py-2.5 px-3.5 sm:px-4 text-xs text-slate-700 font-medium whitespace-nowrap">
+                          {whenFormatted}
                         </td>
-                        <td className="py-3 px-4">
-                          <StatusBadge status={b.source} type="source" />
+
+                        {/* SOURCE Column */}
+                        <td className="py-2.5 px-3.5 sm:px-4 whitespace-nowrap">
+                          {renderSourceBadge(b.source)}
                         </td>
-                        <td className="py-3 px-4 text-right">
+
+                        {/* ACTION Column with Navy Confirm Button & Native Floating Assign Select */}
+                        <td className="py-2.5 px-3.5 sm:px-4 text-right whitespace-nowrap">
                           {b.status === 'requested' ? (
                             <button
                               type="button"
                               onClick={() => handleConfirm(b)}
-                              className="px-3 py-1.5 rounded-xl bg-teal-600 hover:bg-teal-700 text-white font-bold text-xs transition cursor-pointer"
+                              className="bg-[#0E2F5A] hover:bg-[#163D70] active:scale-[0.98] text-white text-xs font-bold px-3.5 py-1.5 rounded-lg transition cursor-pointer shadow-xs inline-block"
                             >
                               Confirm
                             </button>
-                          ) : (
-                            <select
-                              value={b.staffId || ''}
-                              onChange={(e) => handleAssign(b.id, e.target.value)}
-                              aria-label={`Assign staff for ${b.code}`}
-                              className="rounded-xl border border-slate-200 bg-white py-1.5 px-2.5 text-xs font-semibold text-slate-700 focus:outline-none focus:ring-1 focus:ring-teal-500 cursor-pointer"
-                            >
-                              <option value="">
-                                {st.length
-                                  ? localStaff.length
-                                    ? 'Assign staff…'
-                                    : `No staff in ${cityName(bCity(b))}`
-                                  : 'Add staff first'}
-                              </option>
-                              {localStaff.length > 0 && (
-                                <optgroup label={`In ${cityName(bCity(b))}`}>
-                                  {localStaff.map((s) => (
-                                    <option key={s.id} value={s.id}>
-                                      {s.name} · {s.role}
-                                      {s.onDuty ? '' : ' (off duty)'}
-                                    </option>
-                                  ))}
-                                </optgroup>
-                              )}
-                              {otherStaff.length > 0 && (
-                                <optgroup label="Other cities">
-                                  {otherStaff.map((s) => (
-                                    <option key={s.id} value={s.id}>
-                                      {s.name} · {s.role} (
-                                      {cityName(s.city || DEFAULT_CITIES[0].id)})
-                                    </option>
-                                  ))}
-                                </optgroup>
-                              )}
-                            </select>
-                          )}
+                          ) : (() => {
+                            const stList = staffList();
+                            const bc = bCity(b);
+                            const defaultCityId = DEFAULT_CITIES[0]?.id || 'mumbai';
+                            const local = stList.filter((s) => (s.city || defaultCityId) === bc);
+                            const other = stList.filter((s) => (s.city || defaultCityId) !== bc);
+                            return (
+                              <select
+                                aria-label={`Assign staff for ${b.code}`}
+                                value={b.staffId || ''}
+                                onChange={(e) => {
+                                  const sid = e.target.value;
+                                  if (sid) {
+                                    assign(b.id, sid, 'admin');
+                                  } else {
+                                    unassign(b.id);
+                                  }
+                                }}
+                                className="bg-white hover:bg-slate-50 border border-slate-300 text-slate-800 text-xs sm:text-[13px] font-medium px-2.5 py-1.5 rounded-lg shadow-2xs cursor-pointer focus:outline-none focus:ring-1 focus:ring-[#0E2F5A] focus:border-[#0E2F5A] transition max-w-[200px]"
+                              >
+                                <option value="">
+                                  {stList.length ? (local.length ? 'Assign staff..' : `No staff in ${cityName(bc)}`) : 'Add staff first'}
+                                </option>
+                                {local.length > 0 && (
+                                  <optgroup label={`In ${cityName(bc)}`}>
+                                    {local.map((s) => (
+                                      <option key={s.id} value={s.id}>
+                                        {s.name} · {s.role}{!s.onDuty ? ' (off duty)' : ''}
+                                      </option>
+                                    ))}
+                                  </optgroup>
+                                )}
+                                {other.length > 0 && (
+                                  <optgroup label="Other cities">
+                                    {other.map((s) => (
+                                      <option key={s.id} value={s.id}>
+                                        {s.name} · {s.role}{!s.onDuty ? ' (off duty)' : ''} · {cityName(s.city || defaultCityId)}
+                                      </option>
+                                    ))}
+                                  </optgroup>
+                                )}
+                              </select>
+                            );
+                          })()}
                         </td>
                       </tr>
                     );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          )}
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
         </section>
 
-        {/* Right (1 Col): Staff Availability */}
-        <section className="bg-white rounded-2xl border border-slate-200/80 shadow-2xs overflow-hidden flex flex-col">
-          <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
-            <h2 className="font-black text-slate-900 text-base">Staff availability</h2>
+        {/* 10. STAFF AVAILABILITY SECTION (Right ~35% / 4 cols) */}
+        <section className="lg:col-span-4 bg-white rounded-xl border border-slate-200/90 shadow-2xs overflow-hidden flex flex-col">
+          {/* Header */}
+          <div className="flex items-center justify-between px-5 py-3.5 border-b border-slate-100">
+            <h2 className="font-extrabold text-slate-900 text-sm sm:text-base">Staff availability</h2>
             <button
               type="button"
               onClick={() => onTab('staff')}
-              className="text-xs font-bold text-teal-700 hover:text-teal-900 transition cursor-pointer"
+              className="bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-semibold px-3 py-1.5 rounded-lg transition cursor-pointer"
             >
-              Manage →
+              Manage
             </button>
           </div>
 
-          <div className="p-3 divide-y divide-slate-100 max-h-[480px] overflow-y-auto">
+          {/* Staff Rows */}
+          <div className="divide-y divide-slate-100 overflow-y-auto">
             {st.length === 0 ? (
-              <div className="p-6 text-center text-slate-400 space-y-2">
-                <p className="font-bold text-slate-700 text-sm">No staff added yet</p>
-                <button
-                  type="button"
-                  onClick={() => onTab('staff')}
-                  className="px-3.5 py-1.5 rounded-xl bg-teal-600 hover:bg-teal-700 text-white font-bold text-xs"
-                >
-                  Add staff
-                </button>
-              </div>
+              <div className="p-6 text-center text-slate-400 text-xs">No staff found</div>
             ) : (
-              st.map((s) => {
-                const isBusy = busyIds.has(s.id);
-                const state = isBusy
-                  ? { label: 'On visit', color: 'text-amber-600 bg-amber-50 border-amber-200' }
-                  : s.onDuty
-                  ? { label: 'Available', color: 'text-emerald-700 bg-emerald-50 border-emerald-200' }
-                  : { label: 'Off duty', color: 'text-slate-500 bg-slate-100 border-slate-200' };
-
-                const initials = s.name
-                  ? s.name
-                      .split(' ')
-                      .map((n) => n[0])
-                      .slice(0, 2)
-                      .join('')
-                      .toUpperCase()
-                  : 'S';
-
-                return (
-                  <div key={s.id} className="py-2.5 px-2 flex items-center justify-between gap-3">
-                    <div className="flex items-center gap-3 min-w-0">
-                      <div className="w-9 h-9 rounded-full bg-slate-100 text-slate-700 font-bold text-xs flex items-center justify-center shrink-0 border border-slate-200">
-                        {initials}
+              st.slice(0, 7).map((s) => (
+                <div
+                  key={s.id}
+                  className="px-4 py-2.5 flex items-center justify-between gap-3 hover:bg-slate-50/50 transition"
+                >
+                  <div className="flex items-center gap-3 min-w-0">
+                    {/* Circle Initials Avatar matching Peach tone */}
+                    <div className="w-8 h-8 rounded-full bg-[#fed7aa] text-[#9a3412] font-bold text-xs flex items-center justify-center shrink-0">
+                      {getInitials(s.name)}
+                    </div>
+                    {/* Staff Details */}
+                    <div className="min-w-0">
+                      <div className="font-bold text-slate-900 text-xs sm:text-[13px] truncate leading-snug">
+                        {s.name}
                       </div>
-                      <div className="min-w-0">
-                        <div className="font-bold text-slate-900 text-xs truncate">{s.name}</div>
-                        <div className="text-[11px] text-slate-400 truncate">
-                          {s.role} · {cityName(s.city || DEFAULT_CITIES[0].id)}
-                          {s.area ? `, ${s.area}` : ''}
-                        </div>
+                      <div className="text-[11px] text-slate-400 truncate mt-0.5 leading-snug">
+                        {s.role} · {cityName(s.city || 'mumbai')}
+                        {s.area ? `, ${s.area}` : ''}
                       </div>
                     </div>
-
-                    <span
-                      className={`text-[11px] font-bold px-2 py-0.5 rounded-full border shrink-0 ${state.color}`}
-                    >
-                      {state.label}
-                    </span>
                   </div>
-                );
-              })
+
+                  {/* Status Indicator */}
+                  <div className="shrink-0 text-right">
+                    {s.onDuty ? (
+                      <span className="text-[#15803d] font-bold text-xs flex items-center gap-1.5">
+                        <span className="w-1.5 h-1.5 rounded-full bg-[#15803d]" />
+                        Available
+                      </span>
+                    ) : (
+                      <span className="text-slate-500 font-medium text-xs flex items-center gap-1.5">
+                        <span className="w-1.5 h-1.5 rounded-full bg-slate-400" />
+                        Off duty
+                      </span>
+                    )}
+                  </div>
+                </div>
+              ))
             )}
           </div>
         </section>
       </div>
 
-      {/* By City Breakdown (Shown when selectedCity is 'all') */}
+      {/* 11. BY CITY SECTION (Shown when "All cities" is selected) */}
       {selectedCity === 'all' && (
-        <section className="bg-white rounded-2xl border border-slate-200/80 shadow-2xs overflow-hidden">
-          <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
-            <div>
-              <h2 className="font-black text-slate-900 text-base">By city</h2>
-              <p className="text-xs text-slate-500">Summary across all operational hubs</p>
-            </div>
+        <section className="bg-white rounded-xl border border-slate-200/90 shadow-2xs overflow-hidden flex flex-col">
+          {/* Header */}
+          <div className="flex items-center justify-between px-5 py-3.5 border-b border-slate-100">
+            <h2 className="font-extrabold text-slate-900 text-sm sm:text-base">By city</h2>
             <button
               type="button"
               onClick={() => onTab('cities')}
-              className="text-xs font-bold text-teal-700 hover:text-teal-900 transition cursor-pointer"
+              className="bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-semibold px-3 py-1.5 rounded-lg transition cursor-pointer"
             >
-              Manage cities →
+              Manage cities
             </button>
           </div>
 
+          {/* Table */}
           <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm">
+            <table className="w-full text-left text-xs sm:text-sm min-w-[700px]">
               <thead>
-                <tr className="bg-slate-50/70 border-b border-slate-100 text-slate-500 text-xs uppercase tracking-wider font-semibold">
-                  <th className="py-3 px-4">City</th>
-                  <th className="py-3 px-4">New requests</th>
-                  <th className="py-3 px-4">Open bookings</th>
-                  <th className="py-3 px-4">Visits today</th>
-                  <th className="py-3 px-4">Unassigned</th>
-                  <th className="py-3 px-4">Staff on duty</th>
-                  <th className="py-3 px-4 text-right">View</th>
+                <tr className="bg-[#f1f5f9] text-slate-500 text-[11px] font-bold uppercase tracking-wider">
+                  <th className="py-2.5 px-4.5 font-bold whitespace-nowrap">CITY</th>
+                  <th className="py-2.5 px-4 font-bold whitespace-nowrap">NEW REQUESTS</th>
+                  <th className="py-2.5 px-4 font-bold whitespace-nowrap">OPEN BOOKINGS</th>
+                  <th className="py-2.5 px-4 font-bold whitespace-nowrap">VISITS TODAY</th>
+                  <th className="py-2.5 px-4 font-bold whitespace-nowrap">UNASSIGNED</th>
+                  <th className="py-2.5 px-4 font-bold whitespace-nowrap">STAFF ON DUTY</th>
+                  <th className="py-2.5 px-4.5 font-bold text-right whitespace-nowrap"></th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {cityRows.map((r) => (
-                  <tr key={r.c.id} className="hover:bg-slate-50/50 transition">
-                    <td className="py-3 px-4 font-bold text-slate-900">{r.c.name}</td>
-                    <td className="py-3 px-4 font-mono font-medium text-slate-700">{r.req}</td>
-                    <td className="py-3 px-4 font-mono font-medium text-slate-700">{r.open}</td>
-                    <td className="py-3 px-4 font-mono font-medium text-slate-700">{r.today}</td>
-                    <td
-                      className={`py-3 px-4 font-mono font-bold ${
-                        r.un ? 'text-red-600' : 'text-slate-700'
-                      }`}
-                    >
-                      {r.un}
+                {byCityRows.map((row) => (
+                  <tr key={row.id} className="hover:bg-slate-50/60 transition">
+                    <td className="py-3 px-4.5 font-bold text-slate-900 text-xs sm:text-sm whitespace-nowrap">
+                      {row.name}
                     </td>
-                    <td className="py-3 px-4 font-mono text-slate-700">
-                      {r.duty} of {r.staff}
-                      {!r.staff && (
-                        <span className="ml-2 text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-amber-100 text-amber-800">
-                          No staff
+                    <td className="py-3 px-4 text-slate-800 text-xs sm:text-sm font-semibold whitespace-nowrap">
+                      {row.newReq}
+                    </td>
+                    <td className="py-3 px-4 text-slate-800 text-xs sm:text-sm font-semibold whitespace-nowrap">
+                      {row.openBookings}
+                    </td>
+                    <td className="py-3 px-4 text-slate-800 text-xs sm:text-sm font-semibold whitespace-nowrap">
+                      {row.visitsToday}
+                    </td>
+                    <td className="py-3 px-4 whitespace-nowrap">
+                      {row.unassigned > 0 ? (
+                        <span className="text-[#dc2626] font-bold text-xs sm:text-sm">{row.unassigned}</span>
+                      ) : (
+                        <span className="text-slate-800 text-xs sm:text-sm font-semibold">0</span>
+                      )}
+                    </td>
+                    <td className="py-3 px-4 text-slate-800 text-xs sm:text-sm whitespace-nowrap">
+                      {row.staffTotal === 0 ? (
+                        <span className="text-slate-500 font-medium inline-flex items-center gap-1.5">
+                          0 of 0
+                          <span className="bg-[#fef3c7] text-[#92400e] text-[10px] font-bold px-2 py-0.5 rounded-full leading-tight">
+                            No staff
+                          </span>
+                        </span>
+                      ) : (
+                        <span className="font-medium text-slate-800">
+                          {row.staffOnDuty} of {row.staffTotal}
                         </span>
                       )}
                     </td>
-                    <td className="py-3 px-4 text-right">
+                    <td className="py-3 px-4.5 text-right whitespace-nowrap">
                       <button
                         type="button"
-                        onClick={() => setSelectedCity(r.c.id)}
-                        className="px-2.5 py-1 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs transition cursor-pointer"
+                        onClick={() => setSelectedCity(row.id)}
+                        className="bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-semibold px-3 py-1 rounded-lg transition cursor-pointer"
                       >
-                        Filter
+                        View
                       </button>
                     </td>
                   </tr>

@@ -1,9 +1,10 @@
 import React, { createContext, useContext, useState } from 'react';
+import { DEMO_FILES } from '../constants/demoFiles';
 
 const FileContext = createContext(null);
 
 export function FileProvider({ children }) {
-  const [cache, setCache] = useState({});
+  const [cache, setCache] = useState(DEMO_FILES || {});
 
   const readAsDataURL = (file) =>
     new Promise((resolve, reject) => {
@@ -68,7 +69,7 @@ export function FileProvider({ children }) {
 
   const fileGet = (id) => {
     if (!id) return null;
-    return cache[id] || null;
+    return cache[id] || DEMO_FILES[id] || null;
   };
 
   return (

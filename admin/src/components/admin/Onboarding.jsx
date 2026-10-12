@@ -1,12 +1,11 @@
 import React, { useState } from 'react';
 import { Icon } from '../../constants/icons';
-import { StatusBadge } from '../common/StatusBadge';
 import { useStore } from '../../context/StoreContext';
 import { useFiles } from '../../context/FileContext';
-import { OB_DOCS, fmtTs } from '../../constants/data';
+import { OB_DOCS, fmtTs, DEFAULT_CITIES } from '../../constants/data';
 
 export function Onboarding({ onOpenApplication }) {
-  const { inCity, applications, apprOf, cityName, sCity } = useStore();
+  const { inCity, applications, apprOf, cityName, sCity, cities, selectedCity, setSelectedCity } = useStore();
   const { fileGet } = useFiles();
   const [filter, setFilter] = useState('pending');
 
@@ -18,25 +17,42 @@ export function Onboarding({ onOpenApplication }) {
   const list = filter === 'all' ? all : all.filter((x) => apprOf(x) === filter);
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-black text-slate-900 tracking-tight">Staff onboarding</h1>
-          <p className="text-xs text-slate-500 font-medium">
-            {countFor('pending')} applicants waiting for verification &amp; activation
-          </p>
-        </div>
+    <div className="p-4 sm:p-5 lg:p-4 w-full max-w-[1400px] mx-auto space-y-3">
+      {/* 1. City Dropdown Pill at Top */}
+      <div className="flex items-center gap-2 self-start bg-white border border-slate-200/90 rounded-lg px-3 py-1 shadow-2xs w-fit">
+        <Icon name="pin" size={15} className="text-slate-500" />
+        <span className="text-xs font-semibold text-slate-500">City</span>
+        <select
+          value={selectedCity}
+          onChange={(e) => setSelectedCity(e.target.value)}
+          className="bg-transparent text-xs font-bold text-slate-800 focus:outline-none cursor-pointer py-1 pr-1"
+        >
+          <option value="all">All cities</option>
+          {cities().map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.name}
+            </option>
+          ))}
+        </select>
       </div>
 
+      {/* 2. Header Row: Title on Left, Count on Right */}
+      <div className="flex items-center justify-between gap-3">
+        <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Staff onboarding</h1>
+        <span className="text-xs text-slate-500 font-medium">
+          {countFor('pending')} waiting for review
+        </span>
+      </div>
+
+      {/* 3. Description Subtitle */}
       <p className="text-xs text-slate-600 max-w-3xl leading-relaxed">
-        Nurses and caregivers apply with their credentials and verification documents. Check each
-        mandatory document, then approve them to join the active platform. Only approved staff can
-        sign in and be assigned home care visits.
+        Nurses and caregivers apply from the Staff app with their details and documents. Check each
+        document, then approve them to join the platform. Only approved staff can sign in and be
+        assigned visits.
       </p>
 
-      {/* Filter Chips */}
-      <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar py-0.5">
+      {/* 4. Filter Chips Row with Aligned Button Labels */}
+      <div className="flex items-center gap-2 overflow-x-auto no-scrollbar py-1">
         {[
           ['pending', 'Under review'],
           ['changes', 'Changes requested'],
@@ -49,25 +65,21 @@ export function Onboarding({ onOpenApplication }) {
             type="button"
             onClick={() => setFilter(k)}
             aria-pressed={filter === k}
-            className={`px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition cursor-pointer flex items-center gap-1.5 ${
+            className={`h-10 px-3.5 rounded-xl text-xs sm:text-[13px] whitespace-nowrap transition cursor-pointer select-none flex items-center justify-center gap-1.5 leading-none ${
               filter === k
-                ? 'bg-teal-700 text-white shadow-2xs'
-                : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                ? 'border-2 border-[#0A2342] bg-[#EAF2FA] text-[#0A2342] font-bold shadow-2xs'
+                : 'border border-slate-200 bg-white text-slate-700 font-semibold hover:bg-slate-50'
             }`}
           >
             <span>{l}</span>
-            <span
-              className={`px-1.5 py-0.2 rounded-full text-[10px] font-bold ${
-                filter === k ? 'bg-white/25 text-white' : 'bg-slate-200 text-slate-700'
-              }`}
-            >
+            <span className={filter === k ? 'text-[#0A2342] font-bold' : 'text-slate-500 font-semibold'}>
               {countFor(k)}
             </span>
           </button>
         ))}
       </div>
 
-      {/* Grid of Applicants */}
+      {/* 5. Grid of Applicants with Compact Gap and Proper Width */}
       {list.length === 0 ? (
         <div className="bg-white rounded-2xl p-12 text-center text-slate-400 border border-slate-200/80 space-y-1">
           <p className="font-bold text-slate-700 text-sm">
@@ -80,7 +92,7 @@ export function Onboarding({ onOpenApplication }) {
           </p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
           {list.map((a) => {
             const req = OB_DOCS.filter((x) => x.req);
             const verifiedReq = req.filter((x) => (a.docChecks || {})[x.k]).length;
@@ -101,48 +113,69 @@ export function Onboarding({ onOpenApplication }) {
                 key={a.id}
                 type="button"
                 onClick={() => onOpenApplication(a.id)}
-                className="bg-white rounded-2xl p-5 border border-slate-200/80 hover:border-teal-400 hover:shadow-md transition text-left flex flex-col justify-between space-y-4 cursor-pointer group"
+                className="bg-white rounded-lg p-4 border border-slate-200/90  hover:border-[#0A2342] hover:shadow-md transition text-left flex flex-col justify-between space-y-2.5 cursor-pointer group"
               >
-                <div className="flex items-start gap-3 w-full">
-                  <div className="w-12 h-12 rounded-xl bg-teal-50 border border-teal-200 text-teal-800 font-bold text-sm flex items-center justify-center shrink-0 overflow-hidden">
-                    {photoFile?.data ? (
-                      <img
-                        src={photoFile.data}
-                        alt=""
-                        className="w-full h-full object-cover"
-                      />
-                    ) : (
-                      <span>{initials}</span>
-                    )}
+                {/* Top Row: Avatar + Name / Role / City + Status Badge */}
+                <div className="flex items-start justify-between gap-2.5 w-full">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className="w-[52px] h-[52px] rounded-full overflow-hidden bg-[#EBF2FA] shrink-0 border border-slate-100 flex items-center justify-center">
+                      {photoFile?.data ? (
+                        <img
+                          src={photoFile.data}
+                          alt={a.name}
+                          className="w-full h-full object-cover"
+                        />
+                      ) : (
+                        <span className="font-extrabold text-[#0A2342] text-sm">{initials}</span>
+                      )}
+                    </div>
+
+                    <div className="min-w-0">
+                      <div className="font-bold text-slate-900 group-hover:text-[#0A2342] text-sm truncate leading-tight">
+                        {a.name}
+                      </div>
+                      <div className="text-[11px] text-slate-500 font-medium truncate mt-1 leading-tight">
+                        {a.role} · {a.experience || 0} yrs · {cityName(sCity(a))}
+                      </div>
+                    </div>
                   </div>
 
-                  <div className="min-w-0 grow">
-                    <div className="flex items-center justify-between gap-1">
-                      <span className="font-black text-slate-900 group-hover:text-teal-700 text-sm truncate">
-                        {a.name}
-                      </span>
-                      <StatusBadge status={apprOf(a)} type="onboarding" />
-                    </div>
-                    <p className="text-xs text-slate-500 font-medium truncate mt-0.5">
-                      {a.role} · {a.experience || 0} yrs · {cityName(sCity(a))}
-                    </p>
-                  </div>
+                  {/* Status Pill Badge */}
+                  <span
+                    className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold whitespace-nowrap shrink-0 ${
+                      apprOf(a) === 'pending'
+                        ? 'bg-[#FEF3C7] text-[#92400E]'
+                        : apprOf(a) === 'approved'
+                        ? 'bg-[#DCFCE7] text-[#166534]'
+                        : apprOf(a) === 'changes'
+                        ? 'bg-[#E0F2FE] text-[#075985]'
+                        : 'bg-[#FEE2E2] text-[#991B1B]'
+                    }`}
+                  >
+                    {apprOf(a) === 'pending'
+                      ? 'Under review'
+                      : apprOf(a) === 'approved'
+                      ? 'Approved'
+                      : apprOf(a) === 'changes'
+                      ? 'Changes requested'
+                      : 'Not approved'}
+                  </span>
                 </div>
 
-                <div className="w-full space-y-2 pt-2 border-t border-slate-100 text-xs">
-                  <div className="flex items-center justify-between text-slate-500 text-[11px]">
-                    <span className="flex items-center gap-1 font-semibold text-slate-700">
-                      <Icon name="list" size={13} />
-                      {uploadedCount} docs · {verifiedReq}/{req.length} verified
+                {/* Middle Row: Document verified stats + timestamp */}
+                <div className="flex items-center justify-between text-xs text-slate-500 pt-0.5">
+                  <span className="flex items-center gap-1.5 font-medium text-slate-600">
+                    <Icon name="list" size={13} className="text-slate-500" />
+                    <span>
+                      {uploadedCount} document{uploadedCount === 1 ? '' : 's'} · {verifiedReq}/{req.length} verified
                     </span>
-                    <span className="font-mono">{fmtTs(a.submittedAt)}</span>
-                  </div>
+                  </span>
+                  <span className="text-[11px] text-slate-400 font-mono">{fmtTs(a.submittedAt)}</span>
+                </div>
 
-                  {a.skillList && a.skillList.length > 0 && (
-                    <div className="flex items-center gap-1 overflow-hidden truncate text-[11px] text-slate-400">
-                      {a.skillList.slice(0, 3).join(' · ')}
-                    </div>
-                  )}
+                {/* Bottom Row: Key skills */}
+                <div className="text-[11px] text-slate-400 truncate">
+                  {(a.skillList || []).slice(0, 4).join(' · ')}
                 </div>
               </button>
             );

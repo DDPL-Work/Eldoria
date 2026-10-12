@@ -19,75 +19,65 @@ export function Alerts({ onNavigateTarget }) {
     }
 
     if (n.enqId) {
-      onNavigateTarget('enquiries', n.enqId);
+      onNavigateTarget?.('enquiries', n.enqId);
     } else if (n.appId) {
-      onNavigateTarget('onboarding', n.appId);
+      onNavigateTarget?.('onboarding', n.appId);
+    } else if (n.staffId) {
+      onNavigateTarget?.('staff', n.staffId);
     } else if (n.bookingId) {
-      onNavigateTarget('bookings', n.bookingId);
+      onNavigateTarget?.('bookings', n.bookingId);
     }
   };
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-black text-slate-900 tracking-tight">Notifications</h1>
-          <p className="text-xs text-slate-500 font-medium">
-            System logs, new requests, cancellations and visit completions
-          </p>
-        </div>
+    <div className="p-4 sm:p-6 lg:p-4 w-full max-w-[1400px] mx-auto space-y-3">
+      {/* 1. Header: Notifications Title on Left, Mark all read on Right */}
+      <div className="flex items-center justify-between min-h-[36px]">
+        <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Notifications</h1>
 
         {hasUnread && (
           <button
             type="button"
             onClick={handleMarkAllRead}
-            className="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs transition cursor-pointer"
+            className="h-8 px-3.5 inline-flex items-center justify-center rounded-lg bg-white border border-slate-200 hover:bg-slate-50 text-slate-800 font-bold text-xs shadow-2xs transition cursor-pointer select-none leading-none whitespace-nowrap"
           >
             Mark all read
           </button>
         )}
       </div>
 
-      {/* Notifications List */}
-      <section className="bg-white rounded-2xl border border-slate-200/80 shadow-2xs overflow-hidden">
+      {/* 2. Notifications Card Section */}
+      <section className="bg-white rounded-lg border border-slate-200/90 shadow-2xs overflow-hidden">
         {list.length === 0 ? (
           <div className="p-12 text-center text-slate-400 space-y-1">
-            <p className="font-bold text-slate-700 text-sm">No notifications</p>
-            <p className="text-xs">
-              New customer requests, caregiver updates and alerts appear here in real-time.
-            </p>
+            <b className="block text-slate-800 text-sm font-bold">No notifications</b>
+            <span className="text-xs text-slate-500">
+              New requests, cancellations and completed visits are logged here.
+            </span>
           </div>
         ) : (
-          <div className="divide-y divide-slate-100">
+          <div className="divide-y divide-[#E1E9F4]">
             {list.map((n) => (
               <button
                 key={n.id}
                 type="button"
                 onClick={() => handleOpenNotification(n)}
-                className={`w-full p-4 sm:px-6 flex items-start justify-between gap-4 text-left transition cursor-pointer hover:bg-slate-50/70 ${
-                  !n.read ? 'bg-teal-50/40' : ''
+                className={`w-full px-5 py-3.5 sm:px-6 sm:py-4 flex items-start justify-between gap-4 text-left transition cursor-pointer select-none ${
+                  !n.read
+                    ? 'bg-[#E4ECF7] hover:bg-[#d8e3f3]'
+                    : 'bg-white hover:bg-slate-50/80'
                 }`}
               >
-                <div className="flex items-start gap-3 min-w-0">
-                  <span
-                    className={`w-2.5 h-2.5 rounded-full shrink-0 mt-1.5 ${
-                      !n.read ? 'bg-teal-600' : 'bg-transparent border border-slate-300'
-                    }`}
-                  />
-                  <div>
-                    <h2
-                      className={`text-sm truncate ${
-                        !n.read ? 'font-bold text-slate-900' : 'font-medium text-slate-700'
-                      }`}
-                    >
-                      {n.title}
-                    </h2>
-                    <p className="text-xs text-slate-500 mt-0.5 leading-relaxed">{n.body}</p>
+                <div className="min-w-0 flex-1">
+                  <div className="text-sm font-bold text-slate-900 leading-snug">
+                    {n.title}
+                  </div>
+                  <div className="text-xs text-slate-500 font-medium mt-0.5 leading-relaxed">
+                    {n.body}
                   </div>
                 </div>
 
-                <span className="text-[11px] font-mono text-slate-400 shrink-0 whitespace-nowrap">
+                <span className="text-xs text-slate-400 font-medium shrink-0 whitespace-nowrap pt-0.5">
                   {fmtTs(n.at)}
                 </span>
               </button>
