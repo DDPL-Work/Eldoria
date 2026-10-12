@@ -7,7 +7,12 @@ const {
   staffVerifyOtp,
   clientSendOtp,
   clientVerifyOtp,
+  getProfile,
+  updateProfile,
+  sendChangePhoneOtp,
+  updateMobileNumber,
 } = require("../controllers/auth.controller");
+const { verifyToken } = require("../middlewares/auth.middleware");
 
 // Universal OTP routes (handles registration & login)
 router.post("/send-otp", sendOtp);
@@ -22,5 +27,14 @@ router.post("/staff/login", staffVerifyOtp);
 router.post("/client/send-otp", clientSendOtp);
 router.post("/client/verify-otp", clientVerifyOtp);
 router.post("/client/login", clientVerifyOtp);
+
+// Profile management routes (unified for both Staff and Client)
+router.get("/profile", verifyToken, getProfile);
+router.get("/profile/:id", verifyToken, getProfile);
+router.patch("/profile/:id", verifyToken, updateProfile);
+
+// Mobile number change routes (unified for both Staff and Client)
+router.post("/change-phone/send-otp", verifyToken, sendChangePhoneOtp);
+router.patch("/change-phone", verifyToken, updateMobileNumber);
 
 module.exports = router;

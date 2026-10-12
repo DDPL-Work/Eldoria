@@ -9,14 +9,21 @@ module.exports = (sequelize) => {
     },
     phone: {
       type: DataTypes.STRING(20),
-      allowNull: false
+      allowNull: true
+    },
+    email: {
+      type: DataTypes.STRING(191),
+      allowNull: true,
+      validate: {
+        isEmail: true
+      }
     },
     otp: {
       type: DataTypes.STRING(10),
       allowNull: false
     },
     purpose: {
-      type: DataTypes.ENUM('registration', 'login'),
+      type: DataTypes.ENUM('registration', 'login', 'phone_update', 'forgot_password'),
       defaultValue: 'login',
       allowNull: false
     },
