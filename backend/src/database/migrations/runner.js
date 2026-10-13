@@ -43,12 +43,29 @@ async function ensureMetaTable(sequelize) {
       },
     });
   }
+
+  // If a lowercase `sequelizemeta` table also exists, sync any records to SequelizeMeta
+  const lowerMeta = names.find((n) => n.toLowerCase() === 'sequelizemeta' && n !== META_TABLE);
+  if (lowerMeta) {
+    try {
+      await sequelize.query(
+        `INSERT IGNORE INTO \`${META_TABLE}\` (\`name\`) SELECT \`name\` FROM \`${lowerMeta}\``
+      );
+    } catch (_) {}
+  }
 }
 
 async function getAppliedNames(sequelize) {
   await ensureMetaTable(sequelize);
   const [rows] = await sequelize.query(`SELECT \`name\` FROM \`${META_TABLE}\``);
-  return new Set(rows.map((row) => row.name));
+  const applied = new Set(rows.map((row) => row.name));
+
+  try {
+    const [lowerRows] = await sequelize.query('SELECT `name` FROM `sequelizemeta`');
+    lowerRows.forEach((row) => applied.add(row.name));
+  } catch (_) {}
+
+  return applied;
 }
 
 /**
