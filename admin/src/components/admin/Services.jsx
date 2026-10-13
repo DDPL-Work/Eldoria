@@ -741,7 +741,15 @@ export function Services({ onShowToast }) {
 
       {/* Catalog Display: Categories and their Services */}
       <div className="space-y-6">
-        {categories.map((c, ci) => {
+        {categories.length === 0 ? (
+          <div className="bg-white rounded-lg p-12 text-center text-slate-400 border border-slate-200/90 space-y-1">
+            <p className="font-bold text-slate-700 text-sm">No services or categories yet</p>
+            <p className="text-xs">
+              Add your first category using the button above.
+            </p>
+          </div>
+        ) : (
+          categories.map((c, ci) => {
           const list = svcInCat(c.id, true);
           const kindObj = KINDS.find((k) => k[0] === (c.kind || 'care')) || KINDS[0];
           const kindLabel = kindObj[1].split(' (')[0];
@@ -938,7 +946,7 @@ export function Services({ onShowToast }) {
               </div>
             </section>
           );
-        })}
+        }))}
       </div>
     </div>
   );

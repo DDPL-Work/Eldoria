@@ -1,5 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useStore } from '../../context/StoreContext';
+import { useAuth } from '../../context/AuthContext';
+import { Icon } from '../../constants/icons';
+import { RiRefreshLine } from 'react-icons/ri';
 import { digits, todayISO } from '../../constants/data';
 
 export function Settings({ onShowToast }) {
@@ -9,8 +12,107 @@ export function Settings({ onShowToast }) {
     staffCanConfirm,
     loadDemoData,
     resetAllData,
+    syncExternalData,
     data
   } = useStore();
+
+  const { user, fetchProfile, updateProfile } = useAuth();
+
+  // Admin Profile form state (Email and Phone only)
+  const [profileForm, setProfileForm] = useState({
+    email: user?.email || '',
+    phone: user?.phone || '',
+  });
+  const [profileLoading, setProfileLoading] = useState(false);
+  const [profileSaving, setProfileSaving] = useState(false);
+  const [profileError, setProfileError] = useState('');
+  const [profileSuccess, setProfileSuccess] = useState('');
+
+  // Fetch admin profile via GET /api/v1/admin/profile on mount
+  useEffect(() => {
+    let isMounted = true;
+    const loadProfile = async () => {
+      setProfileLoading(true);
+      try {
+        const result = await fetchProfile().unwrap();
+        const u = result.user || result.data || result;
+        if (isMounted && u) {
+          setProfileForm({
+            email: u.email || '',
+            phone: u.phone || '',
+          });
+        }
+      } catch (err) {
+        console.warn('Failed to fetch profile:', err);
+      } finally {
+        if (isMounted) setProfileLoading(false);
+      }
+    };
+    loadProfile();
+    return () => {
+      isMounted = false;
+    };
+  }, [fetchProfile]);
+
+  // Sync if user object updates in Redux store
+  useEffect(() => {
+    if (user) {
+      setProfileForm((prev) => ({
+        email: prev.email || user.email || '',
+        phone: prev.phone || user.phone || '',
+      }));
+    }
+  }, [user]);
+
+  // Handle Save Admin Profile via PATCH /api/v1/admin/edit/profile
+  const handleSaveProfile = async (e) => {
+    e.preventDefault();
+    setProfileError('');
+    setProfileSuccess('');
+
+    const email = profileForm.email.trim().toLowerCase();
+    const phone = digits(profileForm.phone);
+
+    if (!email) {
+      setProfileError('Email address is required');
+      return;
+    }
+
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      setProfileError('Please enter a valid email address');
+      return;
+    }
+
+    if (profileForm.phone.trim() && phone.length !== 10) {
+      setProfileError('Please enter a valid 10-digit mobile number');
+      return;
+    }
+
+    setProfileSaving(true);
+    try {
+      const payload = {
+        email,
+        phone: phone || null,
+      };
+      const res = await updateProfile(payload).unwrap();
+      const updatedUser = res.user || res.data || res;
+      setProfileSuccess('Admin profile updated successfully');
+      onShowToast?.('Admin profile updated successfully');
+      if (updatedUser) {
+        setProfileForm({
+          email: updatedUser.email || email,
+          phone: updatedUser.phone || phone,
+        });
+      }
+    } catch (err) {
+      const msg = typeof err === 'string' ? err : err?.message || 'Failed to update profile';
+      setProfileError(msg);
+      onShowToast?.(msg);
+    } finally {
+      setProfileSaving(false);
+    }
+  };
 
   const st = (typeof settings === 'function' ? settings() : settings) || {};
 
@@ -113,8 +215,8 @@ export function Settings({ onShowToast }) {
         if (!importedData.bookings && !importedData.staff) {
           throw new Error('Invalid format');
         }
-        localStorage.setItem('eldoria:data:v1', JSON.stringify(importedData));
-        window.location.reload();
+        syncExternalData(importedData);
+        onShowToast?.('Backup restored successfully');
       } catch (err) {
         onShowToast?.('The selected file is not a valid Eldoria backup');
       }
@@ -141,9 +243,100 @@ export function Settings({ onShowToast }) {
       <div>
         <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Settings</h1>
         <p className="text-xs text-slate-500 font-medium">
-          Global care desk configuration, permissions, backups and storage management
+          Global care desk configuration, administrator profile, permissions and storage management
         </p>
       </div>
+
+      {/* Admin Profile Form (Email ID & Phone Number) */}
+      <form
+        onSubmit={handleSaveProfile}
+        className="bg-white rounded-lg p-6 border border-slate-200/80 shadow-2xs space-y-4"
+      >
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-base font-bold text-slate-900">Admin Profile Details</h2>
+            <p className="text-xs text-slate-500 mt-0.5">
+              Administrator account contact information (Email ID and Phone number).
+            </p>
+          </div>
+          {profileLoading && (
+            <div className="flex items-center gap-1.5 text-xs text-blue-600 font-medium">
+              <RiRefreshLine className="animate-spin text-sm" />
+              <span>Fetching profile...</span>
+            </div>
+          )}
+        </div>
+
+        {profileError && (
+          <div className="p-3 bg-red-50 border border-red-200 text-red-700 rounded-lg text-xs font-semibold flex items-center gap-2">
+            <span>⚠️</span>
+            <span>{profileError}</span>
+          </div>
+        )}
+
+        {profileSuccess && (
+          <div className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-lg text-xs font-semibold flex items-center gap-2">
+            <span>✓</span>
+            <span>{profileSuccess}</span>
+          </div>
+        )}
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div>
+            <label className="block text-xs font-bold text-slate-700 mb-1.5">
+              Email ID <span className="text-rose-500">*</span>
+            </label>
+            <div className="relative">
+              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
+                <Icon name="mail" size={15} />
+              </div>
+              <input
+                type="email"
+                required
+                value={profileForm.email}
+                onChange={(e) => {
+                  setProfileForm({ ...profileForm, email: e.target.value });
+                  setProfileError('');
+                }}
+                placeholder="admin@eldoria.care"
+                className="w-full rounded-lg border border-slate-200 pl-9 pr-3 py-2.5 text-xs text-slate-900 focus:outline-none focus:ring-1 focus:ring-teal-500"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-xs font-bold text-slate-700 mb-1.5">
+              Phone number (10 digits)
+            </label>
+            <div className="flex rounded-lg border border-slate-200 focus-within:ring-1 focus-within:ring-teal-500 overflow-hidden bg-white">
+              <span className="inline-flex items-center px-3 text-xs font-semibold text-slate-500 bg-slate-50 border-r border-slate-200 select-none">
+                +91
+              </span>
+              <input
+                type="tel"
+                inputMode="numeric"
+                maxLength={10}
+                value={profileForm.phone}
+                onChange={(e) => {
+                  setProfileForm({ ...profileForm, phone: e.target.value });
+                  setProfileError('');
+                }}
+                placeholder="9876543210"
+                className="w-full px-3 py-2 text-xs font-mono text-slate-900 focus:outline-none"
+              />
+            </div>
+          </div>
+        </div>
+
+        <button
+          type="submit"
+          disabled={profileSaving}
+          className="flex items-center justify-center gap-1.5 px-4 py-2 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs shadow-xs transition cursor-pointer disabled:opacity-60"
+        >
+          {profileSaving && <RiRefreshLine className="animate-spin text-sm" />}
+          <span>{profileSaving ? 'Saving...' : 'Save details'}</span>
+        </button>
+      </form>
 
       {/* Global Contact Settings Form */}
       <form

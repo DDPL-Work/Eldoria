@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Icon } from '../../constants/icons';
 import { fmtDate } from '../../constants/data';
-import { useStore } from '../../context/StoreContext';
+import { useStore } from '../../store';
 
 export function NewReqPopup({ onOpenBooking }) {
   const { inCity, bookingsAll, svcB, cityName, bCity } = useStore();

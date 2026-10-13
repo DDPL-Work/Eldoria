@@ -12,13 +12,17 @@ import {
 } from '../../constants/data';
 
 export function ApplicationDetail({ appId, onBack, onPreviewFile, onShowToast }) {
-  const { data, patch, notify, apprOf, sCity, cityName } = useStore();
+  const { data, patch, notify, apprOf, sCity, cityName, applications, approveStaff, rejectStaff } = useStore();
   const { fileGet } = useFiles();
 
   const [note, setNote] = useState('');
   const [confirmReject, setConfirmReject] = useState(false);
 
-  const a = data.staff[appId];
+  const allApps = applications();
+  const a =
+    allApps.find(
+      (x) => String(x.id) === String(appId) || String(x.staffId) === String(appId)
+    ) || data.staff?.[appId];
 
   if (!a || !a.applied) {
     return (
@@ -56,9 +60,24 @@ export function ApplicationDetail({ appId, onBack, onPreviewFile, onShowToast })
     });
   };
 
-  const appDecision = (status, reviewNote) => {
+  const appDecision = async (status, reviewNote) => {
     const now = Date.now();
     const extra = status === 'approved' ? { approvedAt: now, docs: 'verified' } : {};
+
+    // Trigger backend API if approved or rejected
+    if (status === 'approved' && approveStaff) {
+      try {
+        await approveStaff(a.id || a.staffId, { notes: reviewNote || '' });
+      } catch (err) {
+        console.warn('Backend approveStaff API error:', err);
+      }
+    } else if (status === 'rejected' && rejectStaff) {
+      try {
+        await rejectStaff(a.id || a.staffId, { reason: reviewNote || '', notes: reviewNote || '' });
+      } catch (err) {
+        console.warn('Backend rejectStaff API error:', err);
+      }
+    }
 
     patch('staff', a.id, {
       approval: status,

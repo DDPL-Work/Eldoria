@@ -6,7 +6,7 @@ import { useNavigate } from "react-router-dom";
 
 export function Header({ onNewBooking, onOpenAlerts, onOpenMobileMenu, onToggleCollapse, isCollapsed }) {
   const { unread, enqAll, inCity, cityName, selectedCity } = useStore();
-  const { logout } = useAuth();
+  const { logout, user } = useAuth();
   const navigate = useNavigate();
   const unreadAlerts = unread("admin") || 4;
 
@@ -205,8 +205,11 @@ export function Header({ onNewBooking, onOpenAlerts, onOpenMobileMenu, onToggleC
             {profileOpen && (
               <div className="absolute right-0 mt-2 w-56 bg-white text-slate-800 rounded-lg shadow-lg border border-slate-200 py-2 z-50 animate-in fade-in zoom-in-95 duration-150">
                 <div className="px-4 py-2 border-b border-slate-100">
-                  <p className="font-extrabold text-xs text-slate-900">Care Desk Manager</p>
-                  <p className="text-[11px] text-slate-400">admin@eldoria.care</p>
+                  <p className="font-extrabold text-xs text-slate-900">{user?.name || 'Care Desk Manager'}</p>
+                  <p className="text-[11px] text-slate-500 font-medium truncate">{user?.email || 'admin@eldoria.care'}</p>
+                  {user?.phone && (
+                    <p className="text-[10px] text-slate-400 font-mono mt-0.5">+91 {user.phone}</p>
+                  )}
                 </div>
                 <div className="py-1">
                   <button

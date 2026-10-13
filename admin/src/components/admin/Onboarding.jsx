@@ -1,13 +1,35 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { RiRefreshLine } from 'react-icons/ri';
 import { Icon } from '../../constants/icons';
 import { useStore } from '../../context/StoreContext';
 import { useFiles } from '../../context/FileContext';
 import { OB_DOCS, fmtTs, DEFAULT_CITIES } from '../../constants/data';
 
 export function Onboarding({ onOpenApplication }) {
-  const { inCity, applications, apprOf, cityName, sCity, cities, selectedCity, setSelectedCity } = useStore();
+  const {
+    inCity,
+    applications,
+    apprOf,
+    cityName,
+    sCity,
+    cities,
+    selectedCity,
+    setSelectedCity,
+    fetchStaffRequests,
+    dataLoading,
+    dataError
+  } = useStore();
   const { fileGet } = useFiles();
   const [filter, setFilter] = useState('pending');
+
+  // Call getStaffRequests API on mount and when selectedCity changes
+  useEffect(() => {
+    const params = {};
+    if (selectedCity && selectedCity !== 'all') {
+      params.city = selectedCity;
+    }
+    fetchStaffRequests(params);
+  }, [fetchStaffRequests, selectedCity]);
 
   const all = inCity(applications(), sCity);
 
@@ -18,30 +40,73 @@ export function Onboarding({ onOpenApplication }) {
 
   return (
     <div className="p-4 sm:p-5 lg:p-4 w-full max-w-[1400px] mx-auto space-y-3">
-      {/* 1. City Dropdown Pill at Top */}
-      <div className="flex items-center gap-2 self-start bg-white border border-slate-200/90 rounded-lg px-3 py-1 shadow-2xs w-fit">
-        <Icon name="pin" size={15} className="text-slate-500" />
-        <span className="text-xs font-semibold text-slate-500">City</span>
-        <select
-          value={selectedCity}
-          onChange={(e) => setSelectedCity(e.target.value)}
-          className="bg-transparent text-xs font-bold text-slate-800 focus:outline-none cursor-pointer py-1 pr-1"
+      {/* 1. City Dropdown Pill at Top + Refresh Button */}
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2 self-start bg-white border border-slate-200/90 rounded-lg px-3 py-1 shadow-2xs w-fit">
+          <Icon name="pin" size={15} className="text-slate-500" />
+          <span className="text-xs font-semibold text-slate-500">City</span>
+          <select
+            value={selectedCity}
+            onChange={(e) => setSelectedCity(e.target.value)}
+            className="bg-transparent text-xs font-bold text-slate-800 focus:outline-none cursor-pointer py-1 pr-1"
+          >
+            <option value="all">All cities</option>
+            {cities().map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.name}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <button
+          type="button"
+          onClick={() => {
+            const params = {};
+            if (selectedCity && selectedCity !== 'all') {
+              params.city = selectedCity;
+            }
+            fetchStaffRequests(params);
+          }}
+          disabled={dataLoading}
+          className="flex items-center gap-1.5 px-3 py-1.5 bg-white border border-slate-200/90 rounded-lg text-xs font-semibold text-slate-700 hover:text-slate-900 hover:bg-slate-50 transition cursor-pointer shadow-2xs disabled:opacity-60"
+          title="Refresh staff requests from server"
         >
-          <option value="all">All cities</option>
-          {cities().map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.name}
-            </option>
-          ))}
-        </select>
+          <RiRefreshLine className={`text-sm ${dataLoading ? 'animate-spin' : ''}`} />
+          <span>{dataLoading ? 'Fetching...' : 'Refresh'}</span>
+        </button>
       </div>
+
+      {dataError && (
+        <div className="p-3 bg-red-50 border border-red-200 text-red-700 rounded-lg text-xs flex items-center justify-between gap-2">
+          <span>Failed to fetch staff requests: {String(dataError)}</span>
+          <button
+            type="button"
+            onClick={() => {
+              const params = {};
+              if (selectedCity && selectedCity !== 'all') params.city = selectedCity;
+              fetchStaffRequests(params);
+            }}
+            className="underline font-bold hover:text-red-900 cursor-pointer"
+          >
+            Retry
+          </button>
+        </div>
+      )}
 
       {/* 2. Header Row: Title on Left, Count on Right */}
       <div className="flex items-center justify-between gap-3">
         <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Staff onboarding</h1>
-        <span className="text-xs text-slate-500 font-medium">
-          {countFor('pending')} waiting for review
-        </span>
+        <div className="flex items-center gap-2">
+          {dataLoading && (
+            <span className="text-xs text-blue-600 bg-blue-50 px-2.5 py-0.5 rounded-full font-medium animate-pulse">
+              Syncing...
+            </span>
+          )}
+          <span className="text-xs text-slate-500 font-medium">
+            {countFor('pending')} waiting for review
+          </span>
+        </div>
       </div>
 
       {/* 3. Description Subtitle */}
