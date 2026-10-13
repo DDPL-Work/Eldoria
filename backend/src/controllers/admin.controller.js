@@ -1,5 +1,5 @@
 const { Op } = require("sequelize");
-const { sequelize, User, Staff, Client } = require("../database/models");
+const { sequelize, User, Staff, Client, Booking } = require("../database/models");
 const { errorResponse, successResponse } = require("../utills/responseHandler");
 
 /**
@@ -20,6 +20,16 @@ const buildClientLookupCondition = (identifier) => {
   return isNumeric
     ? { [Op.or]: [{ id: Number(identifier) }, { clientId: String(identifier) }] }
     : { clientId: String(identifier) };
+};
+
+/**
+ * Helper to build lookup condition by either primary key id or booking code string
+ */
+const buildBookingLookupCondition = (identifier) => {
+  const isNumeric = !isNaN(Number(identifier));
+  return isNumeric
+    ? { [Op.or]: [{ id: Number(identifier) }, { code: String(identifier) }] }
+    : { code: String(identifier) };
 };
 
 /**
@@ -462,6 +472,173 @@ const getClientByClientId = async (req, res) => {
   }
 };
 
+/**
+ * 7. Fetch bookings (List with filters, search, & pagination)
+ * GET /api/v1/admin/bookings
+ */
+const getBookings = async (req, res) => {
+  try {
+    const {
+      status,
+      city,
+      area,
+      service,
+      date,
+      staffId,
+      search,
+      page = 1,
+      limit = 10,
+      sortBy = "createdAt",
+      sortOrder = "DESC",
+    } = req.query;
+
+    const pageNumber = Math.max(1, parseInt(page, 10) || 1);
+    const pageSize = Math.max(1, parseInt(limit, 10) || 10);
+    const offset = (pageNumber - 1) * pageSize;
+
+    const bookingWhere = {};
+
+    if (status && status !== "all") {
+      bookingWhere.status = status;
+    }
+
+    if (city && city !== "all") {
+      bookingWhere.city = { [Op.like]: `%${city.trim().toLowerCase()}%` };
+    }
+
+    if (area && area !== "all") {
+      bookingWhere.area = { [Op.like]: `%${area.trim()}%` };
+    }
+
+    if (service && service !== "all") {
+      bookingWhere.service = { [Op.like]: `%${service.trim()}%` };
+    }
+
+    if (date) {
+      bookingWhere.date = date.trim();
+    }
+
+    if (staffId && staffId !== "all") {
+      bookingWhere.staffId = staffId.trim();
+    }
+
+    // Search query across code, clientName, clientPhone, patientName, address, serviceName, notes
+    if (search && search.trim()) {
+      const searchTerm = `%${search.trim()}%`;
+      bookingWhere[Op.or] = [
+        { code: { [Op.like]: searchTerm } },
+        { clientName: { [Op.like]: searchTerm } },
+        { clientPhone: { [Op.like]: searchTerm } },
+        { patientName: { [Op.like]: searchTerm } },
+        { address: { [Op.like]: searchTerm } },
+        { serviceName: { [Op.like]: searchTerm } },
+        { notes: { [Op.like]: searchTerm } },
+        { staffId: { [Op.like]: searchTerm } },
+      ];
+    }
+
+    const { count, rows: bookings } = await Booking.findAndCountAll({
+      where: bookingWhere,
+      include: [
+        {
+          model: Staff,
+          as: "assignedStaff",
+          attributes: ["id", "staffId", "qualification", "city", "area", "onDuty", "approval"],
+          required: false,
+          include: [
+            {
+              model: User,
+              as: "user",
+              attributes: ["id", "name", "email", "phone"],
+              required: false,
+            },
+          ],
+        },
+      ],
+      order: [[sortBy, sortOrder.toUpperCase() === "ASC" ? "ASC" : "DESC"]],
+      limit: pageSize,
+      offset,
+      distinct: true,
+    });
+
+    const totalPages = Math.ceil(count / pageSize);
+
+    return successResponse(
+      res,
+      {
+        bookings,
+        pagination: {
+          total: count,
+          currentPage: pageNumber,
+          totalPages,
+          limit: pageSize,
+          hasNextPage: pageNumber < totalPages,
+          hasPrevPage: pageNumber > 1,
+        },
+      },
+      "Bookings fetched successfully",
+    );
+  } catch (error) {
+    return errorResponse(
+      res,
+      error.message || "Failed to fetch bookings",
+      500,
+      error,
+    );
+  }
+};
+
+/**
+ * 8. Fetch single booking by primary key id or code string
+ * GET /api/v1/admin/bookings/:id
+ */
+const getBookingById = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    if (!id) {
+      return errorResponse(res, "Booking ID or code is required", 400);
+    }
+
+    const booking = await Booking.findOne({
+      where: buildBookingLookupCondition(id),
+      include: [
+        {
+          model: Staff,
+          as: "assignedStaff",
+          attributes: ["id", "staffId", "qualification", "city", "area", "onDuty", "approval"],
+          required: false,
+          include: [
+            {
+              model: User,
+              as: "user",
+              attributes: ["id", "name", "email", "phone"],
+              required: false,
+            },
+          ],
+        },
+      ],
+    });
+
+    if (!booking) {
+      return errorResponse(res, `Booking '${id}' not found`, 404);
+    }
+
+    return successResponse(
+      res,
+      booking,
+      "Booking details retrieved successfully",
+    );
+  } catch (error) {
+    return errorResponse(
+      res,
+      error.message || "Failed to fetch booking details",
+      500,
+      error,
+    );
+  }
+};
+
 module.exports = {
   getStaffRequests,
   getStaffRequestById,
@@ -469,4 +646,6 @@ module.exports = {
   rejectStaffRequest,
   getClients,
   getClientByClientId,
+  getBookings,
+  getBookingById,
 };

@@ -12,6 +12,9 @@ db.User = require("./user.model")(sequelize);
 db.Staff = require("./staff.model")(sequelize);
 db.Client = require("./client.model")(sequelize);
 db.Otp = require("./otp.model")(sequelize);
+db.Booking = require("./booking.model")(sequelize);
+db.Enquiry = require("./enquiry.model")(sequelize);
+db.City = require("./city.model")(sequelize);
 
 // Associations: User (1) <-> Staff Profile (1) via staffId
 db.User.hasOne(db.Staff, {
@@ -43,6 +46,21 @@ db.Client.belongsTo(db.User, {
   as: "user",
   onDelete: "CASCADE",
   onUpdate: "CASCADE"
+});
+
+// Associations: Staff (1) <-> Booking (*)
+db.Booking.belongsTo(db.Staff, {
+  foreignKey: "staffId",
+  targetKey: "staffId",
+  as: "assignedStaff",
+  constraints: false
+});
+
+db.Staff.hasMany(db.Booking, {
+  foreignKey: "staffId",
+  sourceKey: "staffId",
+  as: "bookings",
+  constraints: false
 });
 
 const { migrateUp, migrateDown } = require("../migrations/runner");

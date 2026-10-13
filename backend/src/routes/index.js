@@ -6,9 +6,13 @@ const adminRoutes = require('./admin.routes');
 const authRoutes = require('./auth.routes');
 const staffRoutes = require('./staff.routes');
 const clientRoutes = require('./client.routes');
+const { getPublicLiveCities } = require('../controllers/city.controller');
 
 // API status and health check
 router.use('/', healthRoutes);
+
+// Public cities endpoint (active operational cities)
+router.get('/cities', getPublicLiveCities);
 
 // General auth routes (client & staff login)
 router.use('/auth', authRoutes);
