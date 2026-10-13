@@ -8,6 +8,7 @@
   "main": "src/server.js",
   "scripts": {
     "start": "node src/server.js",
+    "build": "echo 'Build successful'",
     "dev": "nodemon src/server.js",
     "test": "jest",
     "db:migrate": "node scripts/db-migrate.js",
