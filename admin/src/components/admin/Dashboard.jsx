@@ -1,6 +1,10 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
+import { RiRefreshLine } from 'react-icons/ri';
 import { Icon } from '../../constants/icons';
+import { CityDropdown } from '../common/CityDropdown';
+import { DatabaseLoader } from '../common/DatabaseLoader';
 import { useStore } from '../../context/StoreContext';
+import { useUI } from '../../context/UIContext';
 import {
   fmtDate,
   todayISO,
@@ -11,6 +15,7 @@ import {
 } from '../../constants/data';
 
 export function Dashboard({ onTab, onOpenBooking, onNewBooking }) {
+  const { showToast } = useUI();
   const {
     selectedCity,
     setSelectedCity,
@@ -27,31 +32,54 @@ export function Dashboard({ onTab, onOpenBooking, onNewBooking }) {
     setStatus,
     assign,
     unassign,
-    notify
+    notify,
+    dashboardData,
+    dashboardLoading,
+    dashboardError,
+    fetchDashboard
   } = useStore();
 
-  const [cityDropdownOpen, setCityDropdownOpen] = useState(false);
-  const cityDropdownRef = useRef(null);
-
-  // Close dropdowns on outside click
+  // Fetch live dashboard metrics on mount and when selectedCity changes
   useEffect(() => {
-    function handleClickOutside(event) {
-      if (cityDropdownRef.current && !cityDropdownRef.current.contains(event.target)) {
-        setCityDropdownOpen(false);
-      }
-    }
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
+    fetchDashboard(selectedCity || 'all');
+  }, [fetchDashboard, selectedCity]);
 
+  // Date and greeting helpers
+  const d = new Date();
+  const hr = d.getHours();
+  const greet = hr < 12 ? 'Good morning' : hr < 17 ? 'Good afternoon' : 'Good evening';
+  const dayName = DOW[d.getDay()];
+  const monthName = MON[d.getMonth()];
+  const dateNum = d.getDate();
+  const year = d.getFullYear();
+
+  // Fallback local calculations if API is connecting/offline
   const all = inCity(bookingsAll());
   const t = todayISO();
   const st = inCity(staffList(), (s) => s.city || DEFAULT_CITIES[0].id);
 
+  const fallbackNewReq = all.filter((b) => b.status === 'requested');
+  const fallbackTodayV = all.filter((b) => b.date === t && b.status !== 'cancelled');
+  const fallbackUnassigned = all.filter(
+    (b) => ['requested', 'confirmed'].includes(b.status) && !b.staffId
+  );
+  const fallbackQueue = all
+    .filter((b) => ['requested', 'confirmed'].includes(b.status))
+    .sort(byDateTime);
 
-  // Cities for "By city" section
-  const targetCityIds = ['mumbai', 'thane', 'navi-mumbai'];
-  const byCityRows = targetCityIds.map((cid) => {
+  const fallbackHelpRequests = inCity(enqAll(), (e) => e.city).filter((e) => e.status === 'new');
+  const fallbackPendingApps = inCity(applications()).filter((x) => apprOf(x) === 'pending');
+
+  const countNewReqFallback = fallbackNewReq.length;
+  const countTodayVisitsFallback = fallbackTodayV.length;
+  const countTodayCompletedFallback = fallbackTodayV.filter((b) => b.status === 'completed').length;
+  const countTodayOpenFallback = Math.max(0, countTodayVisitsFallback - countTodayCompletedFallback);
+  const countStaffOnDutyFallback = st.filter((s) => s.onDuty).length;
+  const countStaffTotalFallback = st.length;
+  const countUnassignedFallback = fallbackUnassigned.length;
+
+  const targetCityIds = ['mumbai', 'thane', 'navi-mumbai', 'pune'];
+  const fallbackByCityRows = targetCityIds.map((cid) => {
     const cName = cityName(cid);
     const cBookings = bookingsAll().filter((b) => bCity(b) === cid);
     const cNewReq = cBookings.filter((b) => b.status === 'requested').length;
@@ -74,37 +102,51 @@ export function Dashboard({ onTab, onOpenBooking, onNewBooking }) {
     };
   });
 
-  const newReq = all.filter((b) => b.status === 'requested');
-  const todayV = all.filter((b) => b.date === t && b.status !== 'cancelled');
-  const unassigned = all.filter(
-    (b) => ['requested', 'confirmed'].includes(b.status) && !b.staffId
-  );
-  const queue = all
-    .filter((b) => ['requested', 'confirmed'].includes(b.status))
-    .sort(byDateTime);
+  // 1. Resolve Banner Details from Backend API
+  const bannerGreeting = dashboardData?.banner?.greeting || greet;
+  const bannerDate = dashboardData?.banner?.dateString || `${dayName}, ${dateNum} ${monthName} ${year}`;
+  const bannerTitle = dashboardData?.banner?.title || `Care desk${selectedCity !== 'all' ? ` · ${cityName(selectedCity)}` : ''}`;
+  const bannerSubtitle = dashboardData?.banner?.subtitle || `${countNewReqFallback} new request${countNewReqFallback === 1 ? '' : 's'} waiting for confirmation`;
 
-  // Help requests & pending applications
-  const helpRequests = inCity(enqAll(), (e) => e.city).filter((e) => e.status === 'new');
-  const pendingApps = inCity(applications()).filter((x) => apprOf(x) === 'pending');
+  // 2. Resolve KPI Metrics from Backend API
+  const kpiNewReq = dashboardData?.kpis?.newRequests?.count ?? countNewReqFallback;
+  const kpiVisitsToday = dashboardData?.kpis?.visitsToday?.count ?? countTodayVisitsFallback;
+  const kpiVisitsSublabel = dashboardData?.kpis?.visitsToday?.sublabel ?? `${countTodayCompletedFallback} completed · ${countTodayOpenFallback} open`;
+  const kpiStaffOnDuty = dashboardData?.kpis?.staffOnDuty?.count ?? countStaffOnDutyFallback;
+  const kpiStaffSublabel = dashboardData?.kpis?.staffOnDuty?.sublabel ?? `of ${countStaffTotalFallback} staff`;
+  const kpiUnassigned = dashboardData?.kpis?.unassigned?.count ?? countUnassignedFallback;
 
+  // 3. Resolve Alerts from Backend API
+  const helpRequestsItems = dashboardData?.alerts?.helpRequests?.items || fallbackHelpRequests;
+  const helpRequestsCount = dashboardData?.alerts?.helpRequests?.count ?? helpRequestsItems.length;
+
+  const pendingAppsItems = dashboardData?.alerts?.staffApplications?.items || fallbackPendingApps;
+  const pendingAppsCount = dashboardData?.alerts?.staffApplications?.count ?? pendingAppsItems.length;
+
+  // 4. Resolve Queue & Staff Availability
+  const queue = (dashboardData?.needsAction && Array.isArray(dashboardData.needsAction) && dashboardData.needsAction.length > 0)
+    ? dashboardData.needsAction
+    : fallbackQueue;
+
+  const staffAvailability = (dashboardData?.staffAvailability && Array.isArray(dashboardData.staffAvailability) && dashboardData.staffAvailability.length > 0)
+    ? dashboardData.staffAvailability
+    : st;
+
+  const byCityRows = (dashboardData?.byCity && Array.isArray(dashboardData.byCity) && dashboardData.byCity.length > 0)
+    ? dashboardData.byCity
+    : fallbackByCityRows;
+
+  // Action: Confirm booking
   const handleConfirm = (b) => {
     setStatus(b, 'confirmed', { confirmedBy: 'admin', confirmedAt: Date.now() }, 'admin');
     notify(
-      'client:' + b.clientPhone,
+      'client:' + (b.clientPhone || ''),
       'Booking confirmed',
-      `Your ${svcB(b).name} booking ${b.code} is confirmed for ${fmtDate(b.date)}, ${b.time}. We'll assign a caregiver next.`,
+      `Your ${b.serviceName || svcB(b)?.name || 'care'} booking ${b.code} is confirmed for ${b.whenFormatted || `${fmtDate(b.date)}, ${b.time}`}. We'll assign a caregiver next.`,
       b.id
     );
+    showToast?.(`Booking ${b.code || ''} confirmed`);
   };
-
-  // Date and greeting
-  const d = new Date();
-  const hr = d.getHours();
-  const greet = hr < 12 ? 'Good morning' : hr < 17 ? 'Good afternoon' : 'Good evening';
-  const dayName = DOW[d.getDay()];
-  const monthName = MON[d.getMonth()];
-  const dateNum = d.getDate();
-  const year = d.getFullYear();
 
   // Source badge styling
   const renderSourceBadge = (source) => {
@@ -138,83 +180,48 @@ export function Dashboard({ onTab, onOpenBooking, onNewBooking }) {
     return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
   };
 
-  // KPI counts computed directly without falsy fallbacks
-  const countNewReq = newReq.length;
-  const countTodayVisits = todayV.length;
-  const countTodayCompleted = todayV.filter((b) => b.status === 'completed').length;
-  const countTodayOpen = Math.max(0, countTodayVisits - countTodayCompleted);
-  const countStaffOnDuty = st.filter((s) => s.onDuty).length;
-  const countStaffTotal = st.length;
-  const countUnassigned = unassigned.length;
-
   return (
     <div className="p-4 sm:p-6 lg:p-4 max-w-[1440px] mx-auto space-y-4 sm:space-y-4">
-      {/* 4. DASHBOARD HEADER - Styled City Selector */}
-      <div className="flex items-center justify-between">
-        <div className="relative inline-block" ref={cityDropdownRef}>
-          <button
-            type="button"
-            onClick={() => setCityDropdownOpen(!cityDropdownOpen)}
-            className="inline-flex items-center gap-2 bg-white hover:bg-slate-50 border border-slate-200/90 rounded-lg px-3.5 py-1.5 shadow-2xs transition cursor-pointer select-none"
-            aria-expanded={cityDropdownOpen}
-            aria-haspopup="true"
-          >
-            <Icon name="pin" size={15} className="text-slate-500" />
-            <span className="text-slate-500 text-xs sm:text-sm font-medium">City</span>
-            <span className="text-slate-900 text-xs sm:text-sm font-bold ml-0.5">
-              {selectedCity === 'all' ? 'All cities' : cityName(selectedCity)}
-            </span>
-            <Icon name="down" size={13} className="text-slate-500 ml-1" />
-          </button>
+      {/* 4. DASHBOARD HEADER - Styled City Selector & Live Refresh */}
+      <div className="flex items-center justify-between gap-3">
+        <CityDropdown />
 
-          {/* Dropdown Menu */}
-          {cityDropdownOpen && (
-            <div className="absolute top-full left-0 mt-1 w-44 bg-white rounded-lg shadow-2xl border border-slate-200 py-1 z-40 max-h-64 overflow-y-auto animate-in fade-in zoom-in-95 duration-100">
-              <button
-                type="button"
-                onClick={() => {
-                  setSelectedCity('all');
-                  setCityDropdownOpen(false);
-                }}
-                className={`w-full text-left px-3.5 py-1.5 text-xs font-medium transition flex items-center justify-between ${
-                  selectedCity === 'all'
-                    ? 'bg-[#1864AB] text-white font-semibold'
-                    : 'text-slate-700 hover:bg-slate-100'
-                }`}
-              >
-                <span>All cities</span>
-              </button>
-              {cities().map((c) => (
-                <button
-                  key={c.id}
-                  type="button"
-                  onClick={() => {
-                    setSelectedCity(c.id);
-                    setCityDropdownOpen(false);
-                  }}
-                  className={`w-full text-left px-3.5 py-1.5 text-xs font-medium transition flex items-center justify-between ${
-                    selectedCity === c.id
-                      ? 'bg-[#1864AB] text-white font-semibold'
-                      : 'text-slate-700 hover:bg-slate-100'
-                  }`}
-                >
-                  <span>{c.name}</span>
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
+        {/* Live Refresh Button */}
+        <button
+          type="button"
+          onClick={() => fetchDashboard(selectedCity || 'all')}
+          disabled={dashboardLoading}
+          className="inline-flex items-center gap-1.5 bg-white hover:bg-slate-50 active:bg-slate-100 border border-slate-200/90 rounded-lg px-3 py-1.5 shadow-2xs transition cursor-pointer text-slate-700 text-xs font-semibold select-none disabled:opacity-60"
+          title="Refresh dashboard metrics"
+        >
+          <RiRefreshLine
+            className={`text-base ${
+              dashboardLoading ? 'animate-spin text-[#0E2F5A]' : 'text-slate-600'
+            }`}
+          />
+          <span className="hidden sm:inline">{dashboardLoading ? 'Refreshing...' : 'Refresh'}</span>
+        </button>
       </div>
 
-      {/* 5. CARE DESK HERO BANNER with Official Logo */}
-      <section className="relative overflow-hidden rounded-xl bg-gradient-to-r from-[#0C2B54] via-[#0E3A73] to-[#124991] p-5 sm:p-6 text-white shadow-sm border border-[#164b85]/40 select-none">
-        {/* Subtle yellow decorative chevron peaks at bottom of banner */}
-        <div className="absolute bottom-0 left-1/2 -translate-x-1/4 pointer-events-none opacity-40">
-          <svg width="240" height="24" viewBox="0 0 240 24" fill="none">
-            <path d="M20 24 L40 6 L60 24 M70 24 L90 6 L110 24 M120 24 L140 6 L160 24" stroke="#f59e0b" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
+      {/* Non-blocking API Status / Error Notice */}
+      {dashboardError && (
+        <div className="bg-amber-50 border border-amber-200/80 rounded-xl p-3 sm:p-4 text-xs sm:text-sm text-amber-900 flex items-center justify-between gap-3 shadow-2xs">
+          <div className="flex items-center gap-2 min-w-0">
+            <span className="text-amber-600 font-bold shrink-0">⚠️ API Notice:</span>
+            <span className="truncate">{dashboardError}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => fetchDashboard(selectedCity || 'all')}
+            className="shrink-0 bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs px-3 py-1.5 rounded-lg transition cursor-pointer"
+          >
+            Retry
+          </button>
         </div>
+      )}
 
+      {/* 5. CARE DESK HERO BANNER - Clean gradient matching reference image */}
+      <section className="relative overflow-hidden rounded-2xl bg-[linear-gradient(100deg,#0E386E_0%,#13447E_40%,#0E3360_80%,#0A2447_100%)] p-5 sm:p-6 text-white shadow-md border border-[#1b4d88]/40 select-none">
         <div className="relative z-10 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 sm:gap-6">
           {/* Left: Official Circular Logo + Greeting Info */}
           <div className="flex items-center gap-3.5 sm:gap-4.5">
@@ -228,13 +235,13 @@ export function Dashboard({ onTab, onOpenBooking, onNewBooking }) {
 
             <div>
               <p className="text-slate-300 text-xs sm:text-[13px] font-medium leading-none">
-                {greet} · {dayName}, {dateNum} {monthName} {year}
+                {bannerGreeting} · {bannerDate}
               </p>
               <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight leading-tight mt-1.5">
-                Care desk{selectedCity !== 'all' ? ` · ${cityName(selectedCity)}` : ''}
+                {bannerTitle}
               </h1>
               <p className="text-[#f59e0b] font-bold text-xs sm:text-sm mt-1 leading-snug">
-                {countNewReq} new request{countNewReq === 1 ? '' : 's'} waiting for confirmation
+                {bannerSubtitle}
               </p>
             </div>
           </div>
@@ -243,7 +250,7 @@ export function Dashboard({ onTab, onOpenBooking, onNewBooking }) {
           <button
             type="button"
             onClick={onNewBooking}
-            className="bg-[#f59e0b] hover:bg-[#e69107] text-[#0c1f36] font-bold text-xs sm:text-sm px-4 py-2.5 rounded-lg flex items-center gap-2 shadow-xs transition shrink-0 cursor-pointer"
+            className="bg-[#f59e0b] hover:bg-[#e69107] text-[#0c1f36] font-bold text-xs sm:text-sm px-4 py-2.5 rounded-xl flex items-center gap-2 shadow-xs transition shrink-0 cursor-pointer"
           >
             <span className="text-lg leading-none font-extrabold">+</span>
             <span>New booking</span>
@@ -251,49 +258,57 @@ export function Dashboard({ onTab, onOpenBooking, onNewBooking }) {
         </div>
       </section>
 
-      {/* 6. KPI CARDS - All with Identical Width, Height & Compact rounded-xl */}
+      {/* 6. KPI CARDS - Smooth linear gradient top border as shown in reference image */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5 sm:gap-4">
         {/* KPI 1: New requests */}
-        <div className="w-full bg-white rounded-xl border border-slate-200/90 border-t-[3px] border-t-[#F59E0B] p-4.5 sm:p-5 shadow-2xs flex flex-col justify-between min-h-[118px]">
-          <span className="text-xs font-semibold text-slate-500 block">New requests</span>
-          <div className="text-3xl sm:text-4xl font-extrabold text-[#D97706] tabular-nums my-1 leading-none">
-            {countNewReq}
+        <div className="relative w-full bg-white rounded-xl border border-slate-200/90 overflow-hidden p-4.5 sm:p-5 shadow-2xs flex flex-col justify-between min-h-[120px]">
+          {/* Top Gradient Accent Border */}
+          <div className="absolute top-0 left-0 right-0 h-[3.5px] bg-[linear-gradient(90deg,#0A2342_0%,#112E53_18%,#6B5528_38%,#BD8212_60%,#F59E0B_100%)]" />
+          <span className="text-xs sm:text-[13px] font-semibold text-slate-500 block pt-0.5">New requests</span>
+          <div className="text-3xl sm:text-4xl font-extrabold text-[#A15C07] tabular-nums my-1 leading-none">
+            {kpiNewReq}
           </div>
           <span className="text-xs text-slate-400 block">Awaiting confirmation</span>
         </div>
 
         {/* KPI 2: Visits today */}
-        <div className="w-full bg-white rounded-xl border border-slate-200/90 border-t-[3px] border-t-[#0284C7] p-4.5 sm:p-5 shadow-2xs flex flex-col justify-between min-h-[118px]">
-          <span className="text-xs font-semibold text-slate-500 block">Visits today</span>
+        <div className="relative w-full bg-white rounded-xl border border-slate-200/90 overflow-hidden p-4.5 sm:p-5 shadow-2xs flex flex-col justify-between min-h-[120px]">
+          {/* Top Gradient Accent Border */}
+          <div className="absolute top-0 left-0 right-0 h-[3.5px] bg-[linear-gradient(90deg,#0A2342_0%,#112E53_18%,#6B5528_38%,#BD8212_60%,#F59E0B_100%)]" />
+          <span className="text-xs sm:text-[13px] font-semibold text-slate-500 block pt-0.5">Visits today</span>
           <div className="text-3xl sm:text-4xl font-extrabold text-slate-900 tabular-nums my-1 leading-none">
-            {countTodayVisits}
+            {kpiVisitsToday}
           </div>
           <span className="text-xs text-slate-400 block">
-            {countTodayCompleted} completed · {countTodayOpen} open
+            {kpiVisitsSublabel}
           </span>
         </div>
 
         {/* KPI 3: Staff on duty */}
-        <div className="w-full bg-white rounded-xl border border-slate-200/90 border-t-[3px] border-t-[#F59E0B] p-4.5 sm:p-5 shadow-2xs flex flex-col justify-between min-h-[118px]">
-          <span className="text-xs font-semibold text-slate-500 block">Staff on duty</span>
+        <div className="relative w-full bg-white rounded-xl border border-slate-200/90 overflow-hidden p-4.5 sm:p-5 shadow-2xs flex flex-col justify-between min-h-[120px]">
+          {/* Top Gradient Accent Border */}
+          <div className="absolute top-0 left-0 right-0 h-[3.5px] bg-[linear-gradient(90deg,#0A2342_0%,#112E53_18%,#6B5528_38%,#BD8212_60%,#F59E0B_100%)]" />
+          <span className="text-xs sm:text-[13px] font-semibold text-slate-500 block pt-0.5">Staff on duty</span>
           <div className="text-3xl sm:text-4xl font-extrabold text-slate-900 tabular-nums my-1 leading-none">
-            {countStaffOnDuty}
+            {kpiStaffOnDuty}
           </div>
-          <span className="text-xs text-slate-400 block">of {countStaffTotal} staff</span>
+          <span className="text-xs text-slate-400 block">{kpiStaffSublabel}</span>
         </div>
 
         {/* KPI 4: Unassigned */}
-        <div className="w-full bg-white rounded-xl border border-slate-200/90 border-t-[3px] border-t-[#F59E0B] p-4.5 sm:p-5 shadow-2xs flex flex-col justify-between min-h-[118px]">
-          <span className="text-xs font-semibold text-slate-500 block">Unassigned</span>
-          <div className="text-3xl sm:text-4xl font-extrabold text-[#DC2626] tabular-nums my-1 leading-none">
-            {countUnassigned}
+        <div className="relative w-full bg-white rounded-xl border border-slate-200/90 overflow-hidden p-4.5 sm:p-5 shadow-2xs flex flex-col justify-between min-h-[120px]">
+          {/* Top Gradient Accent Border */}
+          <div className="absolute top-0 left-0 right-0 h-[3.5px] bg-[linear-gradient(90deg,#0A2342_0%,#112E53_18%,#6B5528_38%,#BD8212_60%,#F59E0B_100%)]" />
+          <span className="text-xs sm:text-[13px] font-semibold text-slate-500 block pt-0.5">Unassigned</span>
+          <div className="text-3xl sm:text-4xl font-extrabold text-[#991B1B] tabular-nums my-1 leading-none">
+            {kpiUnassigned}
           </div>
           <span className="text-xs text-slate-400 block">Need a nurse or caregiver</span>
         </div>
       </div>
 
       {/* 7. HELP REQUEST ALERT (Displayed conditionally) */}
-      {helpRequests.length > 0 && (
+      {helpRequestsCount > 0 && (
         <div className="w-full bg-[#edf4fb] border border-[#d2e2f2] rounded-xl px-4 sm:px-5 py-3.5 flex items-center justify-between gap-3 sm:gap-4 shadow-2xs">
           <div className="flex items-center gap-3 sm:gap-3.5 min-w-0">
             <div className="w-8.5 h-8.5 rounded-full bg-[#0d2238] text-white flex items-center justify-center shrink-0">
@@ -301,10 +316,13 @@ export function Dashboard({ onTab, onOpenBooking, onNewBooking }) {
             </div>
             <div className="truncate">
               <span className="font-bold text-slate-900 block text-xs sm:text-sm truncate">
-                {helpRequests.length} new help request: customers not sure what care they need
+                {helpRequestsCount} new help request{helpRequestsCount === 1 ? '' : 's'}: customers not sure what care they need
               </span>
               <span className="text-xs text-slate-500 truncate block mt-0.5">
-                {helpRequests.slice(0, 2).map((e) => `${e.clientName} (${e.patientType || 'Elderly care'})`).join(', ')}
+                {helpRequestsItems
+                  .slice(0, 2)
+                  .map((e) => `${e.clientName || 'Client'} (${e.patientType || 'Elderly care'})`)
+                  .join(', ')}
               </span>
             </div>
           </div>
@@ -319,7 +337,7 @@ export function Dashboard({ onTab, onOpenBooking, onNewBooking }) {
       )}
 
       {/* 8. STAFF APPLICATION ALERT (Displayed conditionally) */}
-      {pendingApps.length > 0 && (
+      {pendingAppsCount > 0 && (
         <div className="w-full bg-[#fef7eb] border border-[#fde4ba] rounded-xl px-4 sm:px-5 py-3.5 flex items-center justify-between gap-3 sm:gap-4 shadow-2xs">
           <div className="flex items-center gap-3 sm:gap-3.5 min-w-0">
             <div className="w-8.5 h-8.5 rounded-xl bg-[#f59e0b] text-[#0d2238] flex items-center justify-center shrink-0 font-bold">
@@ -327,10 +345,10 @@ export function Dashboard({ onTab, onOpenBooking, onNewBooking }) {
             </div>
             <div className="truncate">
               <span className="font-bold text-slate-900 block text-xs sm:text-sm truncate">
-                {pendingApps.length} staff application waiting for review
+                {pendingAppsCount} staff application{pendingAppsCount === 1 ? '' : 's'} waiting for review
               </span>
               <span className="text-xs text-slate-500 truncate block mt-0.5">
-                {pendingApps.map((x) => `${x.name} (${x.role})`).join(', ')}
+                {pendingAppsItems.map((x) => `${x.name} (${x.role || 'Staff'})`).join(', ')}
               </span>
             </div>
           </div>
@@ -374,7 +392,16 @@ export function Dashboard({ onTab, onOpenBooking, onNewBooking }) {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {queue.length === 0 ? (
+                {dashboardLoading ? (
+                  <tr>
+                    <td colSpan={6} className="py-4">
+                      <DatabaseLoader
+                        title="Fetching Dashboard from Database..."
+                        subtitle="Connecting to Eldoria backend server"
+                      />
+                    </td>
+                  </tr>
+                ) : queue.length === 0 ? (
                   <tr className="text-center py-8">
                     <td colSpan={6} className="py-8 text-slate-400 text-xs">
                       No bookings currently need action
@@ -382,11 +409,16 @@ export function Dashboard({ onTab, onOpenBooking, onNewBooking }) {
                   </tr>
                 ) : (
                   queue.slice(0, 8).map((b) => {
-                    const isToday = b.date === t;
-                    const whenFormatted = isToday ? `Today, ${b.time}` : `${fmtDate(b.date)}, ${b.time}`;
+                    const isToday = b.isToday ?? (b.date === t);
+                    const whenFormatted =
+                      b.whenFormatted ||
+                      (isToday ? `Today, ${b.time}` : `${fmtDate(b.date)}, ${b.time}`);
+
+                    const displayCity = b.cityName || cityName(bCity(b) || b.city);
+                    const displayService = b.serviceName || svcB(b)?.name || b.service || 'Service';
 
                     return (
-                      <tr key={b.id} className="hover:bg-slate-50/60 transition">
+                      <tr key={b.id || b.code} className="hover:bg-slate-50/60 transition">
                         {/* CLIENT Column */}
                         <td className="py-2.5 px-3.5 sm:px-4 whitespace-nowrap">
                           <button
@@ -405,13 +437,13 @@ export function Dashboard({ onTab, onOpenBooking, onNewBooking }) {
 
                         {/* CITY Column */}
                         <td className="py-2.5 px-3.5 sm:px-4 text-slate-700 text-xs font-medium whitespace-nowrap">
-                          {cityName(bCity(b))}
+                          {displayCity}
                         </td>
 
                         {/* SERVICE Column */}
                         <td className="py-2.5 px-3.5 sm:px-4 whitespace-nowrap">
                           <div className="font-medium text-slate-800 text-xs sm:text-[13px] whitespace-nowrap leading-snug">
-                            {svcB(b).name}
+                            {displayService}
                           </div>
                           <div className="text-[11px] text-slate-400 mt-0.5 whitespace-nowrap leading-snug">
                             {b.plan || 'Single visit'}
@@ -428,60 +460,15 @@ export function Dashboard({ onTab, onOpenBooking, onNewBooking }) {
                           {renderSourceBadge(b.source)}
                         </td>
 
-                        {/* ACTION Column with Navy Confirm Button & Native Floating Assign Select */}
+                        {/* ACTION Column with Navy Confirm Button */}
                         <td className="py-2.5 px-3.5 sm:px-4 text-right whitespace-nowrap">
-                          {b.status === 'requested' ? (
-                            <button
-                              type="button"
-                              onClick={() => handleConfirm(b)}
-                              className="bg-[#0E2F5A] hover:bg-[#163D70] active:scale-[0.98] text-white text-xs font-bold px-3.5 py-1.5 rounded-lg transition cursor-pointer shadow-xs inline-block"
-                            >
-                              Confirm
-                            </button>
-                          ) : (() => {
-                            const stList = staffList();
-                            const bc = bCity(b);
-                            const defaultCityId = DEFAULT_CITIES[0]?.id || 'mumbai';
-                            const local = stList.filter((s) => (s.city || defaultCityId) === bc);
-                            const other = stList.filter((s) => (s.city || defaultCityId) !== bc);
-                            return (
-                              <select
-                                aria-label={`Assign staff for ${b.code}`}
-                                value={b.staffId || ''}
-                                onChange={(e) => {
-                                  const sid = e.target.value;
-                                  if (sid) {
-                                    assign(b.id, sid, 'admin');
-                                  } else {
-                                    unassign(b.id);
-                                  }
-                                }}
-                                className="bg-white hover:bg-slate-50 border border-slate-300 text-slate-800 text-xs sm:text-[13px] font-medium px-2.5 py-1.5 rounded-lg shadow-2xs cursor-pointer focus:outline-none focus:ring-1 focus:ring-[#0E2F5A] focus:border-[#0E2F5A] transition max-w-[200px]"
-                              >
-                                <option value="">
-                                  {stList.length ? (local.length ? 'Assign staff..' : `No staff in ${cityName(bc)}`) : 'Add staff first'}
-                                </option>
-                                {local.length > 0 && (
-                                  <optgroup label={`In ${cityName(bc)}`}>
-                                    {local.map((s) => (
-                                      <option key={s.id} value={s.id}>
-                                        {s.name} · {s.role}{!s.onDuty ? ' (off duty)' : ''}
-                                      </option>
-                                    ))}
-                                  </optgroup>
-                                )}
-                                {other.length > 0 && (
-                                  <optgroup label="Other cities">
-                                    {other.map((s) => (
-                                      <option key={s.id} value={s.id}>
-                                        {s.name} · {s.role}{!s.onDuty ? ' (off duty)' : ''} · {cityName(s.city || defaultCityId)}
-                                      </option>
-                                    ))}
-                                  </optgroup>
-                                )}
-                              </select>
-                            );
-                          })()}
+                          <button
+                            type="button"
+                            onClick={() => handleConfirm(b)}
+                            className="bg-[#0E2F5A] hover:bg-[#163D70] active:scale-[0.98] text-white text-xs font-bold px-3.5 py-1.5 rounded-lg transition cursor-pointer shadow-xs inline-block"
+                          >
+                            Confirm
+                          </button>
                         </td>
                       </tr>
                     );
@@ -508,12 +495,12 @@ export function Dashboard({ onTab, onOpenBooking, onNewBooking }) {
 
           {/* Staff Rows */}
           <div className="divide-y divide-slate-100 overflow-y-auto">
-            {st.length === 0 ? (
+            {staffAvailability.length === 0 ? (
               <div className="p-6 text-center text-slate-400 text-xs">No staff found</div>
             ) : (
-              st.slice(0, 7).map((s) => (
+              staffAvailability.slice(0, 7).map((s) => (
                 <div
-                  key={s.id}
+                  key={s.id || s.staffId}
                   className="px-4 py-2.5 flex items-center justify-between gap-3 hover:bg-slate-50/50 transition"
                 >
                   <div className="flex items-center gap-3 min-w-0">
@@ -527,7 +514,7 @@ export function Dashboard({ onTab, onOpenBooking, onNewBooking }) {
                         {s.name}
                       </div>
                       <div className="text-[11px] text-slate-400 truncate mt-0.5 leading-snug">
-                        {s.role} · {cityName(s.city || 'mumbai')}
+                        {s.role || s.qualification || 'Caregiver'} · {s.cityName || cityName(s.city || 'mumbai')}
                         {s.area ? `, ${s.area}` : ''}
                       </div>
                     </div>

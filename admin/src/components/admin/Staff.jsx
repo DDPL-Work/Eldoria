@@ -1,5 +1,7 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
+import { RiRefreshLine } from 'react-icons/ri';
 import { Icon } from '../../constants/icons';
+import { DatabaseLoader } from '../common/DatabaseLoader';
 import { useStore } from '../../context/StoreContext';
 import {
   OB_ROLES,
@@ -21,7 +23,9 @@ export function Staff({ onShowToast }) {
     patch,
     remove,
     selectedCity,
-    setSelectedCity
+    setSelectedCity,
+    dataLoading,
+    fetchStaffRequests
   } = useStore();
 
   const list = inCity(staffList(), (s) => s.city || DEFAULT_CITIES[0].id);
@@ -130,7 +134,7 @@ export function Staff({ onShowToast }) {
         </select>
       </div>
 
-      {/* Header Row: Title & Count on Left, Add Staff Button on Right */}
+      {/* Header Row: Title & Count on Left, Actions on Right */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Staff</h1>
@@ -138,14 +142,25 @@ export function Staff({ onShowToast }) {
             {list.length} staff · {list.filter((s) => s.onDuty).length} on duty
           </p>
         </div>
-        <button
-          type="button"
-          onClick={handleOpenNew}
-          className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-[#F2A01F] hover:bg-[#e09115] text-[#0A2342] font-extrabold text-xs sm:text-sm shadow-xs transition duration-150 cursor-pointer self-start sm:self-auto shrink-0"
-        >
-          <Icon name="plus" size={16} strokeWidth={2.6} />
-          <span>Add staff</span>
-        </button>
+        <div className="flex items-center gap-2 self-start sm:self-auto">
+          <button
+            type="button"
+            onClick={() => fetchStaffRequests?.()}
+            disabled={dataLoading}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white border border-slate-200/90 text-xs font-semibold text-slate-700 hover:bg-slate-50 shadow-2xs transition cursor-pointer"
+          >
+            <RiRefreshLine className={`text-sm ${dataLoading ? 'animate-spin text-[#0E2F5A]' : 'text-slate-500'}`} />
+            <span>{dataLoading ? 'Refreshing...' : 'Refresh'}</span>
+          </button>
+          <button
+            type="button"
+            onClick={handleOpenNew}
+            className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-[#F2A01F] hover:bg-[#e09115] text-[#0A2342] font-extrabold text-xs sm:text-sm shadow-xs transition duration-150 cursor-pointer shrink-0"
+          >
+            <Icon name="plus" size={16} strokeWidth={2.6} />
+            <span>Add staff</span>
+          </button>
+        </div>
       </div>
 
       {/* Add / Edit Staff Drawer Form Modal */}
@@ -323,7 +338,12 @@ export function Staff({ onShowToast }) {
 
       {/* Staff Table Section */}
       <section className="bg-white rounded-lg border border-slate-200/90 shadow-2xs overflow-hidden">
-        {list.length === 0 ? (
+        {dataLoading ? (
+          <DatabaseLoader
+            title="Fetching Staff from Database..."
+            subtitle="Connecting to Eldoria backend server"
+          />
+        ) : list.length === 0 ? (
           <div className="p-12 text-center text-slate-400 space-y-2">
             <p className="font-bold text-slate-700 text-sm">No staff added yet</p>
             <p className="text-xs max-w-sm mx-auto">

@@ -499,7 +499,13 @@ const getBookings = async (req, res) => {
     const bookingWhere = {};
 
     if (status && status !== "all") {
-      bookingWhere.status = status;
+      if (status === "active") {
+        bookingWhere.status = {
+          [Op.in]: ["requested", "confirmed", "assigned", "on_the_way", "in_progress"],
+        };
+      } else {
+        bookingWhere.status = status;
+      }
     }
 
     if (city && city !== "all") {

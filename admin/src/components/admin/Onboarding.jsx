@@ -1,9 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { RiRefreshLine } from 'react-icons/ri';
 import { Icon } from '../../constants/icons';
 import { useStore } from '../../context/StoreContext';
 import { useFiles } from '../../context/FileContext';
-import { OB_DOCS, fmtTs, DEFAULT_CITIES } from '../../constants/data';
+import { OB_DOCS, fmtTs } from '../../constants/data';
+import { DatabaseLoader } from '../common/DatabaseLoader';
 
 export function Onboarding({ onOpenApplication }) {
   const {
@@ -39,7 +40,7 @@ export function Onboarding({ onOpenApplication }) {
   const list = filter === 'all' ? all : all.filter((x) => apprOf(x) === filter);
 
   return (
-    <div className="p-4 sm:p-5 lg:p-4 w-full max-w-[1400px] mx-auto space-y-3">
+    <div className="p-4 sm:p-5 lg:p-4 w-full max-w-[1400px] mx-auto space-y-2.5">
       {/* 1. City Dropdown Pill at Top + Refresh Button */}
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2 self-start bg-white border border-slate-200/90 rounded-lg px-3 py-1 shadow-2xs w-fit">
@@ -72,8 +73,8 @@ export function Onboarding({ onOpenApplication }) {
           className="flex items-center gap-1.5 px-3 py-1.5 bg-white border border-slate-200/90 rounded-lg text-xs font-semibold text-slate-700 hover:text-slate-900 hover:bg-slate-50 transition cursor-pointer shadow-2xs disabled:opacity-60"
           title="Refresh staff requests from server"
         >
-          <RiRefreshLine className={`text-sm ${dataLoading ? 'animate-spin' : ''}`} />
-          <span>{dataLoading ? 'Fetching...' : 'Refresh'}</span>
+          <RiRefreshLine className={`text-sm ${dataLoading ? 'animate-spin text-[#0E2F5A]' : ''}`} />
+          <span>{dataLoading ? 'Refreshing...' : 'Refresh'}</span>
         </button>
       </div>
 
@@ -145,7 +146,14 @@ export function Onboarding({ onOpenApplication }) {
       </div>
 
       {/* 5. Grid of Applicants with Compact Gap and Proper Width */}
-      {list.length === 0 ? (
+      {dataLoading ? (
+        <div className="bg-white rounded-2xl border border-slate-200/90 shadow-2xs overflow-hidden">
+          <DatabaseLoader
+            title="Fetching Staff Applications from Database..."
+            subtitle="Connecting to Eldoria backend server"
+          />
+        </div>
+      ) : list.length === 0 ? (
         <div className="bg-white rounded-2xl p-12 text-center text-slate-400 border border-slate-200/80 space-y-1">
           <p className="font-bold text-slate-700 text-sm">
             {filter === 'pending' ? 'No applications waiting' : 'No applications found'}

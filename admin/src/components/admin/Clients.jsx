@@ -3,6 +3,7 @@ import { RiRefreshLine } from 'react-icons/ri';
 import { Icon } from '../../constants/icons';
 import { useStore } from '../../context/StoreContext';
 import { telHref, waHref } from '../../constants/data';
+import { DatabaseLoader } from '../common/DatabaseLoader';
 
 function formatClientDate(val) {
   if (!val) return '—';
@@ -102,8 +103,8 @@ export function Clients() {
           className="flex items-center justify-center gap-1.5 px-3.5 py-2 bg-white border border-slate-200/90 rounded-lg text-xs font-semibold text-slate-700 hover:text-slate-900 hover:bg-slate-50 transition cursor-pointer shadow-2xs disabled:opacity-60 shrink-0 self-start sm:self-auto select-none"
           title="Refresh clients from server"
         >
-          <RiRefreshLine className={`text-base ${dataLoading ? 'animate-spin' : ''}`} />
-          <span>{dataLoading ? 'Fetching...' : 'Refresh'}</span>
+          <RiRefreshLine className={`text-base ${dataLoading ? 'animate-spin text-[#0E2F5A]' : ''}`} />
+          <span>{dataLoading ? 'Refreshing...' : 'Refresh'}</span>
         </button>
       </div>
 
@@ -178,7 +179,12 @@ export function Clients() {
 
       {/* 3. Clients Table Card */}
       <section className="bg-white rounded-lg border border-slate-200/80 shadow-2xs overflow-hidden">
-        {rows.length === 0 ? (
+        {dataLoading ? (
+          <DatabaseLoader
+            title="Fetching Clients from Database..."
+            subtitle="Connecting to Eldoria backend server"
+          />
+        ) : rows.length === 0 ? (
           <div className="p-12 text-center text-slate-400 space-y-1">
             <p className="font-bold text-slate-700 text-sm">
               {searchQuery ? 'No matching clients found' : 'No clients found'}

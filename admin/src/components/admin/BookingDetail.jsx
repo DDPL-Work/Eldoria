@@ -1,5 +1,7 @@
-import React, { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { RiRefreshLine } from 'react-icons/ri';
 import { Icon } from '../../constants/icons';
+import { DatabaseLoader } from '../common/DatabaseLoader';
 import { useStore } from '../../context/StoreContext';
 import {
   fmtDate,
@@ -24,13 +26,56 @@ export function BookingDetail({ bookingId, onBack, onShowToast }) {
     assign,
     unassign,
     setStatus,
-    notify
+    notify,
+    currentBookingDetail,
+    bookingDetailLoading,
+    bookingDetailError,
+    fetchBookingById
   } = useStore();
 
   const [confirmCancel, setConfirmCancel] = useState(false);
 
-  const b = data.bookings[bookingId];
+  // Fetch live booking details by ID or code on mount
+  useEffect(() => {
+    if (bookingId) {
+      fetchBookingById(bookingId);
+    }
+  }, [fetchBookingById, bookingId]);
 
+  // Resolve booking: Prefer live backend details, fallback to local store
+  const b =
+    currentBookingDetail &&
+    (String(currentBookingDetail.id) === String(bookingId) ||
+      String(currentBookingDetail.code) === String(bookingId))
+      ? currentBookingDetail
+      : data?.bookings?.[bookingId] ||
+        Object.values(data?.bookings || {}).find(
+          (x) => String(x.code) === String(bookingId) || String(x.id) === String(bookingId)
+        );
+
+  // Loading state when initial detail hasn't arrived
+  if (bookingDetailLoading && !b) {
+    return (
+      <div className="p-4 sm:p-6 lg:p-7 w-full max-w-[1400px] mx-auto space-y-4">
+        <button
+          type="button"
+          onClick={onBack}
+          className="h-9 px-3.5 inline-flex items-center gap-1.5 rounded-lg bg-white border border-slate-200 text-xs font-bold text-slate-700 hover:bg-slate-50 transition cursor-pointer shadow-2xs"
+        >
+          <Icon name="back" size={16} />
+          <span>Back</span>
+        </button>
+        <div className="bg-white rounded-2xl border border-slate-200/90 shadow-2xs overflow-hidden">
+          <DatabaseLoader
+            title="Fetching Booking Details from Database..."
+            subtitle="Connecting to Eldoria backend server"
+          />
+        </div>
+      </div>
+    );
+  }
+
+  // Not found fallback
   if (!b) {
     return (
       <div className="p-4 sm:p-6 lg:p-7 w-full max-w-[1400px] mx-auto space-y-4">
@@ -43,16 +88,26 @@ export function BookingDetail({ bookingId, onBack, onShowToast }) {
           <span>Back</span>
         </button>
         <div className="bg-white rounded-2xl p-10 border border-slate-200 text-center text-slate-500 font-bold text-sm shadow-2xs">
-          Booking not found
+          {bookingDetailError || 'Booking not found'}
         </div>
       </div>
     );
   }
 
   const s = svcB(b);
-  const st = data.staff[b.staffId];
+  const st = b.assignedStaff?.user
+    ? {
+        id: b.assignedStaff.id || b.assignedStaff.staffId,
+        name: b.assignedStaff.user.name,
+        phone: b.assignedStaff.user.phone,
+        role: b.assignedStaff.qualification || 'Caregiver',
+        city: b.assignedStaff.city,
+        area: b.assignedStaff.area
+      }
+    : data?.staff?.[b.staffId];
+
   const allStaff = staffList();
-  const bc = bCity(b);
+  const bc = b.city || bCity(b);
   const localStaff = allStaff.filter((x) => (x.city || DEFAULT_CITIES[0].id) === bc);
   const otherStaff = allStaff.filter((x) => (x.city || DEFAULT_CITIES[0].id) !== bc);
 
@@ -62,15 +117,17 @@ export function BookingDetail({ bookingId, onBack, onShowToast }) {
     if (by === 'client') return 'Client';
     if (by.startsWith('staff:')) {
       const sid = by.slice(6);
-      return data.staff[sid]?.name || 'Staff member';
+      return data?.staff?.[sid]?.name || 'Staff member';
     }
-    return data.staff[by]?.name || by;
+    return data?.staff?.[by]?.name || by;
   };
 
   const statusObj = ST[b.status] || { label: b.status, cls: 'bg-[#FEF5E7] text-[#9A5B07]' };
   const statusLabel = statusObj.label.toLowerCase();
 
-  const msg = `Hello ${b.clientName}, your Eldoria ${s.name} booking ${b.code} for ${
+  const serviceDisplayName = b.serviceName || s?.name || b.service || 'Service';
+
+  const msg = `Hello ${b.clientName}, your Eldoria ${serviceDisplayName} booking ${b.code} for ${
     b.patientName
   } is ${statusLabel} for ${fmtDate(b.date)} at ${b.time}.${
     st ? ` Your caregiver: ${st.name} (+91 ${st.phone}).` : ''
@@ -107,13 +164,13 @@ export function BookingDetail({ bookingId, onBack, onShowToast }) {
 
     if (nextNote) {
       notify(
-        'client:' + b.clientPhone,
+        'client:' + (b.clientPhone || ''),
         nextNote[0],
         `${st?.name || 'Your caregiver'} ${nextNote[1]} ${b.patientName}.`,
         b.id
       );
     } else {
-      notify('client:' + b.clientPhone, 'Booking confirmed', `Your booking ${b.code} is confirmed.`, b.id);
+      notify('client:' + (b.clientPhone || ''), 'Booking confirmed', `Your booking ${b.code} is confirmed.`, b.id);
     }
 
     onShowToast?.(`Booking ${ST[nextStatus]?.label || nextStatus}`);
@@ -122,7 +179,7 @@ export function BookingDetail({ bookingId, onBack, onShowToast }) {
   const handleCancelBooking = () => {
     setStatus(b, 'cancelled', { cancelReason: 'Cancelled by care desk' }, 'admin');
     notify(
-      'client:' + b.clientPhone,
+      'client:' + (b.clientPhone || ''),
       'Booking cancelled',
       `Your booking ${b.code} was cancelled by the care desk. Call us if this was unexpected.`,
       b.id
@@ -167,7 +224,7 @@ export function BookingDetail({ bookingId, onBack, onShowToast }) {
 
   return (
     <div className="p-4 sm:p-6 lg:p-4 w-full max-w-[1400px] mx-auto space-y-4">
-      {/* 1. Top Header Row: Back Button + Code & Client Name + Status Pill */}
+      {/* 1. Top Header Row: Back Button + Code & Client Name + Live Refresh + Status Pill */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <button
@@ -183,13 +240,46 @@ export function BookingDetail({ bookingId, onBack, onShowToast }) {
           </h1>
         </div>
 
-        {renderStatusPill(b.status)}
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => fetchBookingById(bookingId)}
+            disabled={bookingDetailLoading}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white hover:bg-slate-50 border border-slate-200 text-xs font-semibold text-slate-700 transition cursor-pointer shadow-2xs select-none disabled:opacity-60"
+            title="Refresh booking details"
+          >
+            <RiRefreshLine
+              className={`text-sm ${
+                bookingDetailLoading ? 'animate-spin text-[#0E2F5A]' : 'text-slate-600'
+              }`}
+            />
+            <span className="hidden sm:inline">{bookingDetailLoading ? 'Refreshing...' : 'Refresh'}</span>
+          </button>
+          {renderStatusPill(b.status)}
+        </div>
       </div>
+
+      {/* Non-blocking Detail Error Notice */}
+      {bookingDetailError && (
+        <div className="bg-amber-50 border border-amber-200/80 rounded-xl p-3 text-xs text-amber-900 flex items-center justify-between gap-3 shadow-2xs">
+          <div className="flex items-center gap-2 min-w-0">
+            <span className="text-amber-600 font-bold shrink-0">⚠️ API Notice:</span>
+            <span className="truncate">{bookingDetailError}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => fetchBookingById(bookingId)}
+            className="shrink-0 bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs px-2.5 py-1 rounded-lg transition cursor-pointer"
+          >
+            Retry
+          </button>
+        </div>
+      )}
 
       {/* 2. Main Split Content Layout: Left Drawer Card + Right Action Cards */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 items-start">
         {/* Left Column (2 Cols): Single Drawer Card containing Details, Visit Report, Timeline */}
-        <section className="lg:col-span-2 bg-white rounded-2xl p-5 sm:p-6 border border-slate-200/90 shadow-2xs space-y-5">
+        <section className="lg:col-span-2 bg-white rounded-lg p-5 sm:p-6 border border-slate-200/90 shadow-2xs space-y-5">
           {/* Key-Value Definition List */}
           <dl className="grid grid-cols-[105px_minmax(0,1fr)] sm:grid-cols-[115px_minmax(0,1fr)] gap-x-3 gap-y-2 text-xs sm:text-[13px]">
             <dt className="text-slate-500 font-medium">Client</dt>
@@ -211,7 +301,7 @@ export function BookingDetail({ bookingId, onBack, onShowToast }) {
 
             <dt className="text-slate-500 font-medium">Service</dt>
             <dd className="font-semibold text-slate-900">
-              {s.name} · {b.plan}
+              {serviceDisplayName} · {b.plan || 'Single visit'}
             </dd>
 
             <dt className="text-slate-500 font-medium">When</dt>
@@ -221,7 +311,7 @@ export function BookingDetail({ bookingId, onBack, onShowToast }) {
 
             <dt className="text-slate-500 font-medium">Address</dt>
             <dd className="font-semibold text-slate-900">
-              {b.address}, {cityName(bc)}
+              {b.address}, {b.cityName || cityName(bc)}
             </dd>
 
             <dt className="text-slate-500 font-medium">Care notes</dt>
@@ -246,7 +336,7 @@ export function BookingDetail({ bookingId, onBack, onShowToast }) {
 
             <dt className="text-slate-500 font-medium">Estimate</dt>
             <dd className="font-semibold text-slate-900">
-              {priceLabel(s)}
+              {b.price ? `₹${Number(b.price).toLocaleString('en-IN')}` : priceLabel(s)}
             </dd>
 
             <dt className="text-slate-500 font-medium">Created</dt>
@@ -367,7 +457,7 @@ export function BookingDetail({ bookingId, onBack, onShowToast }) {
         {/* Right Column: Assigned Staff, WhatsApp Client, Cancel Booking */}
         <div className="space-y-4">
           {/* Card 1: Assigned Staff */}
-          <div className="bg-white rounded-2xl p-5 border border-slate-200/90 shadow-2xs space-y-3">
+          {/* <div className="bg-white rounded-lg p-5 border border-slate-200/90 shadow-2xs space-y-3">
             <div className="flex items-center justify-between">
               <div className="text-xs sm:text-sm font-bold text-slate-900">Assigned staff</div>
               {st && ['assigned', 'confirmed'].includes(b.status) && (
@@ -463,10 +553,10 @@ export function BookingDetail({ bookingId, onBack, onShowToast }) {
                 {next[1]}
               </button>
             )}
-          </div>
+          </div> */}
 
           {/* Card 2: WhatsApp the client */}
-          <div className="bg-white rounded-2xl p-5 border border-slate-200/90 shadow-2xs space-y-3">
+          <div className="bg-white rounded-lg p-5 border border-slate-200/90 shadow-2xs space-y-3">
             <div className="text-xs sm:text-sm font-bold text-slate-900">WhatsApp the client</div>
             <div className="p-3 rounded-xl bg-[#F0F4F9] text-[11px] sm:text-xs text-slate-600 font-normal leading-relaxed">
               {msg}
@@ -492,41 +582,38 @@ export function BookingDetail({ bookingId, onBack, onShowToast }) {
           </div>
 
           {/* Card 3: Cancel Booking */}
-          {ACTIVE.includes(b.status) && (
-            confirmCancel ? (
-              <div className="bg-white rounded-2xl p-3.5 border border-red-200 shadow-2xs space-y-2.5">
-                <div className="text-xs font-bold text-red-700 text-center">
+          {ACTIVE.includes(b.status) &&
+            (confirmCancel ? (
+              <div className="bg-white rounded-xl p-3.5 border border-rose-200 shadow-2xs space-y-2.5">
+                <div className="text-xs font-bold text-rose-700 text-center">
                   Cancel this booking and notify the client?
                 </div>
                 <div className="flex gap-2">
                   <button
                     type="button"
                     onClick={() => setConfirmCancel(false)}
-                    className="flex-1 h-8 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 font-bold text-xs transition cursor-pointer"
+                    className="flex-1 h-9 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 font-bold text-xs transition cursor-pointer"
                   >
                     Keep
                   </button>
                   <button
                     type="button"
                     onClick={handleCancelBooking}
-                    className="flex-1 h-8 rounded-lg bg-[#C0392B] hover:bg-red-700 text-white font-bold text-xs transition cursor-pointer"
+                    className="flex-1 h-9 rounded-lg bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs transition cursor-pointer shadow-2xs"
                   >
-                    Cancel booking
+                    Confirm Cancel
                   </button>
                 </div>
               </div>
             ) : (
-              <div className="bg-white rounded-2xl p-2 border border-slate-200/90 shadow-2xs">
-                <button
-                  type="button"
-                  onClick={() => setConfirmCancel(true)}
-                  className="w-full h-6.5 rounded-xl text-[#C0392B] hover:bg-red-50/60 font-bold text-xs transition cursor-pointer flex items-center justify-center"
-                >
-                  Cancel booking
-                </button>
-              </div>
-            )
-          )}
+              <button
+                type="button"
+                onClick={() => setConfirmCancel(true)}
+                className="w-full h-10 rounded-lg bg-white hover:bg-rose-50 border border-slate-200/90 hover:border-rose-200 text-rose-600 hover:text-rose-700 font-bold text-xs sm:text-[13px] transition cursor-pointer shadow-2xs flex items-center justify-center gap-1.5"
+              >
+                <span>Cancel booking</span>
+              </button>
+            ))}
         </div>
       </div>
     </div>

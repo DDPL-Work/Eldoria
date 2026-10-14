@@ -14,6 +14,7 @@
     "@tailwindcss/vite": "^4.3.3",
     "indian-states-cities-list": "^1.0.5",
     "react": "^19.2.8",
+    "react-country-state-city": "^1.1.13",
     "react-dom": "^19.2.8",
     "react-icons": "^5.7.0",
     "react-phone-input-2": "^2.15.1",

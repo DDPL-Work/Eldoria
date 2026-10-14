@@ -108,6 +108,27 @@ export const request = async (endpoint, options = {}) => {
   }
 };
 
+/**
+ * Helper to build URL query strings from objects or string params
+ */
+export const buildQuery = (params = '') => {
+  if (!params) return '';
+  if (typeof params === 'object') {
+    const searchParams = new URLSearchParams();
+    Object.entries(params).forEach(([key, val]) => {
+      if (val !== undefined && val !== null && val !== '') {
+        searchParams.append(key, String(val));
+      }
+    });
+    const qs = searchParams.toString();
+    return qs ? `?${qs}` : '';
+  }
+  if (typeof params === 'string' && params.trim()) {
+    return params.startsWith('?') ? params : `?${params}`;
+  }
+  return '';
+};
+
 /** ============================= Core HTTP Methods ===============================*/
 
 export const api = {
@@ -147,31 +168,47 @@ export const authAPI = {
 
 /**========================= Admin Operational Endpoints =============================*/
 
-
 export const adminAPI = {
+  // --- Profile Management ---
   // GET /api/v1/admin/profile
   getProfile: () => api.get('/admin/profile'),
 
   // PATCH /api/v1/admin/edit/profile
   updateProfile: (data) => api.patch('/admin/edit/profile', data),
 
+  // --- Dashboard Metrics & Data ---
+  // GET /api/v1/admin/dashboard
+  getDashboardData: (params = '') => api.get(`/admin/dashboard${buildQuery(params)}`),
+
+  // --- Bookings Management ---
+  // GET /api/v1/admin/bookings
+  getBookings: (params = '') => api.get(`/admin/bookings${buildQuery(params)}`),
+
+  // GET /api/v1/admin/booking/:id
+  getBookingById: (id) => api.get(`/admin/booking/${id}`),
+
+  // --- City Management CRUD ---
+  // GET /api/v1/admin/cities
+  getCities: (params = '') => api.get(`/admin/cities${buildQuery(params)}`),
+
+  // GET /api/v1/admin/cities/:id
+  getCityById: (id) => api.get(`/admin/cities/${id}`),
+
+  // POST /api/v1/admin/cities
+  createCity: (data) => api.post('/admin/cities', data),
+
+  // PATCH /api/v1/admin/cities/:id
+  updateCity: (id, data) => api.patch(`/admin/cities/${id}`, data),
+
+  // PATCH /api/v1/admin/cities/:id/status
+  toggleCityStatus: (id, payload = {}) => api.patch(`/admin/cities/${id}/status`, payload),
+
+  // DELETE /api/v1/admin/cities/:id
+  deleteCity: (id) => api.delete(`/admin/cities/${id}`),
+
+  // --- Staff Registration Requests ---
   // GET /api/v1/admin/staff-requests
-  getStaffRequests: (params = '') => {
-    let query = '';
-    if (params && typeof params === 'object') {
-      const searchParams = new URLSearchParams();
-      Object.entries(params).forEach(([key, val]) => {
-        if (val !== undefined && val !== null && val !== '') {
-          searchParams.append(key, String(val));
-        }
-      });
-      const qs = searchParams.toString();
-      query = qs ? `?${qs}` : '';
-    } else if (typeof params === 'string' && params.trim()) {
-      query = params.startsWith('?') ? params : `?${params}`;
-    }
-    return api.get(`/admin/staff-requests${query}`);
-  },
+  getStaffRequests: (params = '') => api.get(`/admin/staff-requests${buildQuery(params)}`),
 
   // GET /api/v1/admin/staff-requests/:id
   getStaffRequestById: (id) => api.get(`/admin/staff-requests/${id}`),
@@ -182,26 +219,33 @@ export const adminAPI = {
   // PATCH /api/v1/admin/staff-requests/:id/reject
   rejectStaffRequest: (id, payload = {}) => api.patch(`/admin/staff-requests/${id}/reject`, payload),
 
+  // --- Client Management ---
   // GET /api/v1/admin/clients
-  getClients: (params = '') => {
-    let query = '';
-    if (params && typeof params === 'object') {
-      const searchParams = new URLSearchParams();
-      Object.entries(params).forEach(([key, val]) => {
-        if (val !== undefined && val !== null && val !== '') {
-          searchParams.append(key, String(val));
-        }
-      });
-      const qs = searchParams.toString();
-      query = qs ? `?${qs}` : '';
-    } else if (typeof params === 'string' && params.trim()) {
-      query = params.startsWith('?') ? params : `?${params}`;
-    }
-    return api.get(`/admin/clients${query}`);
-  },
+  getClients: (params = '') => api.get(`/admin/clients${buildQuery(params)}`),
 
   // GET /api/v1/admin/clients/:id
   getClientById: (clientId) => api.get(`/admin/clients/${clientId}`),
+};
+
+/**========================= Dedicated Modular API Exports =============================*/
+
+export const dashboardAPI = {
+  getDashboardData: (params = '') => api.get(`/admin/dashboard${buildQuery(params)}`),
+};
+
+
+export const bookingAPI = {getBookings: (params = '') => api.get(`/admin/bookings${buildQuery(params)}`),
+  getBookingById: (id) => api.get(`/admin/booking/${id}`),};
+ 
+
+
+export const cityAPI = {
+  getCities: (params = '') => api.get(`/admin/cities${buildQuery(params)}`),
+  getCityById: (id) => api.get(`/admin/cities/${id}`),
+  createCity: (data) => api.post('/admin/cities', data),
+  updateCity: (id, data) => api.patch(`/admin/cities/${id}`, data),
+  toggleCityStatus: (id, payload = {}) => api.patch(`/admin/cities/${id}/status`, payload),
+  deleteCity: (id) => api.delete(`/admin/cities/${id}`),
 };
 
 /** ===============================System Health Check Endpoint ============================== */

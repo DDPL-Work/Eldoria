@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Icon } from '../../constants/icons';
+import { DatabaseLoader } from '../common/DatabaseLoader';
 import { useStore } from '../../context/StoreContext';
 import { useFiles } from '../../context/FileContext';
 import {
@@ -12,17 +13,54 @@ import {
 } from '../../constants/data';
 
 export function ApplicationDetail({ appId, onBack, onPreviewFile, onShowToast }) {
-  const { data, patch, notify, apprOf, sCity, cityName, applications, approveStaff, rejectStaff } = useStore();
+  const {
+    data,
+    patch,
+    notify,
+    apprOf,
+    sCity,
+    cityName,
+    applications,
+    approveStaff,
+    rejectStaff,
+    dataLoading,
+    fetchStaffRequests
+  } = useStore();
   const { fileGet } = useFiles();
 
   const [note, setNote] = useState('');
   const [confirmReject, setConfirmReject] = useState(false);
+
+  useEffect(() => {
+    fetchStaffRequests?.();
+  }, [fetchStaffRequests]);
 
   const allApps = applications();
   const a =
     allApps.find(
       (x) => String(x.id) === String(appId) || String(x.staffId) === String(appId)
     ) || data.staff?.[appId];
+
+  if (dataLoading && (!a || !a.applied)) {
+    return (
+      <div className="space-y-4">
+        <button
+          type="button"
+          onClick={onBack}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white border border-slate-200 text-xs font-bold text-slate-700 hover:bg-slate-50 transition cursor-pointer"
+        >
+          <Icon name="back" size={16} />
+          <span>Back</span>
+        </button>
+        <div className="bg-white rounded-2xl border border-slate-200/90 shadow-2xs overflow-hidden">
+          <DatabaseLoader
+            title="Fetching Staff Application from Database..."
+            subtitle="Connecting to Eldoria backend server"
+          />
+        </div>
+      </div>
+    );
+  }
 
   if (!a || !a.applied) {
     return (

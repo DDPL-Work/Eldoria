@@ -1,34 +1,58 @@
-import React, { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
+import { RiRefreshLine } from 'react-icons/ri';
 import { Icon } from '../../constants/icons';
 import { useStore } from '../../context/StoreContext';
-import { DEFAULT_CITIES, ACTIVE, digits } from '../../constants/data';
+import { ACTIVE, digits } from '../../constants/data';
+import { DatabaseLoader } from '../common/DatabaseLoader';
 
 export function Cities({ onShowToast }) {
   const {
     citiesAll,
-    cities,
+    // cities,
     bookingsAll,
     staffList,
     settings,
-    put,
-    bCity
+    bCity,
+    backendCities,
+    citiesSummary,
+    citiesLoading,
+    citiesError,
+    // cityActionLoading,
+    fetchCities,
+    createCity,
+    updateCity,
+    toggleCityStatus,
+    deleteCity
   } = useStore();
 
   const [searchQuery, setSearchQuery] = useState('');
+  const [statusFilter, setStatusFilter] = useState('all'); // 'all' | 'live' | 'paused'
   const [cityModal, setCityModal] = useState(null);
   const [modalVisible, setModalVisible] = useState(false);
+  const [deleteModal, setDeleteModal] = useState(null);
+  const [deleteVisible, setDeleteVisible] = useState(false);
+  const [togglingId, setTogglingId] = useState(null);
   const closeTimerRef = useRef(null);
 
   const allCities = citiesAll();
-  const liveCities = cities();
+  // const liveCities = cities();
   const allBookings = bookingsAll();
   const allStaff = staffList();
   const defaultSettings = (typeof settings === 'function' ? settings() : settings) || {};
 
+  // 1. Fetch cities from backend API on mount
+  useEffect(() => {
+    fetchCities().catch((err) => {
+      console.warn('Backend cities fetch notice:', err);
+    });
+  }, [fetchCities]);
+
+  // Keyboard navigation: Escape key closes active modals
   useEffect(() => {
     const handleKeyDown = (e) => {
-      if (e.key === 'Escape' && cityModal) {
-        handleCloseModal();
+      if (e.key === 'Escape') {
+        if (deleteModal) handleCloseDeleteModal();
+        else if (cityModal) handleCloseModal();
       }
     };
     window.addEventListener('keydown', handleKeyDown);
@@ -36,8 +60,50 @@ export function Cities({ onShowToast }) {
       window.removeEventListener('keydown', handleKeyDown);
       if (closeTimerRef.current) clearTimeout(closeTimerRef.current);
     };
-  }, [cityModal]);
+  }, [cityModal, deleteModal]);
 
+  // Combine backend cities with local store fallback
+  const displayCities = useMemo(() => {
+    if (backendCities && backendCities.length > 0) {
+      return backendCities.map((c) => ({
+        id: c.cityId || c.id,
+        backendId: c.id,
+        cityId: c.cityId,
+        name: c.name,
+        phone: c.phone || '',
+        whatsapp: c.whatsapp || '',
+        hidden: !c.isLive,
+        isLive: Boolean(c.isLive),
+        order: c.order,
+        notes: c.notes || '',
+        stats: c.stats || null
+      }));
+    }
+    return allCities.map((c) => ({
+      ...c,
+      backendId: c.backendId || c.id,
+      isLive: !c.hidden,
+      stats: null
+    }));
+  }, [backendCities, allCities]);
+
+  // Summary counters from backend or fallback
+  const summaryLive = citiesSummary?.liveCities ?? displayCities.filter((c) => !c.hidden).length;
+  const summaryPaused = citiesSummary?.pausedCities ?? displayCities.filter((c) => c.hidden).length;
+  const summaryTotal = citiesSummary?.totalCities ?? displayCities.length;
+
+  // Refresh handler
+  const handleRefresh = async () => {
+    try {
+      await fetchCities().unwrap();
+      onShowToast?.('Cities refreshed from database');
+    } catch (err) {
+      const msg = typeof err === 'string' ? err : err?.message || 'Failed to refresh cities';
+      onShowToast?.(msg);
+    }
+  };
+
+  // Open modal in "add" mode
   const handleOpenAddModal = () => {
     if (closeTimerRef.current) {
       clearTimeout(closeTimerRef.current);
@@ -49,13 +115,15 @@ export function Cities({ onShowToast }) {
       name: '',
       phone: '',
       whatsapp: '',
-      error: ''
+      error: '',
+      submitting: false
     });
     setTimeout(() => {
       setModalVisible(true);
     }, 20);
   };
 
+  // Open modal in "edit" mode
   const handleOpenEditModal = (c) => {
     if (closeTimerRef.current) {
       clearTimeout(closeTimerRef.current);
@@ -63,17 +131,20 @@ export function Cities({ onShowToast }) {
     }
     setCityModal({
       mode: 'edit',
-      id: c.id,
+      id: c.backendId || c.id,
+      cityKey: c.id,
       name: c.name || '',
       phone: c.phone || '',
       whatsapp: c.whatsapp || '',
-      error: ''
+      error: '',
+      submitting: false
     });
     setTimeout(() => {
       setModalVisible(true);
     }, 20);
   };
 
+  // Close Add/Edit modal
   const handleCloseModal = () => {
     setModalVisible(false);
     if (closeTimerRef.current) clearTimeout(closeTimerRef.current);
@@ -83,9 +154,30 @@ export function Cities({ onShowToast }) {
     }, 200);
   };
 
-  const handleSaveCity = (e) => {
+  // Open Delete confirmation modal
+  const handleOpenDeleteModal = (c) => {
+    setDeleteModal({
+      city: c,
+      error: '',
+      submitting: false
+    });
+    setTimeout(() => {
+      setDeleteVisible(true);
+    }, 20);
+  };
+
+  // Close Delete confirmation modal
+  const handleCloseDeleteModal = () => {
+    setDeleteVisible(false);
+    setTimeout(() => {
+      setDeleteModal(null);
+    }, 200);
+  };
+
+  // Save City (Create or Update API)
+  const handleSaveCity = async (e) => {
     e.preventDefault();
-    if (!cityModal) return;
+    if (!cityModal || cityModal.submitting) return;
 
     const name = cityModal.name.trim();
     if (!name) {
@@ -97,111 +189,203 @@ export function Cities({ onShowToast }) {
     const w = digits(cityModal.whatsapp);
 
     if (cityModal.phone.trim() && p.length !== 10) {
-      setCityModal((prev) => ({ ...prev, error: 'Dedicated call phone must be a 10-digit number' }));
+      setCityModal((prev) => ({
+        ...prev,
+        error: 'Dedicated call phone must be a 10-digit mobile number'
+      }));
       return;
     }
 
     if (cityModal.whatsapp.trim() && w.length !== 10) {
-      setCityModal((prev) => ({ ...prev, error: 'Dedicated WhatsApp must be a 10-digit number' }));
+      setCityModal((prev) => ({
+        ...prev,
+        error: 'Dedicated WhatsApp must be a 10-digit mobile number'
+      }));
       return;
     }
 
-    if (cityModal.mode === 'add') {
-      const id =
-        name
-          .toLowerCase()
-          .replace(/[^a-z0-9]+/g, '-')
-          .replace(/^-|-$/g, '') || 'city-' + Date.now().toString(36);
+    setCityModal((prev) => ({ ...prev, submitting: true, error: '' }));
 
-      if (allCities.some((c) => c.id === id || c.name.toLowerCase() === name.toLowerCase())) {
-        const msg = `${name} is already in the cities list`;
-        setCityModal((prev) => ({ ...prev, error: msg }));
-        onShowToast?.(msg);
-        return;
+    try {
+      if (cityModal.mode === 'add') {
+        const payload = {
+          name,
+          phone: p,
+          whatsapp: w
+        };
+        await createCity(payload).unwrap();
+        handleCloseModal();
+        onShowToast?.(`City '${name}' added successfully and is now live`);
+      } else {
+        const payload = {
+          name,
+          phone: p,
+          whatsapp: w
+        };
+        await updateCity(cityModal.id, payload).unwrap();
+        handleCloseModal();
+        onShowToast?.(`City '${name}' updated successfully`);
       }
-
-      put('cities', id, {
-        id,
-        name,
-        order: allCities.length + 1,
-        phone: p,
-        whatsapp: w,
-        hidden: false
-      });
-
-      handleCloseModal();
-      onShowToast?.(`${name} added successfully`);
-    } else {
-      // Edit mode
-      const existing = allCities.find((c) => c.id === cityModal.id);
-      if (
-        allCities.some(
-          (c) => c.id !== cityModal.id && c.name.toLowerCase() === name.toLowerCase()
-        )
-      ) {
-        const msg = `Another city with the name "${name}" already exists`;
-        setCityModal((prev) => ({ ...prev, error: msg }));
-        onShowToast?.(msg);
-        return;
-      }
-
-      put('cities', cityModal.id, {
-        ...(existing || {}),
-        id: cityModal.id,
-        name,
-        phone: p,
-        whatsapp: w
-      });
-
-      handleCloseModal();
-      onShowToast?.(`${name} updated successfully`);
+    } catch (err) {
+      const errMsg = typeof err === 'string' ? err : err?.message || 'Failed to save city';
+      setCityModal((prev) => ({ ...prev, error: errMsg, submitting: false }));
+      onShowToast?.(errMsg);
     }
   };
 
-  const handleToggleCity = (c) => {
-    if (!c.hidden && liveCities.length <= 1) {
-      onShowToast?.('Keep at least one operational live city');
+  // Toggle Live/Paused status via API
+  const handleToggleCity = async (c) => {
+    const targetLive = c.hidden; // If currently hidden/paused, we want to activate/go live
+    if (!targetLive && summaryLive <= 1) {
+      onShowToast?.('Keep at least one operational live city in the system');
       return;
     }
 
-    put('cities', c.id, {
-      ...c,
-      hidden: !c.hidden
+    setTogglingId(c.id);
+    try {
+      const identifier = c.backendId || c.id;
+      await toggleCityStatus(identifier, { isLive: targetLive }).unwrap();
+      const statusLabel = targetLive ? 'now live' : 'paused';
+      onShowToast?.(`${c.name} is ${statusLabel}`);
+    } catch (err) {
+      const errMsg = typeof err === 'string' ? err : err?.message || 'Failed to update city status';
+      onShowToast?.(errMsg);
+    } finally {
+      setTogglingId(null);
+    }
+  };
+
+  // Confirm delete via API
+  const handleConfirmDelete = async () => {
+    if (!deleteModal || deleteModal.submitting) return;
+
+    const targetCity = deleteModal.city;
+    setDeleteModal((prev) => ({ ...prev, submitting: true, error: '' }));
+
+    try {
+      const identifier = targetCity.backendId || targetCity.id;
+      await deleteCity(identifier).unwrap();
+      handleCloseDeleteModal();
+      onShowToast?.(`${targetCity.name} deleted successfully`);
+    } catch (err) {
+      const errMsg = typeof err === 'string' ? err : err?.message || 'Failed to delete city';
+      setDeleteModal((prev) => ({ ...prev, error: errMsg, submitting: false }));
+      onShowToast?.(errMsg);
+    }
+  };
+
+  // Filter cities by search query and status pill
+  const filteredCities = useMemo(() => {
+    return displayCities.filter((c) => {
+      // Status pill filtering
+      if (statusFilter === 'live' && c.hidden) return false;
+      if (statusFilter === 'paused' && !c.hidden) return false;
+
+      // Search query filtering
+      if (!searchQuery.trim()) return true;
+      const q = searchQuery.toLowerCase().trim();
+      return (
+        c.name?.toLowerCase().includes(q) ||
+        (c.cityId && c.cityId.toLowerCase().includes(q)) ||
+        (c.phone && c.phone.includes(q)) ||
+        (c.whatsapp && c.whatsapp.includes(q))
+      );
     });
-
-    onShowToast?.(`${c.name} is ${c.hidden ? 'now live' : 'paused'}`);
-  };
-
-  // Filter cities by search query
-  const filteredCities = allCities.filter((c) => {
-    if (!searchQuery.trim()) return true;
-    const q = searchQuery.toLowerCase().trim();
-    return (
-      c.name?.toLowerCase().includes(q) ||
-      (c.phone && c.phone.includes(q)) ||
-      (c.whatsapp && c.whatsapp.includes(q))
-    );
-  });
+  }, [displayCities, statusFilter, searchQuery]);
 
   return (
-    <div className="p-4 sm:p-6 lg:p-4 w-full max-w-[1400px] mx-auto space-y-4 sm:space-y-3.5">
+    <div className="p-4 sm:p-6 lg:p-4 w-full max-w-[1400px] mx-auto space-y-4 sm:space-y-4">
       {/* Top Header */}
-      <div className="flex items-center justify-between gap-3">
-        <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Cities</h1>
-        <span className="text-xs text-slate-500 font-medium">
-          {liveCities.length} live · {allCities.length - liveCities.length} paused
-        </span>
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <div className="w-9 h-9 rounded-xl bg-amber-50 border border-amber-200/80 text-amber-700 flex items-center justify-center shrink-0">
+            <Icon name="pin" size={20} />
+          </div>
+          <div>
+            <div className="flex items-center gap-2.5">
+              <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Cities</h1>
+              <button
+                type="button"
+                onClick={handleRefresh}
+                title="Refresh cities from database"
+                disabled={citiesLoading}
+                className="p-1 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition cursor-pointer disabled:opacity-50"
+              >
+                <RiRefreshLine
+                  size={18}
+                  className={citiesLoading ? 'animate-spin text-amber-600' : ''}
+                />
+              </button>
+            </div>
+            <p className="text-xs text-slate-500 font-medium">
+              {summaryLive} live · {summaryPaused} paused · {summaryTotal} total
+            </p>
+          </div>
+        </div>
+
+        {/* Status Filter Pills */}
+        <div className="flex items-center gap-1.5 bg-slate-100/80 p-1 rounded-xl self-start sm:self-auto border border-slate-200/70">
+          <button
+            type="button"
+            onClick={() => setStatusFilter('all')}
+            className={`px-3 py-1 rounded-lg text-xs font-bold transition cursor-pointer ${
+              statusFilter === 'all'
+                ? 'bg-white text-slate-900 shadow-2xs'
+                : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            All ({summaryTotal})
+          </button>
+          <button
+            type="button"
+            onClick={() => setStatusFilter('live')}
+            className={`px-3 py-1 rounded-lg text-xs font-bold transition cursor-pointer ${
+              statusFilter === 'live'
+                ? 'bg-emerald-600 text-white shadow-2xs'
+                : 'text-slate-600 hover:text-emerald-700'
+            }`}
+          >
+            Live ({summaryLive})
+          </button>
+          <button
+            type="button"
+            onClick={() => setStatusFilter('paused')}
+            className={`px-3 py-1 rounded-lg text-xs font-bold transition cursor-pointer ${
+              statusFilter === 'paused'
+                ? 'bg-slate-700 text-white shadow-2xs'
+                : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            Paused ({summaryPaused})
+          </button>
+        </div>
       </div>
 
       <p className="text-xs text-slate-600 max-w-3xl leading-relaxed">
-        Clients choose their city in the app. Each city can configure dedicated Care Desk Call and
-        WhatsApp numbers; cities without custom numbers automatically fallback to the global number in
-        Settings. Paused cities are hidden from new client app bookings but preserve all past
-        records.
+        Clients choose their operational city in the patient app. Each city can configure dedicated
+        Care Desk Call and WhatsApp contact numbers; cities without custom numbers automatically fallback
+        to global numbers in Settings. Paused cities are hidden from new bookings while preserving historic records.
       </p>
 
+      {/* Backend Error Alert if any */}
+      {citiesError && (
+        <div className="p-3.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs font-semibold flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <span className="text-base">⚠️</span>
+            <span>{typeof citiesError === 'string' ? citiesError : citiesError.message || 'Error syncing cities from database'}</span>
+          </div>
+          <button
+            type="button"
+            onClick={handleRefresh}
+            className="px-2.5 py-1 rounded-lg bg-rose-100 hover:bg-rose-200 text-rose-900 font-bold text-[11px] transition cursor-pointer shrink-0"
+          >
+            Retry
+          </button>
+        </div>
+      )}
+
       {/* Search & Add City Card */}
-      <div className="bg-white rounded-lg p-5 border border-slate-200/80 shadow-2xs space-y-2">
+      <div className="bg-white rounded-xl p-4 sm:p-5 border border-slate-200/80 shadow-2xs space-y-3">
         <div className="flex items-center justify-between">
           <h2 className="text-xs font-bold text-slate-900 uppercase tracking-wider">Search Cities</h2>
           {searchQuery && (
@@ -223,8 +407,8 @@ export function Cities({ onShowToast }) {
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search cities by name or number (e.g. Nashik, 9820...)"
-              className="w-full rounded-lg border border-slate-200 pl-9 pr-3 py-2 text-xs text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-teal-500 bg-white"
+              placeholder="Search cities by name, slug or dedicated number (e.g. Mumbai, 9820...)"
+              className="w-full rounded-lg border border-slate-200 pl-9 pr-3 py-2 text-xs text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-amber-500 bg-white"
             />
           </div>
           <button
@@ -239,9 +423,16 @@ export function Cities({ onShowToast }) {
       </div>
 
       {/* City List Cards */}
-      <div className="space-y-4">
-        {allCities.length === 0 ? (
-          <div className="bg-white rounded-lg p-12 text-center text-slate-400 border border-slate-200/80 space-y-3">
+      <div className="space-y-3">
+        {citiesLoading ? (
+          <div className="bg-white rounded-xl border border-slate-200/90 shadow-2xs overflow-hidden">
+            <DatabaseLoader
+              title="Fetching Cities from Database..."
+              subtitle="Connecting to Eldoria backend server"
+            />
+          </div>
+        ) : displayCities.length === 0 ? (
+          <div className="bg-white rounded-xl p-12 text-center text-slate-400 border border-slate-200/80 space-y-3">
             <div className="w-12 h-12 rounded-full bg-amber-50 border border-amber-200 text-amber-700 flex items-center justify-center mx-auto">
               <Icon name="pin" size={24} />
             </div>
@@ -261,44 +452,76 @@ export function Cities({ onShowToast }) {
             </button>
           </div>
         ) : filteredCities.length === 0 ? (
-          <div className="bg-white rounded-lg p-12 text-center text-slate-400 border border-slate-200/80 space-y-3">
+          <div className="bg-white rounded-xl p-12 text-center text-slate-400 border border-slate-200/80 space-y-3">
             <div className="w-12 h-12 rounded-full bg-slate-100 border border-slate-200 text-slate-500 flex items-center justify-center mx-auto">
               <Icon name="search" size={22} />
             </div>
             <div>
               <p className="font-bold text-slate-700 text-sm">No matching cities found</p>
               <p className="text-xs text-slate-500 mt-1 max-w-sm mx-auto">
-                No cities found matching &quot;{searchQuery}&quot;. Try a different name or clear search.
+                No cities found matching &quot;{searchQuery}&quot; with filter &quot;{statusFilter}&quot;. Try a different query or clear filters.
               </p>
             </div>
-            <button
-              type="button"
-              onClick={() => setSearchQuery('')}
-              className="inline-flex items-center justify-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold text-xs transition cursor-pointer"
-            >
-              <span>Clear search</span>
-            </button>
+            <div className="flex items-center justify-center gap-2 pt-1">
+              {searchQuery && (
+                <button
+                  type="button"
+                  onClick={() => setSearchQuery('')}
+                  className="inline-flex items-center justify-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold text-xs transition cursor-pointer"
+                >
+                  <span>Clear search</span>
+                </button>
+              )}
+              {statusFilter !== 'all' && (
+                <button
+                  type="button"
+                  onClick={() => setStatusFilter('all')}
+                  className="inline-flex items-center justify-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold text-xs transition cursor-pointer"
+                >
+                  <span>Show all statuses</span>
+                </button>
+              )}
+            </div>
           </div>
         ) : (
           filteredCities.map((c) => {
-            const bs = allBookings.filter((b) => bCity(b) === c.id);
-            const ss = allStaff.filter((s) => (s.city || DEFAULT_CITIES[0].id) === c.id);
+            const bs = allBookings.filter((b) => bCity(b) === c.id || bCity(b) === c.cityId);
+            const ss = allStaff.filter(
+              (s) =>
+                (s.city || '').toLowerCase() === (c.id || '').toLowerCase() ||
+                (s.city || '').toLowerCase() === (c.cityId || '').toLowerCase()
+            );
             const openCount = bs.filter((b) => ACTIVE.includes(b.status)).length;
+
+            const staffCount = c.stats?.staffTotal ?? ss.length;
+            const staffOnDuty = c.stats?.staffOnDuty ?? 0;
+            const openBookingsCount = c.stats?.openBookings ?? openCount;
+            const totalBookingsCount = c.stats?.totalBookings ?? bs.length;
+
+            const isToggling = togglingId === c.id;
 
             return (
               <div
                 key={c.id}
-                className={`bg-white rounded-lg p-5 border transition ${
-                  c.hidden ? 'border-slate-200 bg-slate-50/50 opacity-75' : 'border-slate-200/80 shadow-xs'
+                className={`bg-white rounded-xl p-4 sm:p-5 border transition ${
+                  c.hidden
+                    ? 'border-slate-200/90 bg-slate-50/60 opacity-80'
+                    : 'border-slate-200/90 shadow-2xs hover:border-slate-300'
                 }`}
               >
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                   <div className="flex items-start gap-3">
-                    <div className="w-10 h-10 rounded-lg bg-teal-50 border border-teal-200 text-teal-800 flex items-center justify-center shrink-0">
+                    <div
+                      className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 border ${
+                        c.hidden
+                          ? 'bg-slate-100 border-slate-200 text-slate-500'
+                          : 'bg-teal-50 border-teal-200 text-teal-800'
+                      }`}
+                    >
                       <Icon name="pin" size={20} />
                     </div>
                     <div>
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
                         <span className="font-bold text-slate-900 text-base">{c.name}</span>
                         <span
                           className={`text-[11px] font-bold px-2 py-0.5 rounded-lg border ${
@@ -309,18 +532,48 @@ export function Cities({ onShowToast }) {
                         >
                           {c.hidden ? 'Paused' : 'Live'}
                         </span>
-                      </div>
-                      <div className="text-xs text-slate-500 mt-0.5">
-                        {ss.length} staff · {openCount} open bookings · Desk:{' '}
-                        {c.phone ? (
-                          <span className="font-mono text-slate-700 font-semibold">+91 {c.phone}</span>
-                        ) : (
-                          <span className="text-slate-400">
-                            {defaultSettings.phone ? 'Global default' : 'Not configured'}
+                        {c.cityId && (
+                          <span className="text-[10px] font-mono font-medium text-slate-400 bg-slate-50 px-1.5 py-0.5 rounded border border-slate-200/60">
+                            /{c.cityId}
                           </span>
                         )}
+                      </div>
+
+                      <div className="text-xs text-slate-500 mt-1 flex items-center gap-1.5 flex-wrap">
+                        <span>
+                          <strong className="text-slate-700 font-semibold">{staffCount}</strong> staff
+                          {staffOnDuty > 0 && (
+                            <span className="text-teal-700 font-semibold ml-1">
+                              ({staffOnDuty} on duty)
+                            </span>
+                          )}
+                        </span>
+                        <span>·</span>
+                        <span>
+                          <strong className="text-slate-700 font-semibold">{openBookingsCount}</strong> open bookings
+                          {totalBookingsCount > openBookingsCount && (
+                            <span className="text-slate-400 ml-1">
+                              ({totalBookingsCount} total)
+                            </span>
+                          )}
+                        </span>
+                        <span>·</span>
+                        <span>
+                          Desk:{' '}
+                          {c.phone ? (
+                            <span className="font-mono text-slate-800 font-semibold">
+                              +91 {c.phone}
+                            </span>
+                          ) : (
+                            <span className="text-slate-400">
+                              {defaultSettings.phone
+                                ? `+91 ${defaultSettings.phone} (Global)`
+                                : 'Not configured'}
+                            </span>
+                          )}
+                        </span>
                         {c.whatsapp && (
-                          <span className="font-mono text-emerald-700 ml-1">
+                          <span className="font-mono text-emerald-700 font-semibold ml-0.5">
                             · WhatsApp +91 {c.whatsapp}
                           </span>
                         )}
@@ -328,7 +581,8 @@ export function Cities({ onShowToast }) {
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-2 self-start sm:self-auto">
+                  <div className="flex items-center gap-2 self-start sm:self-auto shrink-0">
+                    {/* Edit City */}
                     <button
                       type="button"
                       onClick={() => handleOpenEditModal(c)}
@@ -336,16 +590,30 @@ export function Cities({ onShowToast }) {
                     >
                       Edit
                     </button>
+
+                    {/* Toggle Status (Pause / Go Live) */}
                     <button
                       type="button"
+                      disabled={isToggling}
                       onClick={() => handleToggleCity(c)}
-                      className={`px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
+                      className={`px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer flex items-center gap-1.5 ${
                         c.hidden
                           ? 'bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200'
                           : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
-                      }`}
+                      } ${isToggling ? 'opacity-60 cursor-not-allowed' : ''}`}
                     >
-                      {c.hidden ? 'Go live' : 'Pause'}
+                      {isToggling && <RiRefreshLine className="animate-spin text-xs" />}
+                      <span>{c.hidden ? 'Go live' : 'Pause'}</span>
+                    </button>
+
+                    {/* Delete City */}
+                    <button
+                      type="button"
+                      onClick={() => handleOpenDeleteModal(c)}
+                      title={`Delete ${c.name}`}
+                      className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition cursor-pointer"
+                    >
+                      <Icon name="trash" size={16} />
                     </button>
                   </div>
                 </div>
@@ -512,22 +780,114 @@ export function Cities({ onShowToast }) {
                 <button
                   type="button"
                   onClick={handleCloseModal}
-                  className="px-4 py-2 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs transition cursor-pointer"
+                  disabled={cityModal.submitting}
+                  className="px-4 py-2 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs transition cursor-pointer disabled:opacity-50"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="flex items-center justify-center gap-1.5 px-4 py-2 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs shadow-xs transition cursor-pointer"
+                  disabled={cityModal.submitting}
+                  className="flex items-center justify-center gap-1.5 px-4 py-2 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs shadow-xs transition cursor-pointer disabled:opacity-50"
                 >
-                  <Icon name={cityModal.mode === 'edit' ? 'check' : 'plus'} size={15} strokeWidth={2.5} />
-                  <span>{cityModal.mode === 'edit' ? 'Save edit' : 'Save details'}</span>
+                  {cityModal.submitting ? (
+                    <RiRefreshLine className="animate-spin text-sm" />
+                  ) : (
+                    <Icon name={cityModal.mode === 'edit' ? 'check' : 'plus'} size={15} strokeWidth={2.5} />
+                  )}
+                  <span>
+                    {cityModal.submitting
+                      ? 'Saving...'
+                      : cityModal.mode === 'edit'
+                      ? 'Save edit'
+                      : 'Save details'}
+                  </span>
                 </button>
               </div>
             </form>
           </div>
         </div>
       )}
+
+      {/* Delete City Confirmation Modal */}
+      {deleteModal && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="delete-city-modal-title"
+          className={`fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-xs transition-opacity duration-200 ease-out ${
+            deleteVisible ? 'opacity-100' : 'opacity-0 pointer-events-none'
+          }`}
+          onClick={handleCloseDeleteModal}
+        >
+          <div
+            className={`relative w-full max-w-md bg-white rounded-2xl shadow-2xl border border-slate-200/90 overflow-hidden transform transition-all duration-200 ease-out ${
+              deleteVisible
+                ? 'opacity-100 scale-100 translate-y-0'
+                : 'opacity-0 scale-95 translate-y-2.5'
+            }`}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="p-6 space-y-4">
+              <div className="flex items-center gap-3.5">
+                <div className="w-11 h-11 rounded-2xl bg-rose-50 border border-rose-200 text-rose-600 flex items-center justify-center shrink-0">
+                  <Icon name="trash" size={22} />
+                </div>
+                <div>
+                  <h3 id="delete-city-modal-title" className="text-base font-bold text-slate-900">
+                    Delete City
+                  </h3>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    This action will remove the city from active operations.
+                  </p>
+                </div>
+              </div>
+
+              {deleteModal.error ? (
+                <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs font-semibold flex items-start gap-2">
+                  <span className="shrink-0 text-sm mt-0.5">⚠️</span>
+                  <span>{deleteModal.error}</span>
+                </div>
+              ) : (
+                <p className="text-xs text-slate-600 leading-relaxed">
+                  Are you sure you want to permanently delete{' '}
+                  <strong className="text-slate-900 font-bold">{deleteModal.city.name}</strong>?
+                  <br />
+                  <span className="text-[11px] text-slate-400 mt-1 block">
+                    Note: Backend safety guards prevent deleting cities that have existing bookings or registered staff.
+                  </span>
+                </p>
+              )}
+
+              <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={handleCloseDeleteModal}
+                  disabled={deleteModal.submitting}
+                  className="px-4 py-2 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs transition cursor-pointer disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleConfirmDelete}
+                  disabled={deleteModal.submitting}
+                  className="flex items-center justify-center gap-1.5 px-4 py-2 rounded-lg bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs shadow-xs transition cursor-pointer disabled:opacity-50"
+                >
+                  {deleteModal.submitting ? (
+                    <RiRefreshLine className="animate-spin text-sm" />
+                  ) : (
+                    <Icon name="trash" size={15} />
+                  )}
+                  <span>{deleteModal.submitting ? 'Deleting...' : 'Delete City'}</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
+
+export default Cities;

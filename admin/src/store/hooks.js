@@ -26,6 +26,15 @@ import {
   approveStaffThunk,
   rejectStaffThunk,
   fetchClientsThunk,
+  fetchDashboardThunk,
+  fetchBookingsThunk,
+  fetchBookingByIdThunk,
+  fetchCitiesThunk,
+  getCityByIdThunk,
+  createCityThunk,
+  updateCityThunk,
+  toggleCityStatusThunk,
+  deleteCityThunk,
   syncExternalData as syncExternalDataAction,
 } from './slices/dataSlice';
 
@@ -191,6 +200,22 @@ export function useStore() {
     (state) => state.data.backendStaffRequests
   );
   const backendClients = useSelector((state) => state.data.backendClients);
+  const dashboardData = useSelector((state) => state.data.dashboardData);
+  const dashboardLoading = useSelector((state) => state.data.dashboardLoading);
+  const dashboardError = useSelector((state) => state.data.dashboardError);
+  const backendBookings = useSelector((state) => state.data.backendBookings);
+  const bookingsPagination = useSelector((state) => state.data.bookingsPagination);
+  const bookingsLoading = useSelector((state) => state.data.bookingsLoading);
+  const bookingsError = useSelector((state) => state.data.bookingsError);
+  const currentBookingDetail = useSelector((state) => state.data.currentBookingDetail);
+  const bookingDetailLoading = useSelector((state) => state.data.bookingDetailLoading);
+  const bookingDetailError = useSelector((state) => state.data.bookingDetailError);
+  const backendCities = useSelector((state) => state.data.backendCities);
+  const citiesSummary = useSelector((state) => state.data.citiesSummary);
+  const citiesLoading = useSelector((state) => state.data.citiesLoading);
+  const citiesError = useSelector((state) => state.data.citiesError);
+  const cityActionLoading = useSelector((state) => state.data.cityActionLoading);
+  const cityActionError = useSelector((state) => state.data.cityActionError);
   const dataLoading = useSelector((state) => state.data.loading);
   const dataError = useSelector((state) => state.data.error);
 
@@ -462,11 +487,9 @@ const normalizeStaffRequest = (req) => {
           .filter(Boolean)
           .sort((a, b) => (b.submittedAt || 0) - (a.submittedAt || 0));
       }
-      return Object.values(data.staff || {})
-        .filter((s) => s.applied)
-        .sort((a, b) => (b.submittedAt || 0) - (a.submittedAt || 0));
+      return [];
     },
-    [backendStaffRequests, data.staff]
+    [backendStaffRequests]
   );
 
   const enqAll = useCallback(
@@ -513,6 +536,51 @@ const normalizeStaffRequest = (req) => {
     [dispatch]
   );
 
+  const fetchDashboard = useCallback(
+    (city = 'all') => dispatch(fetchDashboardThunk(city)),
+    [dispatch]
+  );
+
+  const fetchBookings = useCallback(
+    (params = '') => dispatch(fetchBookingsThunk(params)),
+    [dispatch]
+  );
+
+  const fetchBookingById = useCallback(
+    (id) => dispatch(fetchBookingByIdThunk(id)),
+    [dispatch]
+  );
+
+  const fetchCities = useCallback(
+    (params = '') => dispatch(fetchCitiesThunk(params)),
+    [dispatch]
+  );
+
+  const getCityById = useCallback(
+    (id) => dispatch(getCityByIdThunk(id)),
+    [dispatch]
+  );
+
+  const createCity = useCallback(
+    (cityData) => dispatch(createCityThunk(cityData)),
+    [dispatch]
+  );
+
+  const updateCity = useCallback(
+    (id, cityData) => dispatch(updateCityThunk({ id, data: cityData })),
+    [dispatch]
+  );
+
+  const toggleCityStatus = useCallback(
+    (id, payload = {}) => dispatch(toggleCityStatusThunk({ id, payload })),
+    [dispatch]
+  );
+
+  const deleteCity = useCallback(
+    (id) => dispatch(deleteCityThunk(id)),
+    [dispatch]
+  );
+
   return {
     data,
     put,
@@ -556,11 +624,36 @@ const normalizeStaffRequest = (req) => {
     // Backend API Thunk Triggers
     backendStaffRequests,
     backendClients,
+    dashboardData,
+    dashboardLoading,
+    dashboardError,
+    backendBookings,
+    bookingsPagination,
+    bookingsLoading,
+    bookingsError,
+    currentBookingDetail,
+    bookingDetailLoading,
+    bookingDetailError,
+    backendCities,
+    citiesSummary,
+    citiesLoading,
+    citiesError,
+    cityActionLoading,
+    cityActionError,
     dataLoading,
     dataError,
     fetchStaffRequests,
     approveStaff,
     rejectStaff,
     fetchClients,
+    fetchDashboard,
+    fetchBookings,
+    fetchBookingById,
+    fetchCities,
+    getCityById,
+    createCity,
+    updateCity,
+    toggleCityStatus,
+    deleteCity,
   };
 }

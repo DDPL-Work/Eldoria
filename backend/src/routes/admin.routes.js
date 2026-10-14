@@ -1,31 +1,11 @@
 const express = require("express");
 const router = express.Router();
 const { verifyToken, requireAdmin } = require("../middlewares/auth.middleware");
-const {
-  getStaffRequests,
-  getStaffRequestById,
-  verifyStaffRequest,
-  rejectStaffRequest,
-  getClients,
-  getClientByClientId,
-  getBookings,
-  getBookingById,
-} = require("../controllers/admin.controller");
-const {
-  getDashboardData,
-  confirmBooking,
-  assignStaffToBooking,
-  unassignStaffFromBooking,
-} = require("../controllers/dashboard.controller");
+const {getStaffRequests,getStaffRequestById,verifyStaffRequest,rejectStaffRequest,getClients,getClientByClientId,
+  getBookings,getBookingById,} = require("../controllers/admin.controller");
+const {getDashboardData,confirmBooking,assignStaffToBooking,unassignStaffFromBooking,} = require("../controllers/dashboard.controller");
 
-const {
-  getCities,
-  getCityById,
-  createCity,
-  updateCity,
-  toggleCityStatus,
-  deleteCity,
-} = require("../controllers/city.controller");
+const {getCities,getCityById,createCity,updateCity,toggleCityStatus,deleteCity,} = require("../controllers/city.controller");
 
 // Dashboard care-desk metrics & data
 router.get("/dashboard", verifyToken, requireAdmin, getDashboardData);
