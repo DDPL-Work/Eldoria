@@ -3,6 +3,77 @@ const { errorResponse, successResponse } = require("../utills/responseHandler");
 const { generateStaffId } = require("../helpers/generateStaffID");
 
 /**
+ * Helper to normalize staff uploaded documents:
+ * Assigns unique document ID, initial verification status ("pending"),
+ * verified boolean flag (false), and metadata for each uploaded file.
+ */
+const normalizeStaffFiles = (inputFiles = {}) => {
+  const normalized = {};
+  const initialDocChecks = {};
+
+  if (!inputFiles || typeof inputFiles !== "object") {
+    return { files: normalized, docChecks: initialDocChecks };
+  }
+
+  // If inputFiles is an array of objects
+  if (Array.isArray(inputFiles)) {
+    inputFiles.forEach((file, index) => {
+      if (!file) return;
+      const key = file.k || file.key || file.type || `doc_${index}`;
+      const docId =
+        file.id ||
+        `doc_${key}_${Date.now().toString(36)}_${Math.random().toString(36).substring(2, 7)}`;
+      const isVerified = Boolean(file.verified || file.status === "verified");
+
+      normalized[key] = {
+        id: docId,
+        key,
+        name: file.name || `${key}.jpg`,
+        type: file.type || "image/jpeg",
+        size: Number(file.size) || 0,
+        data: file.data || file.url || "",
+        status: isVerified ? "verified" : (file.status || "pending"),
+        verified: isVerified,
+        uploadedAt: file.uploadedAt || new Date().toISOString(),
+        notes: file.notes || null,
+      };
+
+      initialDocChecks[key] = isVerified;
+    });
+    return { files: normalized, docChecks: initialDocChecks };
+  }
+
+  // If inputFiles is a map / object { photo: {...}, idProof: {...} }
+  Object.keys(inputFiles).forEach((key) => {
+    const file = inputFiles[key];
+    if (!file) return;
+
+    const fileObj = typeof file === "string" ? { data: file, name: `${key}.jpg` } : file;
+    const docId =
+      fileObj.id ||
+      `doc_${key}_${Date.now().toString(36)}_${Math.random().toString(36).substring(2, 7)}`;
+    const isVerified = Boolean(fileObj.verified || fileObj.status === "verified");
+
+    normalized[key] = {
+      id: docId,
+      key,
+      name: fileObj.name || `${key}.jpg`,
+      type: fileObj.type || "image/jpeg",
+      size: Number(fileObj.size) || 0,
+      data: fileObj.data || fileObj.url || "",
+      status: isVerified ? "verified" : (fileObj.status || "pending"),
+      verified: isVerified,
+      uploadedAt: fileObj.uploadedAt || new Date().toISOString(),
+      notes: fileObj.notes || null,
+    };
+
+    initialDocChecks[key] = isVerified;
+  });
+
+  return { files: normalized, docChecks: initialDocChecks };
+};
+
+/**
  * Staff Registration Controller
  * Registers a staff member by creating both User credentials and Staff profile
  * Requires that the phone number has been verified via OTP prior to registration
@@ -162,6 +233,10 @@ const staffRegistration = async (req, res) => {
       { transaction },
     );
 
+    // Normalize documents: assign unique id, status, verified flag, and initialize docChecks
+    const { files: normalizedFiles, docChecks: initialDocChecks } = normalizeStaffFiles(files);
+    const now = new Date();
+
     // Create Staff profile record
     const newStaff = await Staff.create(
       {
@@ -184,12 +259,23 @@ const staffRegistration = async (req, res) => {
         emergencyName: emergencyName || null,
         emergencyPhone: emergencyPhone || null,
         emergencyRelation: emergencyRelation || null,
-        files: files || {},
+        files: normalizedFiles,
+        docChecks: initialDocChecks,
         applied: applied !== undefined ? applied : true,
         approval: approval || "pending",
         docs: docs || "pending",
+        reviewNote: null,
+        reviewedAt: null,
+        appHistory: [
+          {
+            at: now.toISOString(),
+            status: approval || "pending",
+            by: "applicant",
+            note: "Application submitted",
+          },
+        ],
         onDuty: onDuty !== undefined ? onDuty : false,
-        submittedAt: submittedAt || new Date(),
+        submittedAt: submittedAt || now,
         notes: notes || null,
       },
       { transaction },
@@ -251,6 +337,121 @@ const staffRegistration = async (req, res) => {
   }
 };
 
+/**
+ * Update Staff Application / Re-upload documents
+ * Used when changes are requested by admin or staff needs to submit updated files
+ * PATCH /api/v1/staff/application
+ */
+const updateStaffApplication = async (req, res) => {
+  const transaction = await sequelize.transaction();
+
+  try {
+    const staffId = req.user?.staffId || req.body?.staffId;
+    const {
+      files,
+      skills,
+      availability,
+      language,
+      emergencyName,
+      emergencyPhone,
+      emergencyRelation,
+      note,
+    } = req.body;
+
+    if (!staffId) {
+      await transaction.rollback();
+      return errorResponse(res, "Staff ID is required to update application", 400);
+    }
+
+    const staff = await Staff.findOne({
+      where: { staffId },
+      include: [{ model: User, as: "user" }],
+      transaction,
+    });
+
+    if (!staff) {
+      await transaction.rollback();
+      return errorResponse(res, `Staff member with ID '${staffId}' not found`, 404);
+    }
+
+    const updatedFiles = { ...(staff.files || {}) };
+    const updatedDocChecks = { ...(staff.docChecks || {}) };
+
+    if (files && typeof files === "object") {
+      const { files: normalizedNewFiles } = normalizeStaffFiles(files);
+      // Merge new files into existing files
+      Object.keys(normalizedNewFiles).forEach((key) => {
+        updatedFiles[key] = normalizedNewFiles[key];
+        updatedDocChecks[key] = false; // Reset verification state when a file is re-uploaded
+      });
+    }
+
+    const now = new Date();
+    const historyItem = {
+      at: now.toISOString(),
+      status: "pending",
+      by: "applicant",
+      note: note || "Application updated and re-submitted for review",
+    };
+
+    const existingHistory = Array.isArray(staff.appHistory) ? staff.appHistory : [];
+    const updatedHistory = [...existingHistory, historyItem];
+
+    await staff.update(
+      {
+        files: updatedFiles,
+        docChecks: updatedDocChecks,
+        approval: "pending",
+        docs: "pending",
+        reviewNote: null,
+        skills: skills ? (Array.isArray(skills) ? skills : [skills]) : staff.skills,
+        availability: availability
+          ? (Array.isArray(availability) ? availability : [availability])
+          : staff.availability,
+        language: language
+          ? (Array.isArray(language) ? language : [language])
+          : staff.language,
+        emergencyName: emergencyName !== undefined ? emergencyName : staff.emergencyName,
+        emergencyPhone: emergencyPhone !== undefined ? emergencyPhone : staff.emergencyPhone,
+        emergencyRelation:
+          emergencyRelation !== undefined ? emergencyRelation : staff.emergencyRelation,
+        appHistory: updatedHistory,
+      },
+      { transaction },
+    );
+
+    await transaction.commit();
+
+    const refreshedStaff = await Staff.findOne({
+      where: { staffId },
+      include: [
+        {
+          model: User,
+          as: "user",
+          attributes: ["id", "staffId", "name", "email", "phone", "role", "isActive"],
+        },
+      ],
+    });
+
+    return successResponse(
+      res,
+      refreshedStaff,
+      "Staff application updated and re-submitted for review successfully",
+    );
+  } catch (error) {
+    if (transaction && !transaction.finished) {
+      await transaction.rollback();
+    }
+    return errorResponse(
+      res,
+      error.message || "Failed to update staff application",
+      500,
+      error,
+    );
+  }
+};
+
 module.exports = {
   staffRegistration,
+  updateStaffApplication,
 };

@@ -29,4 +29,15 @@ router.post("/login", clientVerifyOtp);
 router.get("/profile", verifyToken, requireClient, getClientProfile);
 router.patch("/profile", verifyToken, requireClient, updateClientProfile);
 
+// Client Services catalog routes
+const {
+  getPublicServices,
+  getPublicCategories,
+  getPublicServiceById,
+} = require("../controllers/service.controller");
+
+router.get("/services", getPublicServices);
+router.get("/services/categories", getPublicCategories);
+router.get("/services/:id", getPublicServiceById);
+
 module.exports = router;

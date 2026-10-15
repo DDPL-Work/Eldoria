@@ -3,6 +3,7 @@ const router = express.Router();
 const {
   adminLogin,
   adminForgotPassword,
+  adminVerifyForgotOtp,
   adminResetPassword,
   adminChangePhone,
   getAdminProfile,
@@ -11,9 +12,11 @@ const {
 } = require('../controllers/admin.auth.controller');
 const { verifyToken, requireAdmin } = require('../middlewares/auth.middleware');
 
-// 1. Admin Authentication
+// 1. Admin Authentication & Password Recovery
 router.post('/login', adminLogin);
 router.post('/forgot-password', adminForgotPassword);
+router.post('/verify-otp', adminVerifyForgotOtp);
+router.post('/forgot-password/verify', adminVerifyForgotOtp);
 router.post('/reset-password', adminResetPassword);
 
 // 2. Admin Profile Management

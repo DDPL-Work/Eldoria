@@ -79,7 +79,7 @@ module.exports = (sequelize) => {
       allowNull: true
     },
     files: {
-      type: DataTypes.JSON, // Stores photo, idProof, qualification file objects
+      type: DataTypes.JSON, // Stores photo, idProof, qualification file objects with id, status, verified
       allowNull: true,
       defaultValue: {}
     },
@@ -88,7 +88,7 @@ module.exports = (sequelize) => {
       defaultValue: false
     },
     approval: {
-      type: DataTypes.ENUM('pending', 'approved', 'rejected'),
+      type: DataTypes.ENUM('pending', 'changes', 'approved', 'rejected'),
       defaultValue: 'pending',
       allowNull: false
     },
@@ -96,6 +96,24 @@ module.exports = (sequelize) => {
       type: DataTypes.ENUM('pending', 'verified', 'rejected'),
       defaultValue: 'pending',
       allowNull: false
+    },
+    docChecks: {
+      type: DataTypes.JSON, // Tracks verification state per document key e.g. { photo: true, idProof: true }
+      allowNull: true,
+      defaultValue: {}
+    },
+    reviewNote: {
+      type: DataTypes.TEXT, // Admin review feedback / change request reason
+      allowNull: true
+    },
+    reviewedAt: {
+      type: DataTypes.DATE, // Timestamp when care-desk admin reviewed the request
+      allowNull: true
+    },
+    appHistory: {
+      type: DataTypes.JSON, // Audit log of application status updates e.g. [{ at, status, by, note }]
+      allowNull: true,
+      defaultValue: []
     },
     onDuty: {
       type: DataTypes.BOOLEAN,
