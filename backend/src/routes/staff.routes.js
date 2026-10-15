@@ -2,6 +2,7 @@ const express = require("express");
 const router = express.Router();
 const { staffRegistration, updateStaffApplication } = require("../controllers/staff.controller");
 const { staffSendOtp, staffVerifyOtp } = require("../controllers/auth.controller");
+const { uploadStaffFiles } = require("../middlewares/upload.middleware");
 
 // Step 1: Send OTP to phone for staff registration
 router.post("/send-otp", staffSendOtp);
@@ -9,11 +10,11 @@ router.post("/send-otp", staffSendOtp);
 // Step 2: Verify OTP for phone verification
 router.post("/verify-otp", staffVerifyOtp);
 
-// Step 3: Register staff (requires verified phone)
-router.post("/register", staffRegistration);
+// Step 3: Register staff (requires verified phone, uploads PDF & image documents to Cloudinary)
+router.post("/register", uploadStaffFiles, staffRegistration);
 
 // Step 4: Re-upload documents / update application after change request
-router.patch("/application", updateStaffApplication);
+router.patch("/application", uploadStaffFiles, updateStaffApplication);
 
 // Staff Login via OTP
 router.post("/login/send-otp", staffSendOtp);
