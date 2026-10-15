@@ -4,6 +4,7 @@ import { Icon } from '../../constants/icons';
 import { useStore } from '../../context/StoreContext';
 import { telHref, waHref } from '../../constants/data';
 import { DatabaseLoader } from '../common/DatabaseLoader';
+import { CityDropdown } from '../common/CityDropdown';
 
 function formatClientDate(val) {
   if (!val) return '—';
@@ -111,23 +112,8 @@ export function Clients() {
       {/* 2. Filter & Search Controls Bar */}
       <div className="bg-white rounded-lg p-3 sm:p-3.5 border border-slate-200/80 shadow-2xs flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5 flex-1">
-          {/* City Dropdown Pill */}
-          <div className="flex items-center gap-2 bg-slate-50 border border-slate-200/90 rounded-lg px-3 py-1.5 shrink-0">
-            <Icon name="pin" size={15} className="text-slate-500 shrink-0" />
-            <span className="text-xs font-semibold text-slate-500">City</span>
-            <select
-              value={selectedCity}
-              onChange={(e) => setSelectedCity(e.target.value)}
-              className="bg-transparent text-xs font-bold text-slate-800 focus:outline-none cursor-pointer pr-1"
-            >
-              <option value="all">All cities</option>
-              {cities().map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                </option>
-              ))}
-            </select>
-          </div>
+          {/* City Dropdown Pill matching Booking & Dashboard */}
+          <CityDropdown className="shrink-0" />
 
           {/* Search Input Box */}
           <div className="relative flex-1">

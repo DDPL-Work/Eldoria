@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Icon } from '../../constants/icons';
+import { FormCityDropdown } from '../common/FormCityDropdown';
 import { useStore } from '../../context/StoreContext';
 import {
   RELATIONS,
@@ -238,17 +239,10 @@ export function NewBooking({ onBack, onBookingCreated, fromEnqId }) {
           {/* 4. City */}
           <div>
             <label className={labelCls}>City</label>
-            <select
+            <FormCityDropdown
               value={form.city}
-              onChange={(e) => setForm({ ...form, city: e.target.value })}
-              className={`${inputCls} cursor-pointer`}
-            >
-              {cities().map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                </option>
-              ))}
-            </select>
+              onChange={(city) => setForm({ ...form, city })}
+            />
           </div>
 
           {/* 5. Patient Name */}

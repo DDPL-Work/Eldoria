@@ -460,15 +460,66 @@ export function Dashboard({ onTab, onOpenBooking, onNewBooking }) {
                           {renderSourceBadge(b.source)}
                         </td>
 
-                        {/* ACTION Column with Navy Confirm Button */}
+                        {/* ACTION Column with Navy Confirm Button & Native Floating Assign Select */}
                         <td className="py-2.5 px-3.5 sm:px-4 text-right whitespace-nowrap">
-                          <button
-                            type="button"
-                            onClick={() => handleConfirm(b)}
-                            className="bg-[#0E2F5A] hover:bg-[#163D70] active:scale-[0.98] text-white text-xs font-bold px-3.5 py-1.5 rounded-lg transition cursor-pointer shadow-xs inline-block"
-                          >
-                            Confirm
-                          </button>
+                          {b.status === 'requested' ? (
+                            <button
+                              type="button"
+                              onClick={() => handleConfirm(b)}
+                              className="bg-[#0E2F5A] hover:bg-[#163D70] active:scale-[0.98] text-white text-xs font-bold px-3.5 py-1.5 rounded-lg transition cursor-pointer shadow-xs inline-block"
+                            >
+                              Confirm
+                            </button>
+                          ) : (() => {
+                            const stList = staffList();
+                            const bc = b.city || bCity(b);
+                            const defaultCityId = DEFAULT_CITIES[0]?.id || 'mumbai';
+                            const local = stList.filter((s) => (s.city || defaultCityId) === bc);
+                            const other = stList.filter((s) => (s.city || defaultCityId) !== bc);
+                            return (
+                              <select
+                                aria-label={`Assign staff for ${b.code}`}
+                                value={b.staffId || ''}
+                                onChange={(e) => {
+                                  const sid = e.target.value;
+                                  if (sid) {
+                                    assign(b.id, sid, 'admin');
+                                    showToast?.('Staff assigned');
+                                  } else {
+                                    unassign(b.id);
+                                    showToast?.('Staff unassigned');
+                                  }
+                                }}
+                                className="bg-white hover:bg-slate-50 border border-slate-300 text-slate-800 text-xs sm:text-[13px] font-medium px-2.5 py-1.5 rounded-lg shadow-2xs cursor-pointer focus:outline-none focus:ring-1 focus:ring-[#0E2F5A] focus:border-[#0E2F5A] transition max-w-[200px]"
+                              >
+                                <option value="">
+                                  {stList.length
+                                    ? local.length
+                                      ? 'Assign staff..'
+                                      : `No staff in ${cityName(bc)}`
+                                    : 'Add staff first'}
+                                </option>
+                                {local.length > 0 && (
+                                  <optgroup label={`In ${cityName(bc)}`}>
+                                    {local.map((s) => (
+                                      <option key={s.id} value={s.id}>
+                                        {s.name} · {s.role}{!s.onDuty ? ' (off duty)' : ''}
+                                      </option>
+                                    ))}
+                                  </optgroup>
+                                )}
+                                {other.length > 0 && (
+                                  <optgroup label="Other cities">
+                                    {other.map((s) => (
+                                      <option key={s.id} value={s.id}>
+                                        {s.name} · {s.role}{!s.onDuty ? ' (off duty)' : ''} · {cityName(s.city || defaultCityId)}
+                                      </option>
+                                    ))}
+                                  </optgroup>
+                                )}
+                              </select>
+                            );
+                          })()}
                         </td>
                       </tr>
                     );

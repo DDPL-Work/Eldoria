@@ -24,7 +24,7 @@ if (STATE_WISE_CITIES) {
 }
 
 export function CityDropdown({ className = '' }) {
-  const { selectedCity, setSelectedCity, cityName } = useStore();
+  const { selectedCity, setSelectedCity, cityName, cities, backendCities } = useStore();
   const [isOpen, setIsOpen] = useState(false);
   const [search, setSearch] = useState('');
   const [apiCities, setApiCities] = useState([]);
@@ -123,19 +123,40 @@ export function CityDropdown({ className = '' }) {
   const allCitiesList = useMemo(() => {
     const map = new Map();
 
-    // 1. Operational default cities first
+    // 1. Database & Store operational cities first
+    const storeCities = typeof cities === 'function' ? cities() : [];
+    if (Array.isArray(storeCities)) {
+      storeCities.forEach((c) => {
+        if (c && c.id && c.name) {
+          map.set(c.id, { id: c.id, name: c.name, state: 'Operational City', isPopular: true });
+        }
+      });
+    }
+
+    if (Array.isArray(backendCities)) {
+      backendCities.forEach((c) => {
+        const id = c.slug || c.id;
+        if (id && c.name && !map.has(id)) {
+          map.set(id, { id, name: c.name, state: 'Operational City', isPopular: true });
+        }
+      });
+    }
+
+    // 2. Operational default cities
     DEFAULT_CITIES.forEach((c) => {
-      map.set(c.id, { id: c.id, name: c.name, state: 'Operational Hub', isPopular: true });
+      if (!map.has(c.id)) {
+        map.set(c.id, { id: c.id, name: c.name, state: 'Operational Hub', isPopular: true });
+      }
     });
 
-    // 2. Add react-country-state-city cities
+    // 3. Add react-country-state-city cities
     apiCities.forEach((c) => {
       if (!map.has(c.id)) {
         map.set(c.id, c);
       }
     });
 
-    // 3. Add static district cities
+    // 4. Add static district cities
     staticIndianCities.forEach((c) => {
       if (!map.has(c.id)) {
         map.set(c.id, c);
@@ -143,7 +164,7 @@ export function CityDropdown({ className = '' }) {
     });
 
     return Array.from(map.values());
-  }, [apiCities]);
+  }, [apiCities, cities, backendCities]);
 
   // Filter cities by search term
   const filteredCities = useMemo(() => {
@@ -220,7 +241,7 @@ export function CityDropdown({ className = '' }) {
           </div>
 
           {/* City Options List */}
-          <div className="max-h-64 overflow-y-auto divide-y divide-slate-50 text-xs">
+          <div className="max-h-64 overflow-y-auto thin-scrollbar divide-y divide-slate-50 text-xs">
             {/* 1. All Cities Option */}
             {!search && (
               <button

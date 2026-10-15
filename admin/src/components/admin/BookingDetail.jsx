@@ -457,7 +457,7 @@ export function BookingDetail({ bookingId, onBack, onShowToast }) {
         {/* Right Column: Assigned Staff, WhatsApp Client, Cancel Booking */}
         <div className="space-y-4">
           {/* Card 1: Assigned Staff */}
-          {/* <div className="bg-white rounded-lg p-5 border border-slate-200/90 shadow-2xs space-y-3">
+          <div className="bg-white rounded-lg p-5 border border-slate-200/90 shadow-2xs space-y-3">
             <div className="flex items-center justify-between">
               <div className="text-xs sm:text-sm font-bold text-slate-900">Assigned staff</div>
               {st && ['assigned', 'confirmed'].includes(b.status) && (
@@ -553,7 +553,7 @@ export function BookingDetail({ bookingId, onBack, onShowToast }) {
                 {next[1]}
               </button>
             )}
-          </div> */}
+          </div> 
 
           {/* Card 2: WhatsApp the client */}
           <div className="bg-white rounded-lg p-5 border border-slate-200/90 shadow-2xs space-y-3">

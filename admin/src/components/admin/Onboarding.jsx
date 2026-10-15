@@ -5,6 +5,7 @@ import { useStore } from '../../context/StoreContext';
 import { useFiles } from '../../context/FileContext';
 import { OB_DOCS, fmtTs } from '../../constants/data';
 import { DatabaseLoader } from '../common/DatabaseLoader';
+import { CityDropdown } from '../common/CityDropdown';
 
 export function Onboarding({ onOpenApplication }) {
   const {
@@ -13,9 +14,7 @@ export function Onboarding({ onOpenApplication }) {
     apprOf,
     cityName,
     sCity,
-    cities,
     selectedCity,
-    setSelectedCity,
     fetchStaffRequests,
     dataLoading,
     dataError
@@ -41,24 +40,9 @@ export function Onboarding({ onOpenApplication }) {
 
   return (
     <div className="p-4 sm:p-5 lg:p-4 w-full max-w-[1400px] mx-auto space-y-2.5">
-      {/* 1. City Dropdown Pill at Top + Refresh Button */}
+      {/* 1. City Dropdown Pill at Top + Refresh Button matching Booking & Dashboard */}
       <div className="flex items-center justify-between gap-2">
-        <div className="flex items-center gap-2 self-start bg-white border border-slate-200/90 rounded-lg px-3 py-1 shadow-2xs w-fit">
-          <Icon name="pin" size={15} className="text-slate-500" />
-          <span className="text-xs font-semibold text-slate-500">City</span>
-          <select
-            value={selectedCity}
-            onChange={(e) => setSelectedCity(e.target.value)}
-            className="bg-transparent text-xs font-bold text-slate-800 focus:outline-none cursor-pointer py-1 pr-1"
-          >
-            <option value="all">All cities</option>
-            {cities().map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name}
-              </option>
-            ))}
-          </select>
-        </div>
+        <CityDropdown />
 
         <button
           type="button"

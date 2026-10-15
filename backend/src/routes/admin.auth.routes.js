@@ -1,14 +1,7 @@
 const express = require('express');
 const router = express.Router();
-const {
-  adminLogin,
-  adminForgotPassword,
-  adminResetPassword,
-  adminChangePhone,
-  getAdminProfile,
-  updateAdminProfile,
-  adminChangePassword,
-} = require('../controllers/admin.auth.controller');
+const {adminLogin,adminForgotPassword,adminResetPassword,adminChangePhone,getAdminProfile,
+  updateAdminProfile,adminChangePassword,} = require('../controllers/admin.auth.controller');
 const { verifyToken, requireAdmin } = require('../middlewares/auth.middleware');
 
 // 1. Admin Authentication

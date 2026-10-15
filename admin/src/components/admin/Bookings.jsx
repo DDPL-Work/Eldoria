@@ -30,9 +30,9 @@ export function Bookings({ onOpenBooking, onNewBooking }) {
   const [currentPage, setCurrentPage] = useState(1);
 
   // Reset page when filter, query, or city changes
-  useEffect(() => {
-    setCurrentPage(1);
-  }, [selectedCity, filter, query]);
+  // useEffect(() => {
+  //   setCurrentPage(1);
+  // }, [selectedCity, filter, query]);
 
   // Load bookings from Backend API
   const loadBookings = useCallback(() => {
@@ -143,14 +143,14 @@ export function Bookings({ onOpenBooking, onNewBooking }) {
       {/* 2. HEADER: Bookings Title & + New Booking Button */}
       <div className="flex items-center justify-between gap-3">
         <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Bookings</h1>
-        {/* <button
+       <button
           type="button"
           onClick={onNewBooking}
-          className="bg-[#F2A01F] hover:bg-[#e09115] text-[#0A2342] font-extrabold text-xs sm:text-sm px-4 py-2.5 rounded-xl flex items-center gap-2 shadow-xs transition shrink-0 cursor-pointer"
+          className="bg-[#F2A01F] hover:bg-[#e09115] text-[#0A2342] font-extrabold text-xs sm:text-sm px-4 py-2.5 rounded-lg flex items-center gap-2 shadow-xs transition shrink-0 cursor-pointer"
         >
           <span className="text-base leading-none font-black">+</span>
           <span>New booking</span>
-        </button> */}
+        </button> 
       </div>
 
       {/* 3. TOOLS: Filter Chips & Search Bar */}
@@ -292,7 +292,7 @@ export function Bookings({ onOpenBooking, onNewBooking }) {
             <table className="w-full text-left text-xs table-fixed">
               <thead>
                 <tr className="bg-[#dfe4e9] text-slate-700 text-[11px] font-bold uppercase tracking-wider">
-                  <th className="py-2.5 pl-4 pr-2 w-[19%]">BOOKING</th>
+                  <th className="py-2.5 pl-4 pr-2 w-[20%]">BOOKING</th>
                   <th className="py-2.5 px-2 w-[8%]">CITY</th>
                   <th className="py-2.5 px-2 w-[14%]">PATIENT</th>
                   <th className="py-2.5 px-2 w-[16%]">SERVICE</th>
