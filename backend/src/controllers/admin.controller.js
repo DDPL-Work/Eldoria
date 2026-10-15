@@ -172,15 +172,125 @@ const getStaffRequestById = async (req, res) => {
 };
 
 /**
- * 3. Verify / Approve staff registration request
- * PATCH or POST /api/v1/admin/staff-requests/:id/verify
+ * Required document keys for staff registration verification (matching OB_DOCS in admin frontend)
  */
-const verifyStaffRequest = async (req, res) => {
+const REQUIRED_DOC_KEYS = ["photo", "idProof", "qualification"];
+
+/**
+ * Helper to apply document verification updates to a staff member's files and docChecks.
+ * Supports:
+ * - Specific document ID and status / verified flag
+ * - Specific document key and status / verified flag
+ * - Array of document objects: [{ id, docKey, status, verified, notes }]
+ * - docChecks map: { photo: true, idProof: true, qualification: false }
+ */
+const applyDocumentUpdates = (currentFiles = {}, currentDocChecks = {}, updates = {}) => {
+  const updatedFiles = { ...(currentFiles || {}) };
+  const updatedDocChecks = { ...(currentDocChecks || {}) };
+
+  const { docChecks, documents, docId, docKey, status, verified, notes } = updates;
+
+  // 1. If explicit docChecks object was passed e.g. { photo: true, idProof: true }
+  if (docChecks && typeof docChecks === "object") {
+    Object.keys(docChecks).forEach((key) => {
+      const isChecked = Boolean(docChecks[key]);
+      updatedDocChecks[key] = isChecked;
+
+      if (updatedFiles[key]) {
+        updatedFiles[key] = {
+          ...updatedFiles[key],
+          verified: isChecked,
+          status: isChecked ? "verified" : "pending",
+          verifiedAt: isChecked ? new Date().toISOString() : null,
+        };
+      }
+    });
+  }
+
+  // 2. If an array of documents was passed e.g. [{ id: "...", status: "verified", verified: true }]
+  if (Array.isArray(documents)) {
+    documents.forEach((d) => {
+      if (!d) return;
+      const targetKey = d.docKey || d.key;
+      const targetId = d.id || d.docId;
+      const isVerified = d.verified !== undefined ? Boolean(d.verified) : d.status === "verified";
+      const docStatus = d.status || (isVerified ? "verified" : "pending");
+
+      // Match by key or by document id
+      let matchedKey = targetKey;
+      if (!matchedKey && targetId) {
+        matchedKey = Object.keys(updatedFiles).find(
+          (k) =>
+            updatedFiles[k]?.id === targetId ||
+            String(updatedFiles[k]?.id) === String(targetId),
+        );
+      }
+
+      if (matchedKey && updatedFiles[matchedKey]) {
+        updatedFiles[matchedKey] = {
+          ...updatedFiles[matchedKey],
+          status: docStatus,
+          verified: isVerified,
+          verifiedAt: isVerified ? new Date().toISOString() : null,
+          notes: d.notes !== undefined ? d.notes : updatedFiles[matchedKey].notes,
+        };
+        updatedDocChecks[matchedKey] = isVerified;
+      }
+    });
+  }
+
+  // 3. If single docId or docKey was passed
+  if (docId || docKey) {
+    let matchedKey = docKey;
+    if (!matchedKey && docId) {
+      matchedKey = Object.keys(updatedFiles).find(
+        (k) =>
+          updatedFiles[k]?.id === docId ||
+          String(updatedFiles[k]?.id) === String(docId),
+      );
+    }
+
+    const isVerified = verified !== undefined ? Boolean(verified) : status === "verified";
+    const docStatus = status || (isVerified ? "verified" : "pending");
+
+    if (matchedKey && updatedFiles[matchedKey]) {
+      updatedFiles[matchedKey] = {
+        ...updatedFiles[matchedKey],
+        status: docStatus,
+        verified: isVerified,
+        verifiedAt: isVerified ? new Date().toISOString() : null,
+        notes: notes !== undefined ? notes : updatedFiles[matchedKey].notes,
+      };
+      updatedDocChecks[matchedKey] = isVerified;
+    }
+  }
+
+  // Compute overall docs verification status
+  // Required documents: photo, idProof, qualification
+  const allRequiredVerified = REQUIRED_DOC_KEYS.every((k) => updatedDocChecks[k] === true);
+  const overallDocsStatus = allRequiredVerified ? "verified" : "pending";
+
+  return {
+    files: updatedFiles,
+    docChecks: updatedDocChecks,
+    docsStatus: overallDocsStatus,
+    allRequiredVerified,
+  };
+};
+
+/**
+ * 3. Verify an individual document or update docChecks for a staff request
+ * PATCH /api/v1/admin/staff-requests/:id/verify-document
+ * Body accepts:
+ *   - { docId, docKey, status, verified, notes }
+ *   - { docChecks: { photo: true, idProof: false } }
+ *   - { documents: [{ id, status, verified }] }
+ */
+const verifyStaffDocument = async (req, res) => {
   const transaction = await sequelize.transaction();
 
   try {
     const { id } = req.params;
-    const { notes, docsStatus = "verified" } = req.body;
 
     if (!id) {
       await transaction.rollback();
@@ -198,14 +308,153 @@ const verifyStaffRequest = async (req, res) => {
       return errorResponse(res, "Staff registration request not found", 404);
     }
 
+    const { files, docChecks, docsStatus, allRequiredVerified } = applyDocumentUpdates(
+      staff.files,
+      staff.docChecks,
+      req.body,
+    );
+
+    await staff.update(
+      {
+        files,
+        docChecks,
+        docs: docsStatus,
+      },
+      { transaction },
+    );
+
+    await transaction.commit();
+
+    const updatedStaff = await Staff.findOne({
+      where: { id: staff.id },
+      include: [
+        {
+          model: User,
+          as: "user",
+          attributes: ["id", "staffId", "name", "email", "phone", "role", "isActive"],
+        },
+      ],
+    });
+
+    return successResponse(
+      res,
+      {
+        staff: updatedStaff,
+        docsStatus,
+        allRequiredVerified,
+      },
+      "Staff document verification status updated successfully",
+    );
+  } catch (error) {
+    if (transaction && !transaction.finished) {
+      await transaction.rollback();
+    }
+    return errorResponse(
+      res,
+      error.message || "Failed to update staff document verification status",
+      500,
+      error,
+    );
+  }
+};
+
+/**
+ * 4. Verify / Approve staff registration request
+ * Receives document verification status from frontend along with document ID or docChecks
+ * PATCH or POST /api/v1/admin/staff-requests/:id/approve
+ */
+const verifyStaffRequest = async (req, res) => {
+  const transaction = await sequelize.transaction();
+
+  try {
+    const { id } = req.params;
+    const {
+      notes,
+      reviewNote,
+      note,
+      docsStatus: manualDocsStatus,
+      docChecks,
+      documents,
+      docId,
+      status,
+      verified,
+    } = req.body;
+
+    const approvalNote = (reviewNote || note || notes || "").trim();
+
+    if (!id) {
+      await transaction.rollback();
+      return errorResponse(res, "Staff ID or request ID is required", 400);
+    }
+
+    const staff = await Staff.findOne({
+      where: buildStaffLookupCondition(id),
+      include: [{ model: User, as: "user" }],
+      transaction,
+    });
+
+    if (!staff) {
+      await transaction.rollback();
+      return errorResponse(res, "Staff registration request not found", 404);
+    }
+
+    // Apply any document verification status passed from frontend
+    const docUpdatePayload = { docChecks, documents, docId, status, verified };
+    const hasDocUpdates = Boolean(
+      docChecks || documents || docId || status !== undefined || verified !== undefined,
+    );
+
+    let finalFiles = staff.files;
+    let finalDocChecks = staff.docChecks;
+    let computedDocsStatus = staff.docs;
+
+    if (hasDocUpdates) {
+      const updateResult = applyDocumentUpdates(staff.files, staff.docChecks, docUpdatePayload);
+      finalFiles = updateResult.files;
+      finalDocChecks = updateResult.docChecks;
+      computedDocsStatus = updateResult.docsStatus;
+    } else if (!finalDocChecks || Object.keys(finalDocChecks).length === 0) {
+      // If no docChecks were stored, mark all uploaded required docs as verified upon approval
+      finalDocChecks = { ...(staff.docChecks || {}) };
+      finalFiles = { ...(staff.files || {}) };
+      REQUIRED_DOC_KEYS.forEach((k) => {
+        finalDocChecks[k] = true;
+        if (finalFiles[k]) {
+          finalFiles[k] = {
+            ...finalFiles[k],
+            verified: true,
+            status: "verified",
+            verifiedAt: new Date().toISOString(),
+          };
+        }
+      });
+      computedDocsStatus = "verified";
+    }
+
+    const now = new Date();
+    const historyItem = {
+      at: now.toISOString(),
+      status: "approved",
+      by: "admin",
+      note: approvalNote || "Application approved by care desk",
+    };
+
+    const existingHistory = Array.isArray(staff.appHistory) ? staff.appHistory : [];
+    const updatedHistory = [...existingHistory, historyItem];
+
     // Update Staff profile to approved & docs to verified
     await staff.update(
       {
         approval: "approved",
-        docs: docsStatus,
-        approvedAt: new Date(),
+        docs: manualDocsStatus || computedDocsStatus || "verified",
+        approvedAt: now,
+        reviewedAt: now,
         rejectedAt: null,
-        notes: notes !== undefined ? notes : staff.notes,
+        reviewNote: approvalNote,
+        notes: approvalNote || staff.notes,
+        files: finalFiles,
+        docChecks: finalDocChecks,
+        appHistory: updatedHistory,
       },
       { transaction },
     );
@@ -240,7 +489,9 @@ const verifyStaffRequest = async (req, res) => {
       `Staff registration request approved successfully for ${updatedStaff.user?.name || updatedStaff.staffId}`,
     );
   } catch (error) {
-    await transaction.rollback();
+    if (transaction && !transaction.finished) {
+      await transaction.rollback();
+    }
     return errorResponse(
       res,
       error.message || "Failed to verify staff registration request",
@@ -251,7 +502,134 @@ const verifyStaffRequest = async (req, res) => {
 };
 
 /**
- * 4. Reject staff registration request
+ * 5. Request Changes on staff registration application
+ * Changes status to 'changes', saves reviewNote, reviewedAt, and appHistory.
+ * Reference: Onboarding.jsx / ApplicationDetail.jsx handleRequestChanges
+ * PATCH /api/v1/admin/staff-requests/:id/request-changes
+ */
+const requestStaffChanges = async (req, res) => {
+  const transaction = await sequelize.transaction();
+
+  try {
+    const { id } = req.params;
+    const {
+      note,
+      notes,
+      reviewNote,
+      reason,
+      docChecks,
+      documents,
+      docId,
+      status,
+      verified,
+    } = req.body;
+
+    const changeNote = (note || notes || reviewNote || reason || "").trim();
+
+    if (!id) {
+      await transaction.rollback();
+      return errorResponse(res, "Staff ID or request ID is required", 400);
+    }
+
+    if (!changeNote) {
+      await transaction.rollback();
+      return errorResponse(
+        res,
+        "Please provide a note explaining what changes are requested (e.g. blurry ID photo, re-upload needed)",
+        400,
+      );
+    }
+
+    const staff = await Staff.findOne({
+      where: buildStaffLookupCondition(id),
+      include: [{ model: User, as: "user" }],
+      transaction,
+    });
+
+    if (!staff) {
+      await transaction.rollback();
+      return errorResponse(res, "Staff registration request not found", 404);
+    }
+
+    // Optionally apply docUpdates if provided
+    let finalFiles = staff.files;
+    let finalDocChecks = staff.docChecks;
+    const hasDocUpdates = Boolean(
+      docChecks || documents || docId || status !== undefined || verified !== undefined,
+    );
+
+    if (hasDocUpdates) {
+      const updateResult = applyDocumentUpdates(staff.files, staff.docChecks, {
+        docChecks,
+        documents,
+        docId,
+        status,
+        verified,
+      });
+      finalFiles = updateResult.files;
+      finalDocChecks = updateResult.docChecks;
+    }
+
+    const now = new Date();
+    const historyItem = {
+      at: now.toISOString(),
+      status: "changes",
+      by: "admin",
+      note: changeNote,
+    };
+
+    const existingHistory = Array.isArray(staff.appHistory) ? staff.appHistory : [];
+    const updatedHistory = [...existingHistory, historyItem];
+
+    // Update Staff profile to 'changes' status
+    await staff.update(
+      {
+        approval: "changes",
+        docs: "pending",
+        reviewNote: changeNote,
+        notes: changeNote,
+        reviewedAt: now,
+        files: finalFiles,
+        docChecks: finalDocChecks,
+        appHistory: updatedHistory,
+      },
+      { transaction },
+    );
+
+    await transaction.commit();
+
+    // Fetch refreshed record
+    const updatedStaff = await Staff.findOne({
+      where: { id: staff.id },
+      include: [
+        {
+          model: User,
+          as: "user",
+          attributes: ["id", "staffId", "name", "email", "phone", "role", "isActive"],
+        },
+      ],
+    });
+
+    return successResponse(
+      res,
+      updatedStaff,
+      `Changes requested successfully for ${updatedStaff.user?.name || updatedStaff.staffId}`,
+    );
+  } catch (error) {
+    if (transaction && !transaction.finished) {
+      await transaction.rollback();
+    }
+    return errorResponse(
+      res,
+      error.message || "Failed to request changes on staff application",
+      500,
+      error,
+    );
+  }
+};
+
+/**
+ * 6. Reject staff registration request
  * PATCH or POST /api/v1/admin/staff-requests/:id/reject
  */
 const rejectStaffRequest = async (req, res) => {
@@ -259,9 +637,15 @@ const rejectStaffRequest = async (req, res) => {
 
   try {
     const { id } = req.params;
-    const { reason, notes } = req.body;
+    const { reason, notes, note, reviewNote } = req.body;
 
-    const rejectionReason = notes || reason || "Application rejected by administrator";
+    const rejectionReason = (
+      notes ||
+      reason ||
+      reviewNote ||
+      note ||
+      "Application rejected by care desk"
+    ).trim();
 
     if (!id) {
       await transaction.rollback();
@@ -279,13 +663,27 @@ const rejectStaffRequest = async (req, res) => {
       return errorResponse(res, "Staff registration request not found", 404);
     }
 
+    const now = new Date();
+    const historyItem = {
+      at: now.toISOString(),
+      status: "rejected",
+      by: "admin",
+      note: rejectionReason,
+    };
+
+    const existingHistory = Array.isArray(staff.appHistory) ? staff.appHistory : [];
+    const updatedHistory = [...existingHistory, historyItem];
+
     // Update Staff profile to rejected
     await staff.update(
       {
         approval: "rejected",
         docs: "rejected",
-        rejectedAt: new Date(),
+        rejectedAt: now,
+        reviewedAt: now,
+        reviewNote: rejectionReason,
         notes: rejectionReason,
+        appHistory: updatedHistory,
       },
       { transaction },
     );
@@ -320,10 +718,97 @@ const rejectStaffRequest = async (req, res) => {
       `Staff registration request rejected for ${updatedStaff.user?.name || updatedStaff.staffId}`,
     );
   } catch (error) {
-    await transaction.rollback();
+    if (transaction && !transaction.finished) {
+      await transaction.rollback();
+    }
     return errorResponse(
       res,
       error.message || "Failed to reject staff registration request",
+      500,
+      error,
+    );
+  }
+};
+
+/**
+ * 7. Revoke decision / move application back to review ('pending')
+ * Reference: ApplicationDetail.jsx handleRevoke
+ * PATCH /api/v1/admin/staff-requests/:id/revoke
+ */
+const revokeStaffRequestDecision = async (req, res) => {
+  const transaction = await sequelize.transaction();
+
+  try {
+    const { id } = req.params;
+    const { notes, note, reason } = req.body || {};
+
+    const revokeNote = (note || notes || reason || "Moved back to review by the care desk").trim();
+
+    if (!id) {
+      await transaction.rollback();
+      return errorResponse(res, "Staff ID or request ID is required", 400);
+    }
+
+    const staff = await Staff.findOne({
+      where: buildStaffLookupCondition(id),
+      include: [{ model: User, as: "user" }],
+      transaction,
+    });
+
+    if (!staff) {
+      await transaction.rollback();
+      return errorResponse(res, "Staff registration request not found", 404);
+    }
+
+    const now = new Date();
+    const historyItem = {
+      at: now.toISOString(),
+      status: "pending",
+      by: "admin",
+      note: revokeNote,
+    };
+
+    const existingHistory = Array.isArray(staff.appHistory) ? staff.appHistory : [];
+    const updatedHistory = [...existingHistory, historyItem];
+
+    await staff.update(
+      {
+        approval: "pending",
+        docs: "pending",
+        approvedAt: null,
+        rejectedAt: null,
+        reviewedAt: now,
+        reviewNote: revokeNote,
+        appHistory: updatedHistory,
+      },
+      { transaction },
+    );
+
+    await transaction.commit();
+
+    const updatedStaff = await Staff.findOne({
+      where: { id: staff.id },
+      include: [
+        {
+          model: User,
+          as: "user",
+          attributes: ["id", "staffId", "name", "email", "phone", "role", "isActive"],
+        },
+      ],
+    });
+
+    return successResponse(
+      res,
+      updatedStaff,
+      `Staff application moved back to review for ${updatedStaff.user?.name || updatedStaff.staffId}`,
+    );
+  } catch (error) {
+    if (transaction && !transaction.finished) {
+      await transaction.rollback();
+    }
+    return errorResponse(
+      res,
+      error.message || "Failed to revoke staff decision",
       500,
       error,
     );
@@ -648,8 +1133,11 @@ const getBookingById = async (req, res) => {
 module.exports = {
   getStaffRequests,
   getStaffRequestById,
+  verifyStaffDocument,
   verifyStaffRequest,
+  requestStaffChanges,
   rejectStaffRequest,
+  revokeStaffRequestDecision,
   getClients,
   getClientByClientId,
   getBookings,

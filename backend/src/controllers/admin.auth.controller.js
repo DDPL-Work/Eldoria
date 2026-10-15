@@ -197,41 +197,29 @@ const adminForgotPassword = async (req, res) => {
 };
 
 /**
- * 3. Admin Reset Password (Verify OTP & Set New Password)
- * POST /api/v1/admin/reset-password
+ * 2b. Admin Verify Forgot Password OTP
+ * Verifies the 6-digit OTP sent to email (or system generated) and issues a verificationToken for password reset
+ * POST /api/v1/admin/verify-otp
+ * POST /api/v1/admin/forgot-password/verify
  */
-const adminResetPassword = async (req, res) => {
+const adminVerifyForgotOtp = async (req, res) => {
   try {
-    const { email, otp, newPassword, confirmPassword } = req.body;
+    const { email, otp } = req.body;
 
-    if (!email || !otp || !newPassword) {
-      return errorResponse(
-        res,
-        "Email, OTP, and newPassword are required",
-        400,
-      );
+    if (!email || !otp) {
+      return errorResponse(res, "Admin email and OTP code are required", 400);
     }
 
     const cleanEmail = String(email).trim().toLowerCase();
     const cleanOtp = String(otp).trim();
 
-    if (newPassword.length < 6) {
-      return errorResponse(
-        res,
-        "New password must be at least 6 characters long",
-        400,
-      );
+    // Verify admin exists
+    const adminUser = await Admin.findOne({ where: { email: cleanEmail } });
+    if (!adminUser) {
+      return errorResponse(res, "Admin account not found with this email", 404);
     }
 
-    if (confirmPassword && confirmPassword !== newPassword) {
-      return errorResponse(
-        res,
-        "Confirm password does not match new password",
-        400,
-      );
-    }
-
-    // Verify OTP record
+    // Lookup latest unverified, unexpired OTP for this email
     const otpRecord = await Otp.findOne({
       where: {
         email: cleanEmail,
@@ -253,10 +241,117 @@ const adminResetPassword = async (req, res) => {
       );
     }
 
+    // Mark OTP as verified & issue verificationToken
+    const verificationToken = crypto.randomBytes(24).toString("hex");
+    otpRecord.isVerified = true;
+    otpRecord.verificationToken = verificationToken;
+    await otpRecord.save();
+
+    return successResponse(
+      res,
+      {
+        email: cleanEmail,
+        verificationToken,
+        verified: true,
+        nextStep: "reset-password",
+      },
+      "OTP verified successfully. You may now reset your password.",
+    );
+  } catch (error) {
+    return errorResponse(
+      res,
+      error.message || "Failed to verify OTP",
+      500,
+      error,
+    );
+  }
+};
+
+/**
+ * 3. Admin Reset Password (Verify Token/OTP & Set New Password)
+ * POST /api/v1/admin/reset-password
+ */
+const adminResetPassword = async (req, res) => {
+  try {
+    const { email, otp, verificationToken, newPassword, confirmPassword } = req.body;
+
+    if (!email || !newPassword) {
+      return errorResponse(
+        res,
+        "Email and newPassword are required",
+        400,
+      );
+    }
+
+    if (!verificationToken && !otp) {
+      return errorResponse(
+        res,
+        "Either verificationToken (from verify-otp) or otp is required",
+        400,
+      );
+    }
+
+    const cleanEmail = String(email).trim().toLowerCase();
+
+    if (newPassword.length < 6) {
+      return errorResponse(
+        res,
+        "New password must be at least 6 characters long",
+        400,
+      );
+    }
+
+    if (confirmPassword && confirmPassword !== newPassword) {
+      return errorResponse(
+        res,
+        "Confirm password does not match new password",
+        400,
+      );
+    }
+
     // Lookup admin account
     const adminUser = await Admin.findOne({ where: { email: cleanEmail } });
     if (!adminUser) {
       return errorResponse(res, "Admin account not found", 404);
+    }
+
+    // Verify either via verificationToken or via direct OTP
+    let verifiedOtpRecord = null;
+    if (verificationToken) {
+      verifiedOtpRecord = await Otp.findOne({
+        where: {
+          email: cleanEmail,
+          verificationToken,
+          purpose: "forgot_password",
+          isVerified: true,
+        },
+        order: [["id", "DESC"]],
+      });
+    } else if (otp) {
+      const cleanOtp = String(otp).trim();
+      verifiedOtpRecord = await Otp.findOne({
+        where: {
+          email: cleanEmail,
+          otp: cleanOtp,
+          purpose: "forgot_password",
+          isVerified: false,
+          expiresAt: {
+            [Op.gt]: new Date(),
+          },
+        },
+        order: [["id", "DESC"]],
+      });
+      if (verifiedOtpRecord) {
+        verifiedOtpRecord.isVerified = true;
+      }
+    }
+
+    if (!verifiedOtpRecord) {
+      return errorResponse(
+        res,
+        "Invalid or expired verification session. Please verify your OTP again.",
+        400,
+      );
     }
 
     // Hash the new password using bcrypt
@@ -264,9 +359,9 @@ const adminResetPassword = async (req, res) => {
     adminUser.password = hashedPassword;
     await adminUser.save();
 
-    // Mark OTP as verified
-    otpRecord.isVerified = true;
-    await otpRecord.save();
+    // Invalidate the verification token
+    verifiedOtpRecord.verificationToken = null;
+    await verifiedOtpRecord.save();
 
     return successResponse(
       res,
@@ -670,6 +765,8 @@ const adminChangePassword = async (req, res) => {
 module.exports = {
   adminLogin,
   adminForgotPassword,
+  adminVerifyForgotOtp,
+  adminVerifyOtp: adminVerifyForgotOtp,
   adminResetPassword,
   adminChangePhone,
   getAdminProfile,

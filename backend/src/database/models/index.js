@@ -15,6 +15,7 @@ db.Otp = require("./otp.model")(sequelize);
 db.Booking = require("./booking.model")(sequelize);
 db.Enquiry = require("./enquiry.model")(sequelize);
 db.City = require("./city.model")(sequelize);
+db.Service = require("./service.model")(sequelize);
 
 // Associations: User (1) <-> Staff Profile (1) via staffId
 db.User.hasOne(db.Staff, {

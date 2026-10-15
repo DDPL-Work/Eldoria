@@ -7,12 +7,22 @@ const authRoutes = require('./auth.routes');
 const staffRoutes = require('./staff.routes');
 const clientRoutes = require('./client.routes');
 const { getPublicLiveCities } = require('../controllers/city.controller');
+const {
+  getPublicServices,
+  getPublicCategories,
+  getPublicServiceById,
+} = require('../controllers/service.controller');
 
 // API status and health check
 router.use('/', healthRoutes);
 
 // Public cities endpoint (active operational cities)
 router.get('/cities', getPublicLiveCities);
+
+// Public services catalog endpoints (active operational services & categories)
+router.get('/services', getPublicServices);
+router.get('/services/categories', getPublicCategories);
+router.get('/services/:id', getPublicServiceById);
 
 // General auth routes (client & staff login)
 router.use('/auth', authRoutes);
