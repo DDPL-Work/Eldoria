@@ -16,6 +16,7 @@ db.Booking = require("./booking.model")(sequelize);
 db.Enquiry = require("./enquiry.model")(sequelize);
 db.City = require("./city.model")(sequelize);
 db.Service = require("./service.model")(sequelize);
+db.Category = require("./category.model")(sequelize);
 
 // Associations: User (1) <-> Staff Profile (1) via staffId
 db.User.hasOne(db.Staff, {
@@ -65,6 +66,10 @@ db.Staff.hasMany(db.Booking, {
 });
 
 const { migrateUp, migrateDown } = require("../migrations/runner");
+const { attachAivenSyncHooks } = require("../../services/dbSync.service");
+
+// Attach real-time replication hooks if running in local mode with sync enabled
+attachAivenSyncHooks(db);
 
 // Database migration & sync helper (QuoteMeTrip pattern)
 db.syncDatabase = async (options = {}) => {
@@ -96,3 +101,4 @@ db.migrateUp = () => migrateUp(sequelize);
 db.migrateDown = (steps) => migrateDown(sequelize, steps);
 
 module.exports = db;
+

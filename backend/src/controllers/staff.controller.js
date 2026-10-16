@@ -1,6 +1,10 @@
+const { Op } = require("sequelize");
 const { sequelize, User, Staff, Otp } = require("../database/models");
 const { errorResponse, successResponse } = require("../utills/responseHandler");
+const https = require("https");
+const http = require("http");
 const { generateStaffId } = require("../helpers/generateStaffID");
+const { uploadStaffFilesToCloudinary, getAuthenticatedDownloadUrl } = require("../services/cloudinary.service");
 
 /**
  * Helper to normalize staff uploaded documents:
@@ -32,7 +36,7 @@ const normalizeStaffFiles = (inputFiles = {}) => {
         type: file.type || "image/jpeg",
         size: Number(file.size) || 0,
         data: file.data || file.url || "",
-        status: isVerified ? "verified" : (file.status || "pending"),
+        status: isVerified ? "verified" : file.status || "pending",
         verified: isVerified,
         uploadedAt: file.uploadedAt || new Date().toISOString(),
         notes: file.notes || null,
@@ -44,15 +48,19 @@ const normalizeStaffFiles = (inputFiles = {}) => {
   }
 
   // If inputFiles is a map / object { photo: {...}, idProof: {...} }
-  Object.keys(inputFiles).forEach((key) => {
-    const file = inputFiles[key];
+  Object.keys(inputFiles).forEach((rawKey) => {
+    const file = inputFiles[rawKey];
     if (!file) return;
 
-    const fileObj = typeof file === "string" ? { data: file, name: `${key}.jpg` } : file;
+    const key = rawKey.replace(/^files[\.\[_]/, "").replace(/\]$/, "") || rawKey;
+    const fileObj =
+      typeof file === "string" ? { data: file, name: `${key}.jpg` } : file;
     const docId =
       fileObj.id ||
       `doc_${key}_${Date.now().toString(36)}_${Math.random().toString(36).substring(2, 7)}`;
-    const isVerified = Boolean(fileObj.verified || fileObj.status === "verified");
+    const isVerified = Boolean(
+      fileObj.verified || fileObj.status === "verified",
+    );
 
     normalized[key] = {
       id: docId,
@@ -61,7 +69,7 @@ const normalizeStaffFiles = (inputFiles = {}) => {
       type: fileObj.type || "image/jpeg",
       size: Number(fileObj.size) || 0,
       data: fileObj.data || fileObj.url || "",
-      status: isVerified ? "verified" : (fileObj.status || "pending"),
+      status: isVerified ? "verified" : fileObj.status || "pending",
       verified: isVerified,
       uploadedAt: fileObj.uploadedAt || new Date().toISOString(),
       notes: fileObj.notes || null,
@@ -71,6 +79,59 @@ const normalizeStaffFiles = (inputFiles = {}) => {
   });
 
   return { files: normalized, docChecks: initialDocChecks };
+};
+
+/**
+ * Enriches staff document file records for API responses:
+ * - Ensures streaming viewUrl is provided for all documents
+ * - Sets `data` and `url` to the backend streaming endpoint for PDFs to bypass Cloudinary CDN 401 ACL errors
+ * - Automatically derives a JPG `previewUrl` for PDFs so frontends can render previews
+ * - Purges any legacy "files." prefixed keys
+ */
+const enrichStaffFilesForResponse = (files = {}, req) => {
+  if (!files || typeof files !== "object") return {};
+  const baseUrl = req && req.protocol && req.get
+    ? `${req.protocol}://${req.get("host")}`
+    : (process.env.BACKEND_URL || "http://localhost:3000");
+
+  const enriched = {};
+  Object.keys(files).forEach((key) => {
+    if (key.startsWith("files.") || key.startsWith("files[") || key.startsWith("files_")) {
+      return;
+    }
+    const item = { ...(files[key] || {}) };
+    const isPdf =
+      item.type === "application/pdf" ||
+      (item.name && item.name.toLowerCase().endsWith(".pdf")) ||
+      (item.data && typeof item.data === "string" && item.data.toLowerCase().endsWith(".pdf"));
+
+    // Extract publicId if missing from data/url
+    if (!item.publicId && (item.data || item.url)) {
+      const match = (item.data || item.url).match(/\/upload\/(?:v\d+\/)?([^\.\?]+)(?:\.([a-zA-Z0-9]+))?/);
+      if (match) item.publicId = match[1];
+    }
+
+    if (item.publicId) {
+      const streamUrl = `${baseUrl}/api/v1/staff/documents/view?publicId=${encodeURIComponent(item.publicId)}&filename=${encodeURIComponent(item.name || `${key}.${isPdf ? "pdf" : "jpg"}`)}`;
+      item.viewUrl = streamUrl;
+      if (isPdf) {
+        item.cloudinaryUrl = item.cloudinaryUrl || item.data || item.url;
+        item.data = streamUrl;
+        item.url = streamUrl;
+      }
+    }
+
+    if (isPdf) {
+      const orig = item.cloudinaryUrl || item.data || item.url || "";
+      if (typeof orig === "string" && orig.startsWith("http") && orig.includes("cloudinary.com")) {
+        item.previewUrl = orig.replace(/\.pdf$/i, ".jpg");
+      }
+    }
+
+    enriched[key] = item;
+  });
+
+  return enriched;
 };
 
 /**
@@ -122,12 +183,22 @@ const staffRegistration = async (req, res) => {
 
   // 2. Validate required user credentials
   if (!name || !email || !phone) {
-    return errorResponse(res, "Name, email, and phone number are required", 400);
+    return errorResponse(
+      res,
+      "Name, email, and phone number are required",
+      400,
+    );
   }
 
-  const cleanPhone = String(phone).replace(/[^\d+]/g, "").trim();
+  const cleanPhone = String(phone)
+    .replace(/[^\d+]/g, "")
+    .trim();
   if (cleanPhone.length < 10) {
-    return errorResponse(res, "Please provide a valid 10-digit phone number", 400);
+    return errorResponse(
+      res,
+      "Please provide a valid 10-digit phone number",
+      400,
+    );
   }
 
   // 3. Verify that phone number was verified via OTP for registration
@@ -194,7 +265,11 @@ const staffRegistration = async (req, res) => {
       where: { phone: cleanPhone },
     });
     if (existingPhoneUser) {
-      return errorResponse(res, "A user with this phone number already exists", 409);
+      return errorResponse(
+        res,
+        "A user with this phone number already exists",
+        409,
+      );
     }
 
     // 6. Pre-check for duplicate registration number
@@ -209,7 +284,12 @@ const staffRegistration = async (req, res) => {
       );
     }
   } catch (err) {
-    return errorResponse(res, err.message || "Database validation failed", 500, err);
+    return errorResponse(
+      res,
+      err.message || "Database validation failed",
+      500,
+      err,
+    );
   }
 
   // 7. Begin database transaction for atomic record creation
@@ -234,7 +314,10 @@ const staffRegistration = async (req, res) => {
     );
 
     // Normalize documents: assign unique id, status, verified flag, and initialize docChecks
-    const { files: normalizedFiles, docChecks: initialDocChecks } = normalizeStaffFiles(files);
+    const cloudinaryFiles = await uploadStaffFilesToCloudinary(req);
+
+    const { files: normalizedFiles, docChecks: initialDocChecks } =
+      normalizeStaffFiles(cloudinaryFiles);
     const now = new Date();
 
     // Create Staff profile record
@@ -250,12 +333,16 @@ const staffRegistration = async (req, res) => {
         regNo: regNo.trim(),
         experience: experience.trim(),
         skills: Array.isArray(skills) ? skills : skills ? [skills] : [],
-        language: Array.isArray(language) ? language : language ? [language] : [],
+        language: Array.isArray(language)
+          ? language
+          : language
+            ? [language]
+            : [],
         availability: Array.isArray(availability)
           ? availability
           : availability
-          ? [availability]
-          : [],
+            ? [availability]
+            : [],
         emergencyName: emergencyName || null,
         emergencyPhone: emergencyPhone || null,
         emergencyRelation: emergencyRelation || null,
@@ -263,6 +350,7 @@ const staffRegistration = async (req, res) => {
         docChecks: initialDocChecks,
         applied: applied !== undefined ? applied : true,
         approval: approval || "pending",
+        registrationStatus: "submitted",
         docs: docs || "pending",
         reviewNote: null,
         reviewedAt: null,
@@ -296,11 +384,14 @@ const staffRegistration = async (req, res) => {
       createdAt: newUser.createdAt,
     };
 
+    const staffData = newStaff.toJSON ? newStaff.toJSON() : newStaff;
+    staffData.files = enrichStaffFilesForResponse(staffData.files, req);
+
     return successResponse(
       res,
       {
         user: sanitizedUser,
-        staff: newStaff,
+        staff: staffData,
       },
       "Staff registered successfully",
       201,
@@ -313,18 +404,31 @@ const staffRegistration = async (req, res) => {
     if (error.name === "SequelizeUniqueConstraintError") {
       const fieldNames =
         error.errors?.map((e) => e.path) || Object.keys(error.fields || {});
-      if (fieldNames.includes("regNo") || (error.message && error.message.includes("regNo"))) {
+      if (
+        fieldNames.includes("regNo") ||
+        (error.message && error.message.includes("regNo"))
+      ) {
         return errorResponse(
           res,
           "A staff member with this registration number (regNo) already exists",
           409,
         );
       }
-      if (fieldNames.includes("email") || (error.message && error.message.includes("email"))) {
+      if (
+        fieldNames.includes("email") ||
+        (error.message && error.message.includes("email"))
+      ) {
         return errorResponse(res, "A user with this email already exists", 409);
       }
-      if (fieldNames.includes("staffId") || (error.message && error.message.includes("staffId"))) {
-        return errorResponse(res, "Staff ID already exists. Please retry.", 409);
+      if (
+        fieldNames.includes("staffId") ||
+        (error.message && error.message.includes("staffId"))
+      ) {
+        return errorResponse(
+          res,
+          "Staff ID already exists. Please retry.",
+          409,
+        );
       }
     }
 
@@ -346,7 +450,7 @@ const updateStaffApplication = async (req, res) => {
   const transaction = await sequelize.transaction();
 
   try {
-    const staffId = req.user?.staffId || req.body?.staffId;
+    const staffId = req.user?.staffId || req.body?.staffId || req.params.staffId;
     const {
       files,
       skills,
@@ -360,7 +464,11 @@ const updateStaffApplication = async (req, res) => {
 
     if (!staffId) {
       await transaction.rollback();
-      return errorResponse(res, "Staff ID is required to update application", 400);
+      return errorResponse(
+        res,
+        "Staff ID is required to update application",
+        400,
+      );
     }
 
     const staff = await Staff.findOne({
@@ -371,20 +479,62 @@ const updateStaffApplication = async (req, res) => {
 
     if (!staff) {
       await transaction.rollback();
-      return errorResponse(res, `Staff member with ID '${staffId}' not found`, 404);
+      return errorResponse(
+        res,
+        `Staff member with ID '${staffId}' not found`,
+        404,
+      );
     }
 
-    const updatedFiles = { ...(staff.files || {}) };
-    const updatedDocChecks = { ...(staff.docChecks || {}) };
+    // Normalize existing files in case they had legacy "files." prefix
+    const cleanExistingFiles = {};
+    const cleanExistingDocChecks = {};
+    const existingFileKeys = Object.keys(staff.files || {}).sort((a, b) => {
+      const aIsLegacy = a.startsWith("files.") || a.startsWith("files[");
+      const bIsLegacy = b.startsWith("files.") || b.startsWith("files[");
+      if (aIsLegacy && !bIsLegacy) return -1;
+      if (!aIsLegacy && bIsLegacy) return 1;
+      return 0;
+    });
 
-    if (files && typeof files === "object") {
-      const { files: normalizedNewFiles } = normalizeStaffFiles(files);
+    existingFileKeys.forEach((k) => {
+      const cleanKey = k.replace(/^files[\.\[_]/, "").replace(/\]$/, "");
+      cleanExistingFiles[cleanKey] = {
+        ...(staff.files[k] || {}),
+        key: cleanKey,
+      };
+      cleanExistingDocChecks[cleanKey] = (staff.docChecks || {})[k] || false;
+    });
+
+    const updatedFiles = { ...cleanExistingFiles };
+    const updatedDocChecks = { ...cleanExistingDocChecks };
+
+    const cloudinaryFiles = await uploadStaffFilesToCloudinary(req);
+    const combinedFiles = {
+      ...(files && typeof files === "object" ? files : {}),
+      ...cloudinaryFiles,
+    };
+
+    if (Object.keys(combinedFiles).length > 0) {
+      const { files: normalizedNewFiles } = normalizeStaffFiles(combinedFiles);
       // Merge new files into existing files
       Object.keys(normalizedNewFiles).forEach((key) => {
         updatedFiles[key] = normalizedNewFiles[key];
         updatedDocChecks[key] = false; // Reset verification state when a file is re-uploaded
       });
     }
+
+    // Ensure absolutely no legacy prefixed keys persist in updatedFiles or docChecks
+    Object.keys(updatedFiles).forEach((k) => {
+      if (k.startsWith("files.") || k.startsWith("files[") || k.startsWith("files_")) {
+        delete updatedFiles[k];
+      }
+    });
+    Object.keys(updatedDocChecks).forEach((k) => {
+      if (k.startsWith("files.") || k.startsWith("files[") || k.startsWith("files_")) {
+        delete updatedDocChecks[k];
+      }
+    });
 
     const now = new Date();
     const historyItem = {
@@ -394,7 +544,9 @@ const updateStaffApplication = async (req, res) => {
       note: note || "Application updated and re-submitted for review",
     };
 
-    const existingHistory = Array.isArray(staff.appHistory) ? staff.appHistory : [];
+    const existingHistory = Array.isArray(staff.appHistory)
+      ? staff.appHistory
+      : [];
     const updatedHistory = [...existingHistory, historyItem];
 
     await staff.update(
@@ -404,18 +556,34 @@ const updateStaffApplication = async (req, res) => {
         approval: "pending",
         docs: "pending",
         reviewNote: null,
-        skills: skills ? (Array.isArray(skills) ? skills : [skills]) : staff.skills,
+        skills: skills
+          ? Array.isArray(skills)
+            ? skills
+            : [skills]
+          : staff.skills,
         availability: availability
-          ? (Array.isArray(availability) ? availability : [availability])
+          ? Array.isArray(availability)
+            ? availability
+            : [availability]
           : staff.availability,
         language: language
-          ? (Array.isArray(language) ? language : [language])
+          ? Array.isArray(language)
+            ? language
+            : [language]
           : staff.language,
-        emergencyName: emergencyName !== undefined ? emergencyName : staff.emergencyName,
-        emergencyPhone: emergencyPhone !== undefined ? emergencyPhone : staff.emergencyPhone,
+        emergencyName:
+          emergencyName !== undefined ? emergencyName : staff.emergencyName,
+        emergencyPhone:
+          emergencyPhone !== undefined ? emergencyPhone : staff.emergencyPhone,
         emergencyRelation:
-          emergencyRelation !== undefined ? emergencyRelation : staff.emergencyRelation,
+          emergencyRelation !== undefined
+            ? emergencyRelation
+            : staff.emergencyRelation,
         appHistory: updatedHistory,
+        registrationStatus: "submitted",
+        approval: "pending",
+        docs: "pending",
+        reviewNote: null,
       },
       { transaction },
     );
@@ -428,14 +596,25 @@ const updateStaffApplication = async (req, res) => {
         {
           model: User,
           as: "user",
-          attributes: ["id", "staffId", "name", "email", "phone", "role", "isActive"],
+          attributes: [
+            "id",
+            "staffId",
+            "name",
+            "email",
+            "phone",
+            "role",
+            "isActive",
+          ],
         },
       ],
     });
 
+    const staffData = refreshedStaff.toJSON ? refreshedStaff.toJSON() : refreshedStaff;
+    staffData.files = enrichStaffFilesForResponse(staffData.files, req);
+
     return successResponse(
       res,
-      refreshedStaff,
+      staffData,
       "Staff application updated and re-submitted for review successfully",
     );
   } catch (error) {
@@ -451,7 +630,219 @@ const updateStaffApplication = async (req, res) => {
   }
 };
 
+/**
+ * Track Staff Application Status
+ * Accepts staffId via URL parameter (e.g. /application/status/:staffId or /application/:staffId/status),
+ * query parameter (?staffId=...), or authenticated user token.
+ * GET /api/v1/staff/application/status/:staffId
+ */
+const trackApplication = async (req, res) => {
+  try {
+    const staffIdentifier = (
+      req.params.staffId ||
+      req.params.id ||
+      req.query.staffId ||
+      req.user?.staffId ||
+      ""
+    ).trim();
+
+    if (!staffIdentifier) {
+      return errorResponse(
+        res,
+        "Staff ID ('staffId') is required in URL parameter to track registration status",
+        400,
+      );
+    }
+
+    const isNumeric = !isNaN(Number(staffIdentifier)) && /^\d+$/.test(staffIdentifier);
+    const whereClause = isNumeric
+      ? { [Op.or]: [{ id: Number(staffIdentifier) }, { staffId: staffIdentifier }] }
+      : { staffId: staffIdentifier };
+
+    const staff = await Staff.findOne({
+      where: whereClause,
+      attributes: [
+        "id",
+        "staffId",
+        "registrationStatus",
+        "approval",
+        "docs",
+        "applied",
+        "files",
+        "docChecks",
+        "reviewNote",
+        "reviewedAt",
+        "submittedAt",
+        "approvedAt",
+        "rejectedAt",
+        "createdAt",
+        "updatedAt",
+      ],
+      include: [
+        {
+          model: User,
+          as: "user",
+          attributes: ["name", "email", "phone"],
+        },
+      ],
+    });
+
+    if (!staff) {
+      return errorResponse(
+        res,
+        `Registration record not found for staff ID '${staffIdentifier}'`,
+        404,
+      );
+    }
+
+    const data = {
+      id: staff.id,
+      staffId: staff.staffId,
+      applicant: staff.user
+        ? {
+            name: staff.user.name,
+            email: staff.user.email,
+            phone: staff.user.phone,
+          }
+        : null,
+      registrationStatus: staff.registrationStatus,
+      approval: staff.approval,
+      documentStatus: staff.docs,
+      applied: staff.applied,
+      files: enrichStaffFilesForResponse(staff.files || {}, req),
+      docChecks: staff.docChecks || {},
+      reviewNote: staff.reviewNote,
+      reviewedAt: staff.reviewedAt,
+      submittedAt: staff.submittedAt,
+      approvedAt: staff.approvedAt,
+      rejectedAt: staff.rejectedAt,
+      lastUpdatedAt: staff.updatedAt,
+    };
+
+    return successResponse(
+      res,
+      data,
+      "Registration status retrieved successfully",
+      200,
+    );
+  } catch (error) {
+    return errorResponse(
+      res,
+      error.message || "Failed to track registration status",
+      500,
+      error,
+    );
+  }
+};
+
+/**
+ * Stream/view staff document (especially PDFs) directly in browser.
+ * Bypasses Cloudinary ACL restrictions using authenticated signed retrieval.
+ * GET /api/v1/staff/documents/view
+ * GET /api/v1/staff/:staffId/files/:fileKey/view
+ */
+const viewStaffDocument = async (req, res) => {
+  try {
+    let publicId = (req.query.publicId || req.query.id || "").trim();
+    let format = (req.query.format || "").trim();
+    let filename = (req.query.filename || "").trim();
+    const isDownload = req.query.download === "true";
+
+    // 1. If staffId and fileKey are provided in route params or query
+    const staffId = req.params.staffId || req.query.staffId;
+    const fileKey = req.params.fileKey || req.params.docKey || req.query.fileKey;
+
+    if (staffId && fileKey) {
+      const staff = await Staff.findOne({ where: { staffId } });
+      const doc = staff?.files?.[fileKey];
+      if (doc) {
+        publicId = doc.publicId || publicId;
+        filename = doc.name || filename;
+        if (doc.type === "application/pdf") format = "pdf";
+        if (!publicId && (doc.data || doc.url)) {
+          const match = (doc.data || doc.url).match(/\/upload\/(?:v\d+\/)?([^\.\?]+)(?:\.([a-zA-Z0-9]+))?/);
+          if (match) {
+            publicId = match[1];
+            if (!format && match[2]) format = match[2];
+          }
+        }
+      }
+    }
+
+    // 2. If a Cloudinary URL was provided in ?url=
+    if (!publicId && req.query.url) {
+      const parsedUrl = req.query.url;
+      const match = parsedUrl.match(/\/upload\/(?:v\d+\/)?([^\.\?]+)(?:\.([a-zA-Z0-9]+))?/);
+      if (match) {
+        publicId = match[1];
+        if (!format && match[2]) format = match[2];
+      }
+    }
+
+    if (!publicId) {
+      return errorResponse(res, "Document publicId or URL is required", 400);
+    }
+
+    // Determine format if not yet known
+    if (!format) {
+      const extMatch = publicId.match(/\.([a-zA-Z0-9]+)$/);
+      format = extMatch ? extMatch[1] : (filename && filename.includes(".") ? filename.split(".").pop() : "pdf");
+    }
+
+    if (!filename) {
+      filename = `${publicId.split("/").pop()}.${format}`;
+    }
+
+    const isPdf = format.toLowerCase() === "pdf" || filename.toLowerCase().endsWith(".pdf");
+    const contentType = isPdf ? "application/pdf" : (format.toLowerCase() === "png" ? "image/png" : "image/jpeg");
+
+    // Generate authenticated signed URL to bypass Cloudinary default ACL restrictions
+    const signedFetchUrl = getAuthenticatedDownloadUrl(publicId, format, "image");
+
+    if (!signedFetchUrl) {
+      return errorResponse(res, "Cloudinary is not configured", 500);
+    }
+
+    res.setHeader("Content-Type", contentType);
+    res.setHeader(
+      "Content-Disposition",
+      `${isDownload ? "attachment" : "inline"}; filename="${encodeURIComponent(filename)}"`
+    );
+
+    const client = signedFetchUrl.startsWith("https") ? https : http;
+    client.get(signedFetchUrl, (cldRes) => {
+      if (cldRes.statusCode === 200) {
+        if (cldRes.headers["content-length"]) {
+          res.setHeader("Content-Length", cldRes.headers["content-length"]);
+        }
+        return cldRes.pipe(res);
+      }
+
+      // If signed download URL fails, try direct streaming from Cloudinary CDN
+      const fallbackUrl = `https://res.cloudinary.com/${process.env.CLOUDINARY_CLOUD_NAME}/image/upload/${publicId}.${format}`;
+      https.get(fallbackUrl, (fbRes) => {
+        if (fbRes.statusCode === 200) {
+          return fbRes.pipe(res);
+        }
+        return res.status(cldRes.statusCode || 404).json({
+          success: false,
+          message: "Unable to load document",
+          error: cldRes.headers["x-cld-error"] || "Document not accessible",
+        });
+      }).on("error", (err) => {
+        return errorResponse(res, err.message, 500);
+      });
+    }).on("error", (err) => {
+      return errorResponse(res, err.message, 500);
+    });
+  } catch (error) {
+    return errorResponse(res, error.message || "Failed to stream document", 500, error);
+  }
+};
+
 module.exports = {
   staffRegistration,
   updateStaffApplication,
+  trackApplication,
+  viewStaffDocument,
 };

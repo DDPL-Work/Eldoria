@@ -16,10 +16,15 @@ const {
 } = require("../controllers/admin.controller");
 const {
   getDashboardData,
+} = require("../controllers/dashboard.controller");
+const {
+  createAdminBooking,
   confirmBooking,
   assignStaffToBooking,
   unassignStaffFromBooking,
-} = require("../controllers/dashboard.controller");
+  updateBookingStatus,
+  getAvailableStaffForBooking,
+} = require("../controllers/booking.controller");
 
 const {
   getCities,
@@ -39,6 +44,7 @@ const {
   reorderServices,
   deleteService,
   updateCategory,
+  createCategory,
   toggleCategoryStatus,
   deleteCategory,
 } = require("../controllers/service.controller");
@@ -47,8 +53,22 @@ const {
 router.get("/dashboard", verifyToken, requireAdmin, getDashboardData);
 
 // Bookings management routes
-router.get("/bookings", verifyToken, requireAdmin, getBookings);
+router.get("/bookings/all", verifyToken, requireAdmin, getBookings);
+
+router.post("/booking/create", verifyToken, requireAdmin, createAdminBooking);
+
 router.get("/booking/:id", verifyToken, requireAdmin, getBookingById);
+
+router.get("/booking/:id/available-staff", verifyToken, requireAdmin, getAvailableStaffForBooking);
+router.get("/bookings/:id/available-staff", verifyToken, requireAdmin, getAvailableStaffForBooking);
+
+router.patch("/booking/:id/confirm", verifyToken, requireAdmin, confirmBooking);
+
+router.patch("/booking/:id/assign", verifyToken, requireAdmin, assignStaffToBooking);
+
+router.patch("/booking/:id/unassign", verifyToken, requireAdmin, unassignStaffFromBooking);
+
+router.patch("/booking/:id/status", verifyToken, requireAdmin, updateBookingStatus);
 
 // City management CRUD routes
 router.get("/cities", verifyToken, requireAdmin, getCities);
@@ -69,7 +89,10 @@ router.patch("/service/:id/update", verifyToken, requireAdmin, updateService);
 router.put("/services/:id", verifyToken, requireAdmin, updateService);
 router.delete("/service/:id/delete", verifyToken, requireAdmin, deleteService);
 
-// Category bulk operations (managing embedded category fields)
+// Category operations (dedicated & embedded categories)
+router.post("/services/categories", verifyToken, requireAdmin, createCategory);
+router.post("/category/create", verifyToken, requireAdmin, createCategory);
+router.post("/services/categories/create", verifyToken, requireAdmin, createCategory);
 router.patch("/services/categories/:category/status", verifyToken, requireAdmin, toggleCategoryStatus);
 router.patch("/services/categories/:category", verifyToken, requireAdmin, updateCategory);
 router.delete("/services/categories/:category/delete", verifyToken, requireAdmin, deleteCategory);

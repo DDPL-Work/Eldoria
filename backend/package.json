@@ -13,7 +13,9 @@
     "test": "jest",
     "db:migrate": "node scripts/db-migrate.js",
     "db:migrate:undo": "node scripts/db-migrate-undo.js",
-    "db:seed:admin": "node src/Seed/admin.seed.js"
+    "db:seed:admin": "node src/Seed/admin.seed.js",
+    "db:sync:aiven": "node scripts/sync-to-aiven.js",
+    "db:pull:aiven": "node scripts/pull-from-aiven.js"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",

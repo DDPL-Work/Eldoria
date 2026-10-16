@@ -45,12 +45,24 @@ module.exports = (sequelize) => {
       allowNull: true,
       defaultValue: 'Mother'
     },
+    serviceId: {
+      type: DataTypes.STRING(100),
+      allowNull: true
+    },
     service: {
       type: DataTypes.STRING(100),
       allowNull: false
     },
     serviceName: {
       type: DataTypes.STRING(255),
+      allowNull: true
+    },
+    categoryId: {
+      type: DataTypes.STRING(100),
+      allowNull: true
+    },
+    category: {
+      type: DataTypes.STRING(150),
       allowNull: true
     },
     plan: {
