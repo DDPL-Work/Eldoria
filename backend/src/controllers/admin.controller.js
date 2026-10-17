@@ -1124,6 +1124,11 @@ const getBookingById = async (req, res) => {
   }
 };
 
+const {
+  getAdminEnquiries: getEnquiries,
+  getAdminEnquiryById: getEnquiryById,
+} = require("./enquiry.controller");
+
 module.exports = {
   getStaffRequests,
   getStaffRequestById,
@@ -1136,4 +1141,6 @@ module.exports = {
   getClientByClientId,
   getBookings,
   getBookingById,
+  getEnquiries,
+  getEnquiryById,
 };
