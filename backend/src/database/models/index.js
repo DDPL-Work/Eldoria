@@ -17,6 +17,7 @@ db.Enquiry = require("./enquiry.model")(sequelize);
 db.City = require("./city.model")(sequelize);
 db.Service = require("./service.model")(sequelize);
 db.Category = require("./category.model")(sequelize);
+db.Setting = require("./setting.model")(sequelize);
 
 // Associations: User (1) <-> Staff Profile (1) via staffId
 db.User.hasOne(db.Staff, {

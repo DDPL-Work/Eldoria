@@ -1,5 +1,5 @@
 const { Op } = require("sequelize");
-const { sequelize, Booking, Staff, User, Service, City, Enquiry, Client } = require("../database/models");
+const { sequelize, Booking, Staff, User, Service, City, Enquiry, Client, Setting } = require("../database/models");
 const { errorResponse, successResponse } = require("../utills/responseHandler");
 const { generateBookingId } = require("../helpers/generateBookingID");
 const { generateClientId } = require("../helpers/generateClientID");
@@ -1840,6 +1840,274 @@ const updateStaffAssignedBookingStatus = async (req, res) => {
   }
 };
 
+/**
+ * Staff Assigns or Reassigns a Visit to a Colleague
+ */
+const staffAssignColleagueToBooking = async (req, res) => {
+  const transaction = await sequelize.transaction();
+
+  try {
+    // 1. Permission check: staffCanConfirm must be enabled
+    const appSetting = await Setting.findByPk("app", { transaction });
+    if (appSetting && appSetting.staffCanConfirm === false) {
+      await transaction.rollback();
+      return errorResponse(
+        res,
+        "Staff confirmation and assignment is disabled by administrator.",
+        403
+      );
+    }
+
+    const { id } = req.params;
+    const body = req.body || {};
+    const colleagueIdentifier =
+      body.colleagueId ||
+      body.colleagueStaffId ||
+      body.targetStaffId ||
+      body.staffId;
+
+    if (!colleagueIdentifier) {
+      await transaction.rollback();
+      return errorResponse(
+        res,
+        "Colleague staff identifier ('colleagueId' or 'staffId') is required to assign or reassign the visit.",
+        400
+      );
+    }
+
+    // 2. Lookup booking
+    const booking = await Booking.findOne({
+      where: buildBookingLookup(id),
+      transaction,
+    });
+
+    if (!booking) {
+      await transaction.rollback();
+      return errorResponse(res, `Booking '${id}' not found`, 404);
+    }
+
+    if (booking.status === "cancelled") {
+      await transaction.rollback();
+      return errorResponse(res, "Cannot assign or reassign a cancelled booking", 400);
+    }
+
+    if (booking.status === "completed") {
+      await transaction.rollback();
+      return errorResponse(res, "Cannot reassign an already completed booking", 400);
+    }
+
+    // 3. Resolve requesting staff member (assigner)
+    let assignerStaffId = req.user?.staffId;
+    if (!assignerStaffId && req.user?.id) {
+      const staffRec = await Staff.findOne({ where: { userId: req.user.id }, transaction });
+      assignerStaffId = staffRec?.staffId;
+    }
+    if (!assignerStaffId && (req.headers["x-staff-id"] || req.headers["staffid"])) {
+      assignerStaffId = req.headers["x-staff-id"] || req.headers["staffid"];
+    }
+    if (!assignerStaffId && (body.fromStaffId || body.currentStaffId || body.assignerStaffId)) {
+      assignerStaffId = body.fromStaffId || body.currentStaffId || body.assignerStaffId;
+    }
+    // If not provided, fallback to current staffId on booking if already assigned
+    if (!assignerStaffId && booking.staffId) {
+      assignerStaffId = booking.staffId;
+    }
+
+    let assigner = null;
+    if (assignerStaffId) {
+      assigner = await Staff.findOne({
+        where: buildStaffLookup(assignerStaffId),
+        include: [{ model: User, as: "user", attributes: ["id", "name", "phone", "email"] }],
+        transaction,
+      });
+    }
+
+    // If the booking is already assigned to a staff member, verify authority:
+    // Staff can reassign their own assigned visits. If assigned to someone else, check ownership.
+    if (booking.staffId && assigner && booking.staffId !== assigner.staffId) {
+      await transaction.rollback();
+      return errorResponse(
+        res,
+        `You cannot reassign this visit because it is currently assigned to another staff member (${booking.staffId}).`,
+        403
+      );
+    }
+
+    // 4. Resolve target colleague
+    const colleague = await Staff.findOne({
+      where: buildStaffLookup(colleagueIdentifier),
+      include: [
+        {
+          model: User,
+          as: "user",
+          attributes: ["id", "name", "phone", "email"],
+        },
+      ],
+      transaction,
+    });
+
+    if (!colleague) {
+      await transaction.rollback();
+      return errorResponse(res, `Colleague staff member '${colleagueIdentifier}' not found`, 404);
+    }
+
+    if (colleague.approval !== "approved") {
+      await transaction.rollback();
+      return errorResponse(
+        res,
+        `Staff member '${colleague.user?.name || colleague.staffId}' is not approved yet (status: '${colleague.approval}'). Only approved staff colleagues can be assigned to visits.`,
+        400
+      );
+    }
+
+    if (booking.staffId && booking.staffId === colleague.staffId) {
+      await transaction.rollback();
+      return errorResponse(
+        res,
+        `Visit is already assigned to ${colleague.user?.name || colleague.staffId}.`,
+        400
+      );
+    }
+
+    const prevStaffId = booking.staffId || null;
+    const now = new Date();
+    const actorTag = assigner ? `staff:${assigner.staffId}` : (prevStaffId ? `staff:${prevStaffId}` : "staff");
+    const actorName = assigner?.user?.name || assigner?.staffId || (prevStaffId || "Staff member");
+
+    // 5. Ensure service tasks are populated if empty
+    let currentTasks = booking.tasks;
+    if (!Array.isArray(currentTasks) || currentTasks.length === 0) {
+      const svc = await Service.findOne({
+        where: {
+          [Op.or]: [{ serviceId: booking.service }, { name: booking.service }],
+        },
+        transaction,
+      });
+      if (svc && Array.isArray(svc.tasks)) {
+        currentTasks = svc.tasks.map((t) => ({
+          label: typeof t === "string" ? t : t.label || "Care task",
+          done: false,
+        }));
+      }
+    }
+
+    // 6. Build History Log
+    const existingHistory = Array.isArray(booking.history) ? [...booking.history] : [];
+    let confirmedBy = booking.confirmedBy;
+    let confirmedAt = booking.confirmedAt;
+
+    if (!existingHistory.some((h) => h.status === "confirmed")) {
+      confirmedBy = actorTag;
+      confirmedAt = now;
+      existingHistory.push({
+        status: "confirmed",
+        at: now.toISOString(),
+        by: actorTag,
+        note: `Booking confirmed by staff upon colleague assignment`,
+      });
+    }
+
+    const assignmentNote = prevStaffId
+      ? `${booking.code} reassigned from ${prevStaffId} to ${colleague.user?.name || colleague.staffId} by ${actorName}`
+      : `${booking.code} assigned to ${colleague.user?.name || colleague.staffId} by ${actorName}`;
+
+    existingHistory.push({
+      status: "assigned",
+      at: now.toISOString(),
+      by: actorTag,
+      staffId: colleague.staffId,
+      previousStaffId: prevStaffId,
+      note: assignmentNote,
+    });
+
+    // 7. Update Booking
+    await booking.update(
+      {
+        staffId: colleague.staffId,
+        status: "assigned",
+        confirmedBy: confirmedBy || actorTag,
+        confirmedAt: confirmedAt || now,
+        assignedBy: actorTag,
+        assignedAt: now,
+        tasks: currentTasks,
+        history: existingHistory,
+      },
+      { transaction }
+    );
+
+    await transaction.commit();
+
+    // 8. Refetch with full associations
+    const refreshedBooking = await Booking.findOne({
+      where: { id: booking.id },
+      include: [
+        {
+          model: Staff,
+          as: "assignedStaff",
+          include: [{ model: User, as: "user", attributes: ["name", "phone", "email"] }],
+        },
+      ],
+    });
+
+    const colleagueName = colleague.user?.name || colleague.staffId;
+    const colleagueRole = colleague.qualification || "Caregiver";
+    const notificationTimeStr = formatNotificationDate(booking.date, booking.time);
+    const serviceDisplayName = booking.serviceName || booking.service;
+
+    // Notifications structure aligned with index (4).html
+    const notifications = {
+      colleague: {
+        to: `staff:${colleague.staffId}`,
+        title: "New visit assigned",
+        body: `${booking.patientName} · ${serviceDisplayName} · ${notificationTimeStr} · ${booking.address} · assigned by ${actorName}`,
+      },
+      client: {
+        to: `client:${booking.clientPhone}`,
+        title: "Caregiver assigned",
+        body: `${colleagueName} (${colleagueRole}) will visit ${booking.patientName} ${notificationTimeStr}.`,
+      },
+      admin: {
+        to: "admin",
+        title: `${booking.code} assigned by staff`,
+        body: `${actorName} assigned ${colleagueName} to ${booking.patientName}'s ${serviceDisplayName} visit in ${booking.city} · ${notificationTimeStr}.`,
+      },
+    };
+
+    if (prevStaffId && prevStaffId !== colleague.staffId) {
+      notifications.previousStaff = {
+        to: `staff:${prevStaffId}`,
+        title: "Visit reassigned",
+        body: `${booking.patientName} · ${notificationTimeStr} has been given to ${colleagueName}.`,
+      };
+    }
+
+    return successResponse(
+      res,
+      {
+        booking: refreshedBooking,
+        reassignedFrom: prevStaffId,
+        assignedTo: {
+          staffId: colleague.staffId,
+          name: colleagueName,
+          phone: colleague.user?.phone || null,
+          role: colleagueRole,
+        },
+        assignedBy: {
+          staffId: assigner?.staffId || (prevStaffId || null),
+          name: actorName,
+        },
+        notifications,
+      },
+      `${colleagueName} has been assigned to visit ${booking.code} successfully.`
+    );
+  } catch (error) {
+    if (transaction && !transaction.finished) {
+      await transaction.rollback();
+    }
+    return errorResponse(res, error.message || "Failed to assign visit to colleague", 500, error);
+  }
+};
+
 module.exports = {
   createClientBooking,
   getClientBookings,
@@ -1855,4 +2123,5 @@ module.exports = {
   getStaffBookings,
   getStaffBookingById,
   updateStaffAssignedBookingStatus,
+  staffAssignColleagueToBooking,
 };

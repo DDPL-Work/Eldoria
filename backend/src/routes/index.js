@@ -6,6 +6,7 @@ const adminRoutes = require('./admin.routes');
 const authRoutes = require('./auth.routes');
 const staffRoutes = require('./staff.routes');
 const clientRoutes = require('./client.routes');
+const settingRoutes = require('./setting.routes');
 const { getPublicLiveCities } = require('../controllers/city.controller');
 const {
   getPublicServices,
@@ -36,5 +37,8 @@ router.use('/staff', staffRoutes);
 
 // Client management, registration, and login routes
 router.use('/client', clientRoutes);
+
+// Global settings routes (accessible via /settings and /setting)
+router.use('/setting', settingRoutes);
 
 module.exports = router;

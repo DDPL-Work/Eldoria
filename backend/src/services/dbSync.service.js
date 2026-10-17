@@ -21,6 +21,8 @@ const getAivenDb = () => {
     Enquiry: require('../database/models/enquiry.model')(aivenSequelize),
     City: require('../database/models/city.model')(aivenSequelize),
     Service: require('../database/models/service.model')(aivenSequelize),
+    Category: require('../database/models/category.model')(aivenSequelize),
+    Setting: require('../database/models/setting.model')(aivenSequelize),
   };
 
   // Associations
@@ -119,6 +121,8 @@ const attachAivenSyncHooks = (db) => {
     'Booking',
     'Enquiry',
     'Otp',
+    'Category',
+    'Setting',
   ];
 
   syncableModels.forEach((modelName) => {

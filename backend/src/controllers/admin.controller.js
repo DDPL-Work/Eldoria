@@ -1,6 +1,7 @@
 const { Op } = require("sequelize");
 const { sequelize, User, Staff, Client, Booking } = require("../database/models");
 const { errorResponse, successResponse } = require("../utills/responseHandler");
+const { generateStaffId } = require("../helpers/generateStaffID");
 
 /**
  * Helper to build lookup condition by either primary key id or staffId string
@@ -42,6 +43,7 @@ const getStaffRequests = async (req, res) => {
       approval,
       docs,
       city,
+      onDuty,
       search,
       page = 1,
       limit = 10,
@@ -62,6 +64,10 @@ const getStaffRequests = async (req, res) => {
 
     if (docs && docs !== "all") {
       staffWhere.docs = docs;
+    }
+
+    if (onDuty !== undefined && onDuty !== "all") {
+      staffWhere.onDuty = onDuty === "true" || onDuty === true || onDuty === "1";
     }
 
     if (city) {
@@ -108,6 +114,7 @@ const getStaffRequests = async (req, res) => {
       res,
       {
         requests: staffRequests,
+        staff: staffRequests,
         pagination: {
           total: count,
           currentPage: pageNumber,
@@ -816,6 +823,310 @@ const revokeStaffRequestDecision = async (req, res) => {
 };
 
 /**
+ * 4a. Create Staff from Admin Dashboard
+ * Directly creates and onboards staff without OTP verification or document verification.
+ * Staff gets created and approved immediately.
+ * POST /api/v1/admin/staff/create
+ * POST /api/v1/admin/staff
+ * POST /api/v1/admin/staff-requests/create
+ * POST /api/v1/admin/staff-requests
+ */
+const createAdminStaff = async (req, res) => {
+  const transaction = await sequelize.transaction();
+
+  try {
+    if (!req.body || typeof req.body !== "object" || Object.keys(req.body).length === 0) {
+      await transaction.rollback();
+      return errorResponse(res, "Request payload cannot be empty", 400);
+    }
+
+    const {
+      name,
+      phone,
+      email,
+      role, // from admin frontend, e.g. "GNM Nurse"
+      qualification, // optional explicit qualification
+      city,
+      area,
+      address,
+      skills,
+      docs, // defaults to "verified"
+      onDuty, // defaults to true
+      dob,
+      gender,
+      regNo,
+      experience,
+      experienceYears,
+      language,
+      languages,
+      availability,
+      emergencyName,
+      emergencyPhone,
+      emergencyRelation,
+      files,
+      notes,
+    } = req.body;
+
+    // 1. Validate required primary fields (name & phone)
+    if (!name || !String(name).trim()) {
+      await transaction.rollback();
+      return errorResponse(res, "Full name is required", 400);
+    }
+
+    if (!phone) {
+      await transaction.rollback();
+      return errorResponse(res, "Phone number is required", 400);
+    }
+
+    const cleanName = String(name).trim();
+    const cleanPhone = String(phone).replace(/[^\d+]/g, "").trim();
+
+    if (cleanPhone.length < 10) {
+      await transaction.rollback();
+      return errorResponse(res, "Please provide a valid 10-digit mobile number", 400);
+    }
+
+    // 2. Validate email if provided
+    let cleanEmail = null;
+    if (email && String(email).trim()) {
+      cleanEmail = String(email).trim().toLowerCase();
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(cleanEmail)) {
+        await transaction.rollback();
+        return errorResponse(res, "Please provide a valid email address", 400);
+      }
+
+      // Check if email is already taken by another user
+      const existingEmail = await User.findOne({
+        where: { email: cleanEmail },
+        transaction,
+      });
+      if (existingEmail) {
+        await transaction.rollback();
+        return errorResponse(
+          res,
+          `A user with email '${cleanEmail}' is already registered (${existingEmail.name}, ${existingEmail.role})`,
+          409,
+        );
+      }
+    }
+
+    // 3. Check for existing phone number across users
+    const existingUser = await User.findOne({
+      where: { phone: cleanPhone },
+      include: [{ model: Staff, as: "staffProfile", required: false }],
+      transaction,
+    });
+
+    if (existingUser) {
+      if (existingUser.role !== "staff") {
+        await transaction.rollback();
+        return errorResponse(
+          res,
+          `This phone number is already registered under '${existingUser.role}' portal (${existingUser.name}).`,
+          409,
+        );
+      }
+
+      // If user is already a staff and has an existing staff profile that is active/approved
+      if (existingUser.staffProfile && existingUser.staffProfile.approval === "approved") {
+        await transaction.rollback();
+        return errorResponse(
+          res,
+          `A staff member with this phone number is already registered and onboarded (${existingUser.name}, ${existingUser.staffId}).`,
+          409,
+        );
+      }
+    }
+
+    // 4. City Hub Normalization
+    const CITY_MAP = {
+      mum: "Mumbai",
+      del: "Delhi NCR",
+      blr: "Bengaluru",
+      pune: "Pune",
+      mumbai: "Mumbai",
+      delhi: "Delhi NCR",
+      bangalore: "Bengaluru",
+    };
+    const rawCity = String(city || "Mumbai").trim();
+    const cleanCity = CITY_MAP[rawCity.toLowerCase()] || rawCity;
+
+    // 5. Gender Normalization
+    let normalizedGender = "female";
+    if (gender && ["male", "female", "others"].includes(String(gender).toLowerCase().trim())) {
+      normalizedGender = String(gender).toLowerCase().trim();
+    } else if (cleanName.toLowerCase().startsWith("sister")) {
+      normalizedGender = "female";
+    } else if (cleanName.toLowerCase().startsWith("mr.") || cleanName.toLowerCase().startsWith("brother")) {
+      normalizedGender = "male";
+    }
+
+    // 6. Generate unique Staff ID (ELDOSF26...)
+    const staffId = await generateStaffId(cleanCity, normalizedGender, transaction);
+
+    // 7. Area & Address
+    const cleanArea = String(area || cleanCity).trim();
+    const cleanAddress = String(address || `${cleanArea}, ${cleanCity}`).trim();
+
+    // 8. Role & Qualification
+    const cleanQualification = String(qualification || role || "GNM Nurse").trim();
+
+    // 9. Registration Number
+    let cleanRegNo = regNo && String(regNo).trim();
+    if (!cleanRegNo) {
+      cleanRegNo = `REG-2026-${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
+    }
+
+    // Check regNo uniqueness
+    const regNoConflict = await Staff.findOne({
+      where: { regNo: cleanRegNo },
+      transaction,
+    });
+    if (regNoConflict) {
+      cleanRegNo = `REG-2026-${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
+    }
+
+    // 10. Experience
+    let cleanExperience = "2+ years";
+    if (experience && String(experience).trim()) {
+      cleanExperience = String(experience).trim();
+    } else if (experienceYears) {
+      cleanExperience = `${experienceYears} years`;
+    }
+
+    // 11. Skills Parsing
+    let parsedSkills = [];
+    if (Array.isArray(skills)) {
+      parsedSkills = skills.map((s) => String(s).trim()).filter(Boolean);
+    } else if (typeof skills === "string" && skills.trim()) {
+      parsedSkills = skills.split(",").map((s) => s.trim()).filter(Boolean);
+    }
+    if (parsedSkills.length === 0) {
+      parsedSkills = ["Elder care", "Basic nursing care"];
+    }
+
+    // 12. Languages Parsing
+    let parsedLanguages = ["Hindi", "English"];
+    const inputLanguages = language || languages;
+    if (Array.isArray(inputLanguages)) {
+      parsedLanguages = inputLanguages.map((l) => String(l).trim()).filter(Boolean);
+    } else if (typeof inputLanguages === "string" && inputLanguages.trim()) {
+      parsedLanguages = inputLanguages.split(",").map((l) => l.trim()).filter(Boolean);
+    }
+
+    // 13. Availability Parsing
+    let parsedAvailability = ["full_time", "day_shift", "night_shift"];
+    if (Array.isArray(availability)) {
+      parsedAvailability = availability.map((a) => String(a).trim()).filter(Boolean);
+    } else if (typeof availability === "string" && availability.trim()) {
+      parsedAvailability = availability.split(",").map((a) => a.trim()).filter(Boolean);
+    }
+
+    // 14. DOB
+    const cleanDob = dob ? String(dob).trim() : "1995-01-01";
+
+    // 15. Onboarding Status (Directly approved & verified, no verification needed)
+    const cleanDocs = docs === "pending" ? "pending" : "verified";
+    const isStaffOnDuty = onDuty !== undefined ? Boolean(onDuty) : true;
+    const adminIdentifier = req.user?.email || req.user?.name || "admin";
+    const now = new Date();
+
+    // 16. Create User record (or update if orphaned staff user existed)
+    let userRecord = existingUser;
+    if (!userRecord) {
+      userRecord = await User.create(
+        {
+          staffId,
+          name: cleanName,
+          email: cleanEmail,
+          phone: cleanPhone,
+          role: "staff",
+          isActive: true,
+        },
+        { transaction },
+      );
+    } else {
+      userRecord.staffId = staffId;
+      userRecord.name = cleanName;
+      if (cleanEmail) userRecord.email = cleanEmail;
+      userRecord.isActive = true;
+      await userRecord.save({ transaction });
+    }
+
+    // 17. Create Staff record (approved & verified directly without OTP or document check)
+    const staffRecord = await Staff.create(
+      {
+        staffId,
+        dob: cleanDob,
+        gender: normalizedGender,
+        city: cleanCity,
+        area: cleanArea,
+        address: cleanAddress,
+        qualification: cleanQualification,
+        regNo: cleanRegNo,
+        experience: cleanExperience,
+        skills: parsedSkills,
+        language: parsedLanguages,
+        availability: parsedAvailability,
+        emergencyName: emergencyName ? String(emergencyName).trim() : null,
+        emergencyPhone: emergencyPhone ? String(emergencyPhone).replace(/[^\d+]/g, "").trim() : null,
+        emergencyRelation: emergencyRelation ? String(emergencyRelation).trim() : null,
+        files: files || {},
+        applied: true,
+        approval: "approved",
+        registrationStatus: "approved",
+        docs: cleanDocs,
+        docChecks: {
+          photo: true,
+          idProof: true,
+          qualification: true,
+        },
+        onDuty: isStaffOnDuty,
+        submittedAt: now,
+        approvedAt: now,
+        appHistory: [
+          {
+            at: now.toISOString(),
+            status: "approved",
+            by: adminIdentifier,
+            note: "Staff directly created and onboarded by admin",
+          },
+        ],
+        notes: notes ? String(notes).trim() : null,
+      },
+      { transaction },
+    );
+
+    await transaction.commit();
+
+    // 18. Refetch created staff with User relation
+    const fullStaff = await Staff.findOne({
+      where: { id: staffRecord.id },
+      include: [
+        {
+          model: User,
+          as: "user",
+          attributes: ["id", "staffId", "name", "email", "phone", "role", "isActive", "createdAt"],
+        },
+      ],
+    });
+
+    return successResponse(
+      res,
+      fullStaff,
+      `Staff member '${cleanName}' created and onboarded successfully`,
+      201,
+    );
+  } catch (error) {
+    if (transaction && !transaction.finished) {
+      await transaction.rollback();
+    }
+    return errorResponse(res, error.message || "Failed to create staff member", 500, error);
+  }
+};
+
+/**
  * 5. Fetch clients (List with filters, search, & pagination)
  * GET /api/v1/admin/clients
  */
@@ -1130,6 +1441,7 @@ const {
 } = require("./enquiry.controller");
 
 module.exports = {
+  createAdminStaff,
   getStaffRequests,
   getStaffRequestById,
   verifyStaffDocument,

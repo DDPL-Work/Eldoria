@@ -17,6 +17,7 @@ const {
   getStaffBookings,
   getStaffBookingById,
   updateStaffAssignedBookingStatus,
+  staffAssignColleagueToBooking,
 } = require("../controllers/booking.controller");
 
 // Document viewing & streaming (bypasses Cloudinary PDF/ACL restrictions)
@@ -48,6 +49,10 @@ router.get("/booking/:id", optionalToken, getStaffBookingById);
 
 // Staff updates status of visits assigned to them
 router.patch("/booking/:id/status", optionalToken, updateStaffAssignedBookingStatus);
+
+// Staff assigns or reassigns their assigned visit (or open booking request) to a colleague
+// (Only permitted when staffCanConfirm: true in Settings)
+router.patch("/booking/:id/reassign", optionalToken, staffAssignColleagueToBooking);
 
 
 module.exports = router;
