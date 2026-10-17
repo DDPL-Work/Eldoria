@@ -60,7 +60,6 @@ router.post("/booking/create", verifyToken, requireAdmin, createAdminBooking);
 router.get("/booking/:id", verifyToken, requireAdmin, getBookingById);
 
 router.get("/booking/:id/available-staff", verifyToken, requireAdmin, getAvailableStaffForBooking);
-router.get("/bookings/:id/available-staff", verifyToken, requireAdmin, getAvailableStaffForBooking);
 
 router.patch("/booking/:id/confirm", verifyToken, requireAdmin, confirmBooking);
 
@@ -123,6 +122,17 @@ router.patch("/staff-requests/:id/pending", verifyToken, requireAdmin, revokeSta
 router.get("/clients", verifyToken, requireAdmin, getClients);
 router.get("/clients/:clientId", verifyToken, requireAdmin, getClientByClientId);
 router.get("/client/:clientId", verifyToken, requireAdmin, getClientByClientId);
+
+// Help requests (Enquiries) management routes
+const {
+  getAdminEnquiries,
+  getAdminEnquiryById,
+  updateAdminEnquiry,
+} = require("../controllers/enquiry.controller");
+
+router.get("/enquiries/all", verifyToken, requireAdmin, getAdminEnquiries);
+router.get("/enquiry/:id", verifyToken, requireAdmin, getAdminEnquiryById);
+router.patch("/enquiry/:id/status", verifyToken, requireAdmin, updateAdminEnquiry);
 
 module.exports = router;
 

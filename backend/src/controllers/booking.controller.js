@@ -1,7 +1,8 @@
 const { Op } = require("sequelize");
-const { sequelize, Booking, Staff, User, Service, City } = require("../database/models");
+const { sequelize, Booking, Staff, User, Service, City, Enquiry, Client } = require("../database/models");
 const { errorResponse, successResponse } = require("../utills/responseHandler");
 const { generateBookingId } = require("../helpers/generateBookingID");
+const { generateClientId } = require("../helpers/generateClientID");
 const { scoreAndRankStaffForBooking } = require("../helpers/staffMatching.helper");
 
 /**
@@ -55,6 +56,17 @@ const buildStaffLookup = (identifier) => {
   return { staffId: String(identifier).trim() };
 };
 
+/**
+ * Helper to fetch enquiry lookup condition (by numeric ID or code)
+ */
+const buildEnquiryLookup = (identifier) => {
+  const num = parseInt(identifier, 10);
+  if (!isNaN(num) && String(num) === String(identifier).trim()) {
+    return { id: num };
+  }
+  return { code: String(identifier).trim() };
+};
+
 // =========================================================================
 // 1. CLIENT BOOKING FLOW
 // =========================================================================
@@ -67,6 +79,7 @@ const createClientBooking = async (req, res) => {
   const transaction = await sequelize.transaction();
 
   try {
+    const body = req.body || {};
     const {
       service: legacyService,
       serviceId: directServiceId,
@@ -84,7 +97,7 @@ const createClientBooking = async (req, res) => {
       time,
       notes,
       source,
-    } = req.body;
+    } = body;
 
     const serviceInput = (directServiceId || legacyService || "").toString().trim();
     const categoryInput = (directCategoryId || legacyCategory || "").toString().trim();
@@ -1186,13 +1199,15 @@ const getAvailableStaffForBooking = async (req, res) => {
 };
 
 /**
- * Admin Creates a Direct Booking (e.g. from Call or WhatsApp)
- * POST /api/v1/admin/bookings
+ * Admin Creates a Direct Booking (e.g. from Call, WhatsApp, App, or Walk-in)
+ * Matches admin dashboard payload from NewBooking.jsx
+ * POST /api/v1/admin/booking/create (aliases: /api/v1/admin/bookings, /api/v1/admin/bookings/create)
  */
 const createAdminBooking = async (req, res) => {
   const transaction = await sequelize.transaction();
 
   try {
+    const body = req.body || {};
     const {
       clientName,
       clientPhone,
@@ -1211,26 +1226,65 @@ const createAdminBooking = async (req, res) => {
       date,
       time,
       notes,
+      careNotes,
+      description,
       source,
       staffId: staffIdentifier,
       price,
-    } = req.body;
+      tasks,
+      fromEnqId,
+      enquiryId,
+      fromEnq,
+    } = body;
 
+    const trimmedClientName = (clientName || "").trim();
+    const trimmedPatientName = (patientName || "").trim();
+    const trimmedAddress = (address || "").trim();
     const serviceInput = (directServiceId || legacyService || "").toString().trim();
     const categoryInput = (directCategoryId || legacyCategory || "").toString().trim();
+    const noteContent = (careNotes || notes || description || "").trim() || null;
 
-    if (!clientName || !clientPhone || !patientName || !serviceInput || !address || !date || !time) {
+    // Normalize phone number to 10 digits
+    const rawPhone = String(clientPhone || "").replace(/[^\d]/g, "");
+    const cleanPhone = rawPhone.length > 10 ? rawPhone.slice(-10) : rawPhone;
+
+    // Validation matching frontend form requirements
+    if (!trimmedClientName) {
+      await transaction.rollback();
+      return errorResponse(res, "Client name is required.", 400);
+    }
+    if (!cleanPhone || cleanPhone.length !== 10) {
       await transaction.rollback();
       return errorResponse(
         res,
-        "Client name, 10-digit phone, patient name, service ('serviceId' or 'service'), address, date and time are required.",
+        "A valid 10-digit mobile number is required.",
         400
       );
+    }
+    if (!trimmedPatientName) {
+      await transaction.rollback();
+      return errorResponse(res, "Patient name is required.", 400);
+    }
+    if (!serviceInput) {
+      await transaction.rollback();
+      return errorResponse(
+        res,
+        "Service selection ('service' or 'serviceId') is required.",
+        400
+      );
+    }
+    if (!trimmedAddress) {
+      await transaction.rollback();
+      return errorResponse(res, "Visit address is required.", 400);
+    }
+    if (!date || !time) {
+      await transaction.rollback();
+      return errorResponse(res, "Date and preferred time are required.", 400);
     }
 
     const bookingCity = (city || "mumbai").toLowerCase().trim();
 
-    // Fetch service
+    // Fetch service details for pricing, categories, and checklist tasks
     const isServiceNumeric = !isNaN(Number(serviceInput)) && /^\d+$/.test(serviceInput);
     const serviceWhere = isServiceNumeric
       ? { [Op.or]: [{ id: Number(serviceInput) }, { serviceId: serviceInput }, { code: serviceInput }] }
@@ -1245,53 +1299,137 @@ const createAdminBooking = async (req, res) => {
     const finalServiceName = serviceRecord?.name || serviceInput;
     const finalCategoryId = directCategoryId || serviceRecord?.category || categoryInput || null;
     const finalCategory = serviceRecord?.categoryName || serviceRecord?.category || categoryInput || null;
-    const servicePrice = price !== undefined ? Number(price) : (serviceRecord ? Number(serviceRecord.price) : 0.0);
+    const servicePrice = price !== undefined && price !== null
+      ? Number(price)
+      : (serviceRecord ? Number(serviceRecord.price || 0) : 0.0);
 
-    const initialTasks = Array.isArray(serviceRecord?.tasks)
-      ? serviceRecord.tasks.map((taskLabel) => ({
-          label: typeof taskLabel === "string" ? taskLabel : taskLabel.label || "Care task",
-          done: false,
-        }))
-      : [];
+    // Initial tasks checklist: prefer passed tasks, or service catalog defaults
+    let initialTasks = [];
+    if (Array.isArray(tasks) && tasks.length > 0) {
+      initialTasks = tasks.map((t) =>
+        typeof t === "string"
+          ? { label: t, done: false }
+          : { label: t.label || "Care task", done: Boolean(t.done) }
+      );
+    } else if (Array.isArray(serviceRecord?.tasks) && serviceRecord.tasks.length > 0) {
+      initialTasks = serviceRecord.tasks.map((taskLabel) => ({
+        label: typeof taskLabel === "string" ? taskLabel : taskLabel.label || "Care task",
+        done: false,
+      }));
+    }
 
-    const bookingCode = await generateBookingId(clientName, bookingCity, transaction);
+    // Automatically link or provision client user account
+    let finalClientId = null;
+    let clientUser = await User.findOne({
+      where: { phone: cleanPhone },
+      include: [{ model: Client, as: "clientProfile", required: false }],
+      transaction,
+    });
+
+    if (clientUser) {
+      finalClientId = clientUser.clientProfile?.clientId || `c_${clientUser.id}`;
+      if (clientUser.clientProfile) {
+        const profileUpdates = {};
+        if (!clientUser.clientProfile.address && trimmedAddress) profileUpdates.address = trimmedAddress;
+        if (!clientUser.clientProfile.patientName && trimmedPatientName) profileUpdates.patientName = trimmedPatientName;
+        if (!clientUser.clientProfile.patientAge && patientAge) profileUpdates.patientAge = String(patientAge).trim();
+        if (Object.keys(profileUpdates).length > 0) {
+          await clientUser.clientProfile.update(profileUpdates, { transaction });
+        }
+      }
+    } else {
+      try {
+        const generatedClientId = await generateClientId(bookingCity, transaction);
+        clientUser = await User.create(
+          {
+            name: trimmedClientName,
+            phone: cleanPhone,
+            role: "client",
+            isActive: true,
+          },
+          { transaction }
+        );
+
+        const newClientProfile = await Client.create(
+          {
+            userId: clientUser.id,
+            clientId: generatedClientId,
+            city: bookingCity,
+            area: area ? area.trim() : null,
+            address: trimmedAddress,
+            patientName: trimmedPatientName,
+            patientAge: patientAge ? String(patientAge).trim() : null,
+            patientGender: patientGender || null,
+            relation: relation || "Mother",
+            status: "active",
+          },
+          { transaction }
+        );
+
+        finalClientId = newClientProfile.clientId || generatedClientId;
+      } catch (clientErr) {
+        console.warn("Client account auto-provisioning note:", clientErr.message);
+        finalClientId = null;
+      }
+    }
+
+    const adminActor = req.user?.name || req.user?.email || "admin";
+    const bookingCode = await generateBookingId(trimmedClientName, bookingCity, transaction);
     const now = new Date();
 
     let initialStatus = "confirmed";
     let assignedStaffId = null;
+    let assignedStaffName = null;
     let assignedBy = null;
     let assignedAt = null;
 
     const initialHistory = [
-      { status: "requested", at: now.toISOString(), by: "admin", note: "Booking created by care desk" },
-      { status: "confirmed", at: now.toISOString(), by: "admin", note: "Confirmed by care desk" },
+      {
+        status: "requested",
+        at: now.toISOString(),
+        by: adminActor,
+        note: `Booking created by care desk (${adminActor})`,
+      },
+      {
+        status: "confirmed",
+        at: now.toISOString(),
+        by: adminActor,
+        note: `Confirmed by care desk (${adminActor})`,
+      },
     ];
 
+    // Optional direct staff assignment on booking creation
     if (staffIdentifier) {
       const staff = await Staff.findOne({
         where: buildStaffLookup(staffIdentifier),
+        include: [{ model: User, as: "user", required: false }],
         transaction,
       });
+
       if (staff && staff.approval === "approved") {
         initialStatus = "assigned";
         assignedStaffId = staff.staffId;
-        assignedBy = "admin";
+        assignedStaffName = staff.user?.name || staff.staffId;
+        assignedBy = adminActor;
         assignedAt = now;
         initialHistory.push({
           status: "assigned",
           at: now.toISOString(),
-          by: "admin",
+          by: adminActor,
           staffId: staff.staffId,
+          note: `Caregiver ${staff.staffId} assigned by ${adminActor}`,
         });
       }
     }
 
+    // Create the confirmed Booking
     const newBooking = await Booking.create(
       {
         code: bookingCode,
-        clientName: clientName.trim(),
-        clientPhone: String(clientPhone).trim(),
-        patientName: patientName.trim(),
+        clientId: finalClientId,
+        clientName: trimmedClientName,
+        clientPhone: cleanPhone,
+        patientName: trimmedPatientName,
         patientAge: patientAge ? String(patientAge).trim() : null,
         patientGender: patientGender || null,
         relation: relation || "Mother",
@@ -1303,18 +1441,18 @@ const createAdminBooking = async (req, res) => {
         plan: plan || "Single visit",
         city: bookingCity,
         area: area ? area.trim() : null,
-        address: address.trim(),
+        address: trimmedAddress,
         date: String(date).trim(),
         time: String(time).trim(),
         status: initialStatus,
         staffId: assignedStaffId,
         source: source || "Call",
-        notes: notes ? notes.trim() : null,
+        notes: noteContent,
         price: servicePrice,
         tasks: initialTasks,
         visit: {},
         history: initialHistory,
-        confirmedBy: "admin",
+        confirmedBy: adminActor,
         confirmedAt: now,
         assignedBy,
         assignedAt,
@@ -1322,11 +1460,102 @@ const createAdminBooking = async (req, res) => {
       { transaction }
     );
 
+    // If converted from an existing Enquiry / help request, update Enquiry state
+    const targetEnqId = fromEnqId || enquiryId || fromEnq;
+    let convertedEnquiry = null;
+
+    if (targetEnqId) {
+      const enqLookup = buildEnquiryLookup(targetEnqId);
+      const enquiryRecord = await Enquiry.findOne({
+        where: enqLookup,
+        transaction,
+      });
+
+      if (enquiryRecord) {
+        const enqHistory = Array.isArray(enquiryRecord.history)
+          ? [...enquiryRecord.history]
+          : [];
+
+        enqHistory.push({
+          status: "converted",
+          at: now.toISOString(),
+          by: adminActor,
+          note: `Booking ${bookingCode} created by care desk`,
+        });
+
+        await enquiryRecord.update(
+          {
+            status: "converted",
+            recommended: finalServiceId,
+            adminNote: enquiryRecord.adminNote
+              ? `${enquiryRecord.adminNote}\n[Converted to booking ${bookingCode}]`
+              : `Converted to booking ${bookingCode}`,
+            history: enqHistory,
+          },
+          { transaction }
+        );
+
+        convertedEnquiry = {
+          id: enquiryRecord.id,
+          code: enquiryRecord.code,
+          status: "converted",
+        };
+      }
+    }
+
     await transaction.commit();
+
+    // Fetch refreshed booking with assigned staff details
+    const createdBooking = await Booking.findOne({
+      where: { id: newBooking.id },
+      include: [
+        {
+          model: Staff,
+          as: "assignedStaff",
+          attributes: ["id", "staffId", "qualification", "city", "area", "onDuty", "approval"],
+          required: false,
+          include: [
+            {
+              model: User,
+              as: "user",
+              attributes: ["id", "name", "email", "phone"],
+              required: false,
+            },
+          ],
+        },
+      ],
+    });
+
+    const formattedTimeNotice = formatNotificationDate(String(date).trim(), String(time).trim());
 
     return successResponse(
       res,
-      newBooking,
+      {
+        booking: createdBooking || newBooking,
+        convertedEnquiry,
+        notification: {
+          client: {
+            to: `client:${cleanPhone}`,
+            title: "Booking confirmed",
+            body: `Your ${finalServiceName} booking ${bookingCode} is confirmed ${formattedTimeNotice}.`,
+          },
+          admin: {
+            title: `New booking ${bookingCode}`,
+            body: `${trimmedClientName} booked ${finalServiceName} for ${trimmedPatientName} in ${bookingCity} · ${date}, ${time}`,
+          },
+          staff: assignedStaffId
+            ? {
+                to: `staff:${assignedStaffId}`,
+                title: `Assigned to visit ${bookingCode}`,
+                body: `You are assigned to ${finalServiceName} for ${trimmedPatientName} ${formattedTimeNotice}.`,
+              }
+            : {
+                city: bookingCity,
+                title: `Open visit ${bookingCode}`,
+                body: `${finalServiceName} for ${trimmedPatientName} · ${date}, ${time} · needs caregiver`,
+              },
+        },
+      },
       `Booking ${bookingCode} created and confirmed successfully`,
       201
     );

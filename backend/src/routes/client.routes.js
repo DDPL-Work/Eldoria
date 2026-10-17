@@ -17,6 +17,13 @@ const {
   getClientBookingStatus,
   cancelClientBooking,
 } = require("../controllers/booking.controller");
+const {
+  createClientEnquiry,
+  getClientEnquiries,
+  getClientEnquiryById,
+} = require("../controllers/enquiry.controller");
+const { uploadStaffFiles } = require("../middlewares/upload.middleware");
+
 // Step 1: Send OTP to phone
 router.post("/send-otp", clientSendOtp);
 
@@ -70,5 +77,11 @@ router.get("/bookings/:id", optionalToken, getClientBookingById);
 
 router.patch("/booking/:id/cancel", optionalToken, cancelClientBooking);
 router.patch("/bookings/:id/cancel", optionalToken, cancelClientBooking);
+
+// Client Help request (Enquiry) flow routes
+
+router.post("/enquiry/create", optionalToken, uploadStaffFiles, createClientEnquiry);
+router.get("/enquiries", optionalToken, getClientEnquiries);
+router.get("/enquiry/:id", optionalToken, getClientEnquiryById);
 
 module.exports = router;
