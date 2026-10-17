@@ -100,6 +100,8 @@ router.delete("/cities/:id", verifyToken, requireAdmin, deleteCity);
 router.get("/services", verifyToken, requireAdmin, getAdminServices);
 router.get("/services/:id", verifyToken, requireAdmin, getAdminServiceById);
 router.post("/service/create", verifyToken, requireAdmin, createService);
+router.post("/services/create", verifyToken, requireAdmin, createService);
+router.post("/services", verifyToken, requireAdmin, createService);
 router.patch("/services/reorder", verifyToken, requireAdmin, reorderServices);
 router.patch(
   "/services/:id/reorder",

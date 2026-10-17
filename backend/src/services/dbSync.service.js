@@ -32,6 +32,8 @@ const getAivenDb = () => {
   db.Client.belongsTo(db.User, { foreignKey: 'userId', as: 'user', constraints: false });
   db.Booking.belongsTo(db.Staff, { foreignKey: 'staffId', targetKey: 'staffId', as: 'assignedStaff', constraints: false });
   db.Staff.hasMany(db.Booking, { foreignKey: 'staffId', sourceKey: 'staffId', as: 'bookings', constraints: false });
+  db.Service.belongsTo(db.City, { foreignKey: 'cityId', as: 'primaryCity', constraints: false });
+  db.City.hasMany(db.Service, { foreignKey: 'cityId', as: 'services', constraints: false });
 
   aivenDbInstance = db;
   return aivenDbInstance;

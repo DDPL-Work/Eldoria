@@ -7,6 +7,7 @@ const authRoutes = require('./auth.routes');
 const staffRoutes = require('./staff.routes');
 const clientRoutes = require('./client.routes');
 const settingRoutes = require('./setting.routes');
+const cancellationRoutes = require('./cancellation.routes');
 const { getPublicLiveCities } = require('../controllers/city.controller');
 const {
   getPublicServices,
@@ -40,5 +41,8 @@ router.use('/client', clientRoutes);
 
 // Global settings routes (accessible via /settings and /setting)
 router.use('/setting', settingRoutes);
+
+// Booking cancellation flow routes
+router.use('/cancellation', cancellationRoutes);
 
 module.exports = router;
