@@ -664,66 +664,6 @@ const getClientBookingStatus = async (req, res) => {
   }
 };
 
-/**
- * Client Cancels a Booking
- * PATCH /api/v1/client/bookings/:id/cancel
- */
-const cancelClientBooking = async (req, res) => {
-  const transaction = await sequelize.transaction();
-
-  try {
-    const { id } = req.params;
-    const { reason } = req.body;
-
-    const booking = await Booking.findOne({
-      where: buildBookingLookup(id),
-      transaction,
-    });
-
-    if (!booking) {
-      await transaction.rollback();
-      return errorResponse(res, "Booking not found", 404);
-    }
-
-    // Guard: Can only cancel if in requested, confirmed, or assigned state
-    if (!["requested", "confirmed", "assigned"].includes(booking.status)) {
-      await transaction.rollback();
-      return errorResponse(
-        res,
-        `Cannot cancel booking with current status '${booking.status}'. Only pending or scheduled visits can be cancelled.`,
-        400
-      );
-    }
-
-    const now = new Date();
-    const cancelItem = {
-      status: "cancelled",
-      at: now.toISOString(),
-      by: "client",
-      note: reason || "Cancelled by client",
-    };
-
-    const existingHistory = Array.isArray(booking.history) ? booking.history : [];
-    const updatedHistory = [...existingHistory, cancelItem];
-
-    await booking.update(
-      {
-        status: "cancelled",
-        history: updatedHistory,
-      },
-      { transaction }
-    );
-
-    await transaction.commit();
-
-    return successResponse(res, booking, "Booking cancelled successfully");
-  } catch (error) {
-    if (transaction && !transaction.finished) {
-      await transaction.rollback();
-    }
-    return errorResponse(res, error.message || "Failed to cancel booking", 500, error);
-  }
-};
 
 // =========================================================================
 // 2. ADMIN BOOKING FLOW: CONFIRM & ASSIGN STAFF
@@ -2113,7 +2053,6 @@ module.exports = {
   getClientBookings,
   getClientBookingById,
   getClientBookingStatus,
-  cancelClientBooking,
   assignStaffToBooking,
   unassignStaffFromBooking,
   confirmBooking,

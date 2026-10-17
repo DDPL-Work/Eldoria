@@ -15,7 +15,6 @@ const {
   getClientBookings,
   getClientBookingById,
   getClientBookingStatus,
-  cancelClientBooking,
 } = require("../controllers/booking.controller");
 const {
   createClientEnquiry,
@@ -74,9 +73,6 @@ router.get("/bookings/:id/track", optionalToken, getClientBookingStatus);
 
 router.get("/booking/:id", optionalToken, getClientBookingById);
 router.get("/bookings/:id", optionalToken, getClientBookingById);
-
-router.patch("/booking/:id/cancel", optionalToken, cancelClientBooking);
-router.patch("/bookings/:id/cancel", optionalToken, cancelClientBooking);
 
 // Client Help request (Enquiry) flow routes
 
