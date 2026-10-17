@@ -567,7 +567,7 @@ const updateAdminProfile = async (req, res) => {
       );
     }
 
-    const { name, email, phone } = req.body;
+    const { name, email } = req.body;
 
     // Update name
     if (name !== undefined && name !== null) {
@@ -576,12 +576,6 @@ const updateAdminProfile = async (req, res) => {
         return errorResponse(res, "Name cannot be empty", 400);
       }
       adminUser.name = cleanName;
-    }
-
-    // Update phone
-    if (phone !== undefined && phone !== null) {
-      const cleanPhone = String(phone).replace(/\D/g, '').slice(-10);
-      adminUser.phone = cleanPhone || null;
     }
 
     // Update email

@@ -3,6 +3,7 @@ import { Icon } from '../../constants/icons';
 import { DatabaseLoader } from '../common/DatabaseLoader';
 import { useStore } from '../../context/StoreContext';
 import { useFiles } from '../../context/FileContext';
+import { normalizeStaffRequest } from '../../store/hooks';
 import {
   OB_DOCS,
   APPR,
@@ -21,25 +22,43 @@ export function ApplicationDetail({ appId, onBack, onPreviewFile, onShowToast })
     sCity,
     cityName,
     applications,
+    currentStaffRequest,
+    fetchStaffRequests,
+    fetchStaffRequestById,
+    verifyStaffDocument,
     approveStaff,
+    requestStaffChanges,
     rejectStaff,
-    dataLoading,
-    fetchStaffRequests
+    revokeStaffDecision,
+    dataLoading
   } = useStore();
   const { fileGet } = useFiles();
 
   const [note, setNote] = useState('');
   const [confirmReject, setConfirmReject] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [docLoading, setDocLoading] = useState({});
 
+  // Fetch applicant details by id and load latest staff requests from backend
   useEffect(() => {
-    fetchStaffRequests?.();
-  }, [fetchStaffRequests]);
+    if (appId) {
+      fetchStaffRequestById?.(appId);
+    }
+    fetchStaffRequests?.({ approval: 'all', limit: 100 });
+  }, [appId, fetchStaffRequestById, fetchStaffRequests]);
 
   const allApps = applications();
-  const a =
-    allApps.find(
-      (x) => String(x.id) === String(appId) || String(x.staffId) === String(appId)
-    ) || data.staff?.[appId];
+  const matchedFromList = allApps.find(
+    (x) => String(x.id) === String(appId) || String(x.staffId) === String(appId)
+  );
+  const matchedFromCurrent =
+    currentStaffRequest &&
+    (String(currentStaffRequest.id) === String(appId) ||
+      String(currentStaffRequest.staffId) === String(appId))
+      ? normalizeStaffRequest(currentStaffRequest)
+      : null;
+
+  const a = matchedFromCurrent || matchedFromList || data.staff?.[appId];
 
   if (dataLoading && (!a || !a.applied)) {
     return (
@@ -89,89 +108,233 @@ export function ApplicationDetail({ appId, onBack, onPreviewFile, onShowToast })
   const allOk = okReq === req.length;
   const hist = (a.appHistory || []).slice().reverse();
 
-  const handleDocCheck = (docKey, isChecked) => {
+  // 1. PATCH /api/v1/admin/staff-requests/:id/verify-document
+  const handleDocCheck = async (docKey, isChecked) => {
+    const targetId = a.backendId || a.raw?.id || a.id || a.staffId || appId;
+    const updatedChecks = {
+      ...chk,
+      [docKey]: isChecked
+    };
+
+    // Optimistically update local view
     patch('staff', a.id, {
-      docChecks: {
-        ...chk,
-        [docKey]: isChecked
-      }
+      docChecks: updatedChecks
     });
-  };
 
-  const appDecision = async (status, reviewNote) => {
-    const now = Date.now();
-    const extra = status === 'approved' ? { approvedAt: now, docs: 'verified' } : {};
-
-    // Trigger backend API if approved or rejected
-    if (status === 'approved' && approveStaff) {
-      try {
-        await approveStaff(a.id || a.staffId, { notes: reviewNote || '' });
-      } catch (err) {
-        console.warn('Backend approveStaff API error:', err);
+    setDocLoading((prev) => ({ ...prev, [docKey]: true }));
+    try {
+      if (verifyStaffDocument) {
+        await verifyStaffDocument(targetId, {
+          docKey,
+          verified: isChecked,
+          docChecks: updatedChecks,
+          status: isChecked ? 'verified' : 'pending'
+        });
       }
-    } else if (status === 'rejected' && rejectStaff) {
-      try {
-        await rejectStaff(a.id || a.staffId, { reason: reviewNote || '', notes: reviewNote || '' });
-      } catch (err) {
-        console.warn('Backend rejectStaff API error:', err);
-      }
+      onShowToast?.(`${docKey} marked as ${isChecked ? 'verified' : 'pending'}`);
+    } catch (err) {
+      console.warn('verifyStaffDocument API error:', err);
+      onShowToast?.(`Document update failed: ${err?.message || 'Server error'}`);
+      // Revert on failure
+      patch('staff', a.id, {
+        docChecks: chk
+      });
+    } finally {
+      setDocLoading((prev) => ({ ...prev, [docKey]: false }));
     }
-
-    patch('staff', a.id, {
-      approval: status,
-      reviewNote: reviewNote || '',
-      reviewedAt: now,
-      ...extra,
-      appHistory: (a.appHistory || []).concat([
-        { at: now, status, by: 'admin', note: reviewNote || '' }
-      ])
-    });
-
-    const city = cityName(sCity(a));
-    const msg = {
-      approved: [
-        'Welcome to Eldoria!',
-        `Your application is approved. Sign in to the Staff app to start receiving visits in ${city}.`
-      ],
-      changes: ['Please update your application', reviewNote],
-      rejected: ['Application not approved', reviewNote || 'Your application was not approved.'],
-      pending: [
-        'Application back under review',
-        'The care desk is reviewing your application again.'
-      ]
-    }[status] || ['Application update', reviewNote];
-
-    notify('staff:' + a.id, msg[0], msg[1], '', { appId: a.id });
-    setNote('');
-    setConfirmReject(false);
-    onShowToast?.(`Application ${status}`);
   };
 
-  const handleApprove = () => {
+  // 2. PATCH /api/v1/admin/staff-requests/:id/approve
+  const handleApprove = async () => {
     if (!allOk) {
       onShowToast?.('Please verify all required documents first');
       return;
     }
-    appDecision('approved', note.trim());
+    const targetId = a.backendId || a.raw?.id || a.id || a.staffId || appId;
+    const reviewNote = note.trim();
+    setIsSubmitting(true);
+    try {
+      if (approveStaff) {
+        await approveStaff(targetId, {
+          notes: reviewNote || undefined,
+          note: reviewNote || undefined,
+          reviewNote: reviewNote || undefined,
+          docChecks: chk,
+          docsStatus: 'verified'
+        });
+      }
+
+      const now = Date.now();
+      patch('staff', a.id, {
+        approval: 'approved',
+        docs: 'verified',
+        reviewNote: reviewNote || '',
+        reviewedAt: now,
+        approvedAt: now,
+        appHistory: (a.appHistory || []).concat([
+          { at: now, status: 'approved', by: 'admin', note: reviewNote || 'Application approved' }
+        ])
+      });
+
+      const city = cityName(sCity(a));
+      notify(
+        'staff:' + a.id,
+        'Welcome to Eldoria!',
+        `Your application is approved. Sign in to the Staff app to start receiving visits in ${city}.`,
+        '',
+        { appId: a.id }
+      );
+      setNote('');
+      setConfirmReject(false);
+      onShowToast?.('Staff application approved & activated successfully!');
+    } catch (err) {
+      console.error('Approve staff API error:', err);
+      onShowToast?.(`Approval failed: ${err?.message || 'Server error'}`);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
-  const handleRequestChanges = () => {
-    if (!note.trim()) {
+  // 3. PATCH /api/v1/admin/staff-requests/:id/request-changes
+  const handleRequestChanges = async () => {
+    const changeNote = note.trim();
+    if (!changeNote) {
       onShowToast?.('Write a note telling the applicant what to change');
       return;
     }
-    appDecision('changes', note.trim());
+    const targetId = a.backendId || a.raw?.id || a.id || a.staffId || appId;
+    setIsSubmitting(true);
+    try {
+      if (requestStaffChanges) {
+        await requestStaffChanges(targetId, {
+          note: changeNote,
+          notes: changeNote,
+          reviewNote: changeNote,
+          reason: changeNote,
+          docChecks: chk
+        });
+      }
+
+      const now = Date.now();
+      patch('staff', a.id, {
+        approval: 'changes',
+        docs: 'pending',
+        reviewNote: changeNote,
+        reviewedAt: now,
+        appHistory: (a.appHistory || []).concat([
+          { at: now, status: 'changes', by: 'admin', note: changeNote }
+        ])
+      });
+
+      notify(
+        'staff:' + a.id,
+        'Please update your application',
+        changeNote,
+        '',
+        { appId: a.id }
+      );
+      setNote('');
+      setConfirmReject(false);
+      onShowToast?.('Changes requested from applicant');
+    } catch (err) {
+      console.error('Request changes API error:', err);
+      onShowToast?.(`Request changes failed: ${err?.message || 'Server error'}`);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
-  const handleReject = () => {
-    appDecision('rejected', note.trim());
+  // 4. PATCH /api/v1/admin/staff-requests/:id/reject
+  const handleReject = async () => {
+    const rejectReason = note.trim() || 'Application not approved by care desk';
+    const targetId = a.backendId || a.raw?.id || a.id || a.staffId || appId;
+    setIsSubmitting(true);
+    try {
+      if (rejectStaff) {
+        await rejectStaff(targetId, {
+          reason: rejectReason,
+          notes: rejectReason,
+          reviewNote: rejectReason
+        });
+      }
+
+      const now = Date.now();
+      patch('staff', a.id, {
+        approval: 'rejected',
+        docs: 'rejected',
+        reviewNote: rejectReason,
+        reviewedAt: now,
+        rejectedAt: now,
+        appHistory: (a.appHistory || []).concat([
+          { at: now, status: 'rejected', by: 'admin', note: rejectReason }
+        ])
+      });
+
+      notify(
+        'staff:' + a.id,
+        'Application not approved',
+        rejectReason,
+        '',
+        { appId: a.id }
+      );
+      setNote('');
+      setConfirmReject(false);
+      onShowToast?.('Application rejected');
+    } catch (err) {
+      console.error('Reject staff API error:', err);
+      onShowToast?.(`Reject failed: ${err?.message || 'Server error'}`);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
-  const handleRevoke = () => {
-    appDecision('pending', 'Moved back to review by the care desk');
+  // 5. PATCH /api/v1/admin/staff-requests/:id/revoke (move back to review)
+  const handleRevoke = async () => {
+    const targetId = a.backendId || a.raw?.id || a.id || a.staffId || appId;
+    const revokeNote = 'Moved back to review by the care desk';
+    setIsSubmitting(true);
+    try {
+      if (revokeStaffDecision) {
+        await revokeStaffDecision(targetId, {
+          note: revokeNote,
+          notes: revokeNote
+        });
+      }
+
+      const now = Date.now();
+      patch('staff', a.id, {
+        approval: 'pending',
+        docs: 'pending',
+        reviewNote: revokeNote,
+        reviewedAt: now,
+        appHistory: (a.appHistory || []).concat([
+          { at: now, status: 'pending', by: 'admin', note: revokeNote }
+        ])
+      });
+
+      notify(
+        'staff:' + a.id,
+        'Application back under review',
+        revokeNote,
+        '',
+        { appId: a.id }
+      );
+      onShowToast?.('Application moved back under review');
+    } catch (err) {
+      console.error('Revoke decision API error:', err);
+      onShowToast?.(`Revoke failed: ${err?.message || 'Server error'}`);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
-  const photoFile = files.photo ? fileGet(files.photo.id) : null;
+  const photoData = files.photo;
+  const photoUrl =
+    photoData?.data ||
+    photoData?.url ||
+    (typeof photoData === 'string' ? photoData : null) ||
+    (photoData?.id ? fileGet(photoData.id)?.data : null) ||
+    null;
 
   return (
     <div className="p-4 sm:p-5 lg:p-4 w-full max-w-[1400px] mx-auto space-y-5">
@@ -222,14 +385,27 @@ export function ApplicationDetail({ appId, onBack, onPreviewFile, onShowToast })
             <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4.5 pb-5 border-b border-slate-100">
               <button
                 type="button"
-                onClick={() => files.photo && onPreviewFile(files.photo.id)}
-                disabled={!files.photo}
+                onClick={() => {
+                  if (photoUrl) {
+                    window.open(photoUrl, '_blank');
+                  } else if (photoData?.id) {
+                    onPreviewFile(photoData.id);
+                  }
+                }}
+                disabled={!photoUrl && !photoData}
                 className={`w-20 h-20 sm:w-24 sm:h-24 rounded-2xl bg-[#EBF2FA] border border-slate-100 flex items-center justify-center font-bold text-2xl text-[#0A2342] overflow-hidden shrink-0 ${
-                  files.photo ? 'cursor-pointer hover:ring-2 hover:ring-[#0A2342]/20' : ''
+                  photoUrl || photoData ? 'cursor-pointer hover:ring-2 hover:ring-[#0A2342]/20' : ''
                 }`}
               >
-                {photoFile?.data ? (
-                  <img src={photoFile.data} alt={a.name} className="w-full h-full object-cover" />
+                {photoUrl ? (
+                  <img
+                    src={photoUrl}
+                    alt={a.name}
+                    className="w-full h-full object-cover"
+                    onError={(e) => {
+                      e.currentTarget.style.display = 'none';
+                    }}
+                  />
                 ) : (
                   <span>{a.name?.[0] || 'A'}</span>
                 )}
@@ -356,8 +532,17 @@ export function ApplicationDetail({ appId, onBack, onPreviewFile, onShowToast })
               <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-5 gap-3">
                 {OB_DOCS.map((docDef) => {
                   const meta = files[docDef.k];
-                  const cached = meta && fileGet(meta.id);
+                  const cached = meta && meta.id ? fileGet(meta.id) : null;
                   const isVerified = !!chk[docDef.k];
+                  const fileSrc = meta?.data || meta?.url || cached?.data || (typeof meta === 'string' ? meta : null);
+                  const isImage = Boolean(
+                    meta?.isImage ||
+                    (meta?.type || cached?.type)?.startsWith('image/') ||
+                    /cloudinary\.com/i.test(fileSrc || '') ||
+                    /\.(jpeg|jpg|gif|png|webp|avif|svg)($|\?|#)/i.test(fileSrc || '') ||
+                    /\.(jpeg|jpg|gif|png|webp|avif|svg)($|\?|#)/i.test(meta?.name || '') ||
+                    fileSrc?.startsWith('data:image/')
+                  );
 
                   return (
                     <div
@@ -374,18 +559,27 @@ export function ApplicationDetail({ appId, onBack, onPreviewFile, onShowToast })
                         {/* Preview Box */}
                         <button
                           type="button"
-                          disabled={!meta}
-                          onClick={() => meta && onPreviewFile(meta.id)}
+                          disabled={!meta && !fileSrc}
+                          onClick={() => {
+                            if (fileSrc && (fileSrc.startsWith('http') || fileSrc.startsWith('data:'))) {
+                              window.open(fileSrc, '_blank');
+                            } else if (meta?.id) {
+                              onPreviewFile?.(meta.id);
+                            }
+                          }}
                           className={`w-full aspect-[4/3] rounded-xl overflow-hidden bg-slate-100 border border-slate-200 flex items-center justify-center ${
-                            meta ? 'cursor-pointer hover:opacity-90' : 'cursor-default'
+                            meta || fileSrc ? 'cursor-pointer hover:opacity-90' : 'cursor-default'
                           }`}
                         >
-                          {cached?.data || meta?.data ? (
-                            (cached?.type || meta?.type)?.startsWith('image/') ? (
+                          {fileSrc ? (
+                            isImage ? (
                               <img
-                                src={cached?.data || meta?.data}
+                                src={fileSrc}
                                 alt={docDef.label}
                                 className="w-full h-full object-cover"
+                                onError={(e) => {
+                                  e.currentTarget.style.display = 'none';
+                                }}
                               />
                             ) : (
                               <span className="text-xs font-bold text-slate-600">PDF</span>
@@ -418,7 +612,11 @@ export function ApplicationDetail({ appId, onBack, onPreviewFile, onShowToast })
 
                         {/* Filename & size */}
                         <div className="text-[11px] text-slate-400 truncate">
-                          {meta ? `${meta.name} · ${Math.round(meta.size / 1024)} KB` : 'Not uploaded'}
+                          {meta
+                            ? `${meta.name || meta.filename || 'Document'} · ${
+                                meta.size ? Math.round(meta.size / 1024) + ' KB' : 'Uploaded'
+                              }`
+                            : 'Not uploaded'}
                         </div>
                       </div>
 
@@ -429,10 +627,16 @@ export function ApplicationDetail({ appId, onBack, onPreviewFile, onShowToast })
                             <input
                               type="checkbox"
                               checked={isVerified}
+                              disabled={docLoading[docDef.k] || isSubmitting}
                               onChange={(e) => handleDocCheck(docDef.k, e.target.checked)}
-                              className="rounded border-slate-300 text-[#0A2342] focus:ring-[#0A2342] w-4 h-4 cursor-pointer shrink-0"
+                              className="rounded border-slate-300 text-[#0A2342] focus:ring-[#0A2342] w-4 h-4 cursor-pointer shrink-0 disabled:opacity-50"
                             />
-                            <span className="leading-none">Verified</span>
+                            <span className="leading-none flex items-center gap-1.5">
+                              <span>Verified</span>
+                              {docLoading[docDef.k] && (
+                                <span className="w-2.5 h-2.5 border-2 border-[#0A2342] border-t-transparent rounded-full animate-spin inline-block" />
+                              )}
+                            </span>
                           </label>
                         ) : (
                           <div className="h-4 text-[11px] text-slate-400 italic select-none">
@@ -498,15 +702,19 @@ export function ApplicationDetail({ appId, onBack, onPreviewFile, onShowToast })
                 <button
                   type="button"
                   onClick={handleApprove}
-                  disabled={!allOk}
+                  disabled={!allOk || isSubmitting}
                   className={`w-full h-11 px-4 rounded-xl font-extrabold text-xs sm:text-sm shadow-xs transition flex items-center justify-center gap-2 select-none whitespace-nowrap leading-none ${
-                    allOk
+                    allOk && !isSubmitting
                       ? 'bg-[#F2A01F] hover:bg-[#e09115] text-[#0A2342] cursor-pointer'
                       : 'bg-[#F6C580] text-[#A67B40] cursor-not-allowed opacity-90'
                   }`}
                 >
-                  <Icon name="check" size={17} strokeWidth={2.8} />
-                  <span>Approve &amp; activate</span>
+                  {isSubmitting ? (
+                    <div className="w-4 h-4 border-2 border-[#0A2342] border-t-transparent rounded-full animate-spin" />
+                  ) : (
+                    <Icon name="check" size={17} strokeWidth={2.8} />
+                  )}
+                  <span>{isSubmitting ? 'Processing...' : 'Approve & activate'}</span>
                 </button>
 
                 {/* Bottom Action Buttons: Request changes & Reject */}
@@ -514,24 +722,27 @@ export function ApplicationDetail({ appId, onBack, onPreviewFile, onShowToast })
                   <button
                     type="button"
                     onClick={handleRequestChanges}
-                    className="h-10 px-2 sm:px-3 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-[#0A2342] font-extrabold text-xs transition cursor-pointer shadow-2xs flex items-center justify-center text-center whitespace-nowrap leading-none select-none"
+                    disabled={isSubmitting}
+                    className="h-10 px-2 sm:px-3 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-[#0A2342] font-extrabold text-xs transition cursor-pointer shadow-2xs flex items-center justify-center text-center whitespace-nowrap leading-none select-none disabled:opacity-50"
                   >
-                    Request changes
+                    {isSubmitting ? 'Processing...' : 'Request changes'}
                   </button>
 
                   {confirmReject ? (
                     <button
                       type="button"
                       onClick={handleReject}
-                      className="h-10 px-2 sm:px-3 rounded-xl bg-red-600 hover:bg-red-700 text-white font-extrabold text-xs transition cursor-pointer shadow-2xs flex items-center justify-center text-center whitespace-nowrap leading-none select-none"
+                      disabled={isSubmitting}
+                      className="h-10 px-2 sm:px-3 rounded-xl bg-red-600 hover:bg-red-700 text-white font-extrabold text-xs transition cursor-pointer shadow-2xs flex items-center justify-center text-center whitespace-nowrap leading-none select-none disabled:opacity-50"
                     >
-                      Confirm reject
+                      {isSubmitting ? 'Rejecting...' : 'Confirm reject'}
                     </button>
                   ) : (
                     <button
                       type="button"
                       onClick={() => setConfirmReject(true)}
-                      className="h-10 px-2 sm:px-3 rounded-xl border border-red-200 bg-white hover:bg-red-50 text-[#991B1B] font-extrabold text-xs transition cursor-pointer shadow-2xs flex items-center justify-center text-center whitespace-nowrap leading-none select-none"
+                      disabled={isSubmitting}
+                      className="h-10 px-2 sm:px-3 rounded-xl border border-red-200 bg-white hover:bg-red-50 text-[#991B1B] font-extrabold text-xs transition cursor-pointer shadow-2xs flex items-center justify-center text-center whitespace-nowrap leading-none select-none disabled:opacity-50"
                     >
                       Reject
                     </button>
@@ -550,9 +761,10 @@ export function ApplicationDetail({ appId, onBack, onPreviewFile, onShowToast })
                 <button
                   type="button"
                   onClick={handleRevoke}
-                  className="h-10 px-3 rounded-xl border border-red-200 bg-white hover:bg-red-50 text-red-700 font-bold text-xs transition cursor-pointer flex items-center justify-center text-center whitespace-nowrap leading-none select-none"
+                  disabled={isSubmitting}
+                  className="h-10 px-3 rounded-xl border border-red-200 bg-white hover:bg-red-50 text-red-700 font-bold text-xs transition cursor-pointer flex items-center justify-center text-center whitespace-nowrap leading-none select-none disabled:opacity-50"
                 >
-                  Move back to review
+                  {isSubmitting ? 'Moving...' : 'Move back to review'}
                 </button>
               </div>
             )}

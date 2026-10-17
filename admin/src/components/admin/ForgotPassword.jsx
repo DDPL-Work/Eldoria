@@ -133,6 +133,7 @@ export function ForgotPassword({ onBackToLogin }) {
   // Form Fields
   const [email, setEmail] = useState('');
   const [otp, setOtp] = useState(['', '', '', '', '', '']); // 6-digit OTP code
+  const [verificationToken, setVerificationToken] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -175,7 +176,7 @@ export function ForgotPassword({ onBackToLogin }) {
   const passwordStrength = getPasswordStrength(newPassword);
 
   // ==============================================================
-  // STEP 1: REQUEST PASSWORD RESET
+  // STEP 1: REQUEST PASSWORD RESET (POST /api/v1/admin/forgot-password)
   // ==============================================================
   const handleRequestOtp = async (e) => {
     e.preventDefault();
@@ -198,8 +199,11 @@ export function ForgotPassword({ onBackToLogin }) {
     try {
       const res = await authAPI.forgotPassword(cleanEmail);
 
-      if (res?.data?.otp) {
-        setInfoMsg(`Verification code: ${res.data.otp}`);
+      const otpValue = res?.data?.otp || res?.otp;
+      if (otpValue) {
+        setInfoMsg(`Verification code: ${otpValue}`);
+      } else {
+        setInfoMsg(`Verification code sent to ${cleanEmail}`);
       }
 
       setStep('otp');
@@ -217,7 +221,7 @@ export function ForgotPassword({ onBackToLogin }) {
   };
 
   // ==============================================================
-  // STEP 2: HANDLE OTP INPUTS & VERIFICATION
+  // STEP 2: HANDLE OTP INPUTS & VERIFICATION (POST /api/v1/admin/verify-otp)
   // ==============================================================
   const handleOtpChange = (index, value) => {
     if (value.length > 1) {
@@ -248,17 +252,44 @@ export function ForgotPassword({ onBackToLogin }) {
     }
   };
 
-  const handleVerifyOtp = (e) => {
+  const handleVerifyOtp = async (e) => {
     e.preventDefault();
     setErrorMsg('');
+    setInfoMsg('');
 
     const fullCode = otp.join('').trim();
-    if (fullCode.length < 4) {
-      setErrorMsg('Please enter the verification code sent to your email.');
+    if (fullCode.length < 6) {
+      setErrorMsg('Please enter the complete 6-digit verification code.');
       return;
     }
 
-    setStep('new-password');
+    setIsLoading(true);
+    try {
+      const cleanEmail = email.trim().toLowerCase();
+      const res = await authAPI.verifyForgotOtp({
+        email: cleanEmail,
+        otp: fullCode,
+      });
+
+      const token =
+        res?.data?.verificationToken ||
+        res?.verificationToken ||
+        '';
+      if (token) {
+        setVerificationToken(token);
+      }
+
+      setErrorMsg('');
+      setStep('new-password');
+    } catch (err) {
+      const message =
+        err?.data?.message ||
+        err?.message ||
+        'Invalid or expired verification code. Please check and try again.';
+      setErrorMsg(message);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handleResendOtp = async () => {
@@ -268,20 +299,21 @@ export function ForgotPassword({ onBackToLogin }) {
     try {
       const res = await authAPI.forgotPassword(email.trim().toLowerCase());
       setResendCooldown(60);
-      if (res?.data?.otp) {
-        setInfoMsg(`New Verification code: ${res.data.otp}`);
+      const otpValue = res?.data?.otp || res?.otp;
+      if (otpValue) {
+        setInfoMsg(`New Verification code: ${otpValue}`);
       } else {
         setInfoMsg('A new verification code has been sent to your email.');
       }
     } catch (err) {
-      setErrorMsg(err.message || 'Failed to resend code. Please try again.');
+      setErrorMsg(err?.data?.message || err.message || 'Failed to resend code. Please try again.');
     } finally {
       setIsLoading(false);
     }
   };
 
   // ==============================================================
-  // STEP 3: SET NEW PASSWORD
+  // STEP 3: SET NEW PASSWORD (POST /api/v1/admin/reset-password)
   // ==============================================================
   const handleResetPassword = async (e) => {
     e.preventDefault();
@@ -300,9 +332,11 @@ export function ForgotPassword({ onBackToLogin }) {
     setIsLoading(true);
     try {
       const fullCode = otp.join('').trim();
+      const cleanEmail = email.trim().toLowerCase();
       await authAPI.resetPassword({
-        email: email.trim().toLowerCase(),
+        email: cleanEmail,
         otp: fullCode,
+        verificationToken: verificationToken || undefined,
         newPassword,
         confirmPassword,
       });
@@ -467,7 +501,14 @@ export function ForgotPassword({ onBackToLogin }) {
               disabled={isLoading}
               className="w-full h-12 lg:h-[52px] rounded-2xl bg-[#0B1E36] hover:bg-[#182D49] text-white font-bold text-sm lg:text-base shadow-md hover:shadow-lg transition-all active:scale-[0.99] disabled:opacity-70 disabled:cursor-not-allowed cursor-pointer flex items-center justify-center gap-2"
             >
-              <span>Continue</span>
+              {isLoading ? (
+                <>
+                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  <span>Verifying code...</span>
+                </>
+              ) : (
+                <span>Continue</span>
+              )}
             </button>
           </form>
 

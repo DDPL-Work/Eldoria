@@ -24,7 +24,10 @@ export function Onboarding({ onOpenApplication }) {
 
   // Call getStaffRequests API on mount and when selectedCity changes
   useEffect(() => {
-    const params = {};
+    const params = {
+      approval: 'all',
+      limit: 100,
+    };
     if (selectedCity && selectedCity !== 'all') {
       params.city = selectedCity;
     }
@@ -47,7 +50,10 @@ export function Onboarding({ onOpenApplication }) {
         <button
           type="button"
           onClick={() => {
-            const params = {};
+            const params = {
+              approval: 'all',
+              limit: 100,
+            };
             if (selectedCity && selectedCity !== 'all') {
               params.city = selectedCity;
             }
@@ -153,8 +159,17 @@ export function Onboarding({ onOpenApplication }) {
           {list.map((a) => {
             const req = OB_DOCS.filter((x) => x.req);
             const verifiedReq = req.filter((x) => (a.docChecks || {})[x.k]).length;
-            const uploadedCount = OB_DOCS.filter((x) => (a.files || {})[x.k]).length;
-            const photoFile = a.files?.photo ? fileGet(a.files.photo.id) : null;
+            const filesObj = a.files || {};
+            const uploadedCount = OB_DOCS.filter((x) => {
+              const f = filesObj[x.k];
+              return Boolean(f && (f.data || f.url || f.id || typeof f === 'string'));
+            }).length;
+            const photoData = filesObj.photo;
+            const photoUrl =
+              photoData?.data ||
+              photoData?.url ||
+              (typeof photoData === 'string' ? photoData : null) ||
+              (photoData?.id ? fileGet(photoData.id)?.data : null);
 
             const initials = a.name
               ? a.name
@@ -176,11 +191,14 @@ export function Onboarding({ onOpenApplication }) {
                 <div className="flex items-start justify-between gap-2.5 w-full">
                   <div className="flex items-center gap-3 min-w-0">
                     <div className="w-[52px] h-[52px] rounded-full overflow-hidden bg-[#EBF2FA] shrink-0 border border-slate-100 flex items-center justify-center">
-                      {photoFile?.data ? (
+                      {photoUrl ? (
                         <img
-                          src={photoFile.data}
+                          src={photoUrl}
                           alt={a.name}
                           className="w-full h-full object-cover"
+                          onError={(e) => {
+                            e.currentTarget.style.display = 'none';
+                          }}
                         />
                       ) : (
                         <span className="font-extrabold text-[#0A2342] text-sm">{initials}</span>

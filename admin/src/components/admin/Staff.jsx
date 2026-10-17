@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { RiRefreshLine } from 'react-icons/ri';
 import { Icon } from '../../constants/icons';
 import { DatabaseLoader } from '../common/DatabaseLoader';
@@ -27,28 +27,88 @@ export function Staff({ onShowToast }) {
     remove,
     selectedCity,
     setSelectedCity,
+    backendStaffRequests,
+    staffRequestsLoading,
+    staffRequestsError,
     dataLoading,
     dataError,
     fetchStaffRequests
   } = useStore();
 
-  const handleRefresh = () => {
-    const params = {};
-    if (selectedCity && selectedCity !== 'all') {
-      params.city = selectedCity;
-    }
-    fetchStaffRequests?.(params);
-  };
+  const isLoading = Boolean(staffRequestsLoading || dataLoading);
+  const errorMsg = staffRequestsError || dataError;
 
-  useEffect(() => {
-    const params = {};
+  // Fetch real staff list from backend GET /api/v1/admin/staff-requests
+  const loadStaffData = useCallback(() => {
+    const params = {
+      approval: 'all',
+      limit: 50,
+    };
     if (selectedCity && selectedCity !== 'all') {
       params.city = selectedCity;
     }
     fetchStaffRequests?.(params);
   }, [fetchStaffRequests, selectedCity]);
 
-  const list = inCity(staffList(), (s) => s.city || DEFAULT_CITIES[0].id);
+  const handleRefresh = () => {
+    loadStaffData();
+    onShowToast?.('Refreshed staff list');
+  };
+
+  useEffect(() => {
+    loadStaffData();
+  }, [loadStaffData]);
+
+  // Map backend staff requests into display staff items with fallback to store
+  const list = useMemo(() => {
+    if (backendStaffRequests && backendStaffRequests.length > 0) {
+      const items = backendStaffRequests.map((s) => {
+        const u = s.user || {};
+        let skillsStr = '';
+        if (Array.isArray(s.skills)) {
+          skillsStr = s.skills.join(', ');
+        } else if (typeof s.skills === 'string') {
+          try {
+            const parsed = JSON.parse(s.skills);
+            skillsStr = Array.isArray(parsed) ? parsed.join(', ') : s.skills;
+          } catch {
+            skillsStr = s.skills;
+          }
+        }
+
+        const id = String(s.staffId || s.id);
+        return {
+          id,
+          backendId: s.id,
+          staffId: s.staffId || id,
+          name: u.name || s.name || 'Staff Member',
+          role: s.qualification || s.role || 'Caregiver',
+          phone: u.phone || s.phone || '',
+          email: u.email || s.email || '',
+          city: (s.city || 'mumbai').toLowerCase().trim(),
+          area: s.area || '',
+          skills: skillsStr,
+          docs: s.docs || 'pending',
+          approval: s.approval || 'pending',
+          onDuty: Boolean(s.onDuty),
+          experience: s.experience || 0,
+          regNo: s.regNo || '',
+          files: s.files || {},
+          raw: s,
+        };
+      });
+
+      // Filter by selected city if not 'all'
+      if (selectedCity && selectedCity !== 'all') {
+        const cleanCity = String(selectedCity).toLowerCase().trim();
+        return items.filter((s) => String(s.city || '').toLowerCase().trim() === cleanCity);
+      }
+      return items;
+    }
+
+    // Fallback to local memory staff
+    return inCity(staffList(), (s) => s.city || DEFAULT_CITIES[0].id);
+  }, [backendStaffRequests, selectedCity, inCity, staffList]);
   const allBookings = bookingsAll();
 
   const busyIds = new Set(
@@ -164,11 +224,11 @@ export function Staff({ onShowToast }) {
           <button
             type="button"
             onClick={handleRefresh}
-            disabled={dataLoading}
+            disabled={isLoading}
             className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-white border border-slate-200/90 text-xs font-semibold text-slate-700 hover:bg-slate-50 shadow-2xs transition cursor-pointer"
           >
-            <RiRefreshLine className={`text-sm ${dataLoading ? 'animate-spin text-[#0E2F5A]' : 'text-slate-500'}`} />
-            <span>{dataLoading ? 'Refreshing...' : 'Refresh'}</span>
+            <RiRefreshLine className={`text-sm ${isLoading ? 'animate-spin text-[#0E2F5A]' : 'text-slate-500'}`} />
+            <span>{isLoading ? 'Refreshing...' : 'Refresh'}</span>
           </button>
           <button
             type="button"
@@ -379,12 +439,12 @@ export function Staff({ onShowToast }) {
 
       {/* Staff Table / Empty State Section Card */}
       <section className="bg-white rounded-[12px] border border-slate-200/90 shadow-xs overflow-hidden">
-        {dataLoading ? (
+        {isLoading ? (
           <DatabaseLoader
             title="Fetching Staff from Database..."
             subtitle="Connecting to Eldoria backend server"
           />
-        ) : dataError ? (
+        ) : errorMsg ? (
           <div className="min-h-[480px] lg:min-h-[575px] flex flex-col items-center justify-center p-8 text-center bg-white space-y-4">
             <div className="w-12 h-12 rounded-full bg-red-50 text-red-600 flex items-center justify-center text-xl font-bold">
               ✕
@@ -392,7 +452,7 @@ export function Staff({ onShowToast }) {
             <div className="space-y-1">
               <h3 className="text-lg font-bold text-slate-800">Failed to load staff data</h3>
               <p className="text-sm text-slate-500 max-w-md mx-auto">
-                {typeof dataError === 'string' ? dataError : 'An error occurred while connecting to the server.'}
+                {typeof errorMsg === 'string' ? errorMsg : 'An error occurred while connecting to the server.'}
               </p>
             </div>
             <button
@@ -453,6 +513,14 @@ export function Staff({ onShowToast }) {
                         .toUpperCase()
                     : 'S';
 
+                  const photoUrl =
+                    s.photo ||
+                    s.files?.photo?.data ||
+                    s.files?.photo?.url ||
+                    s.raw?.files?.photo?.data ||
+                    s.raw?.files?.photo?.url ||
+                    null;
+
                   return (
                     <tr key={s.id} className="hover:bg-slate-50/70 transition">
                       {/* Staff: Avatar + Name + Role */}
@@ -462,8 +530,19 @@ export function Staff({ onShowToast }) {
                           onClick={() => handleOpenEdit(s)}
                           className="flex items-center gap-3 text-left group cursor-pointer w-full min-w-0"
                         >
-                          <div className="w-9 h-9 rounded-full bg-[#FDE8CD] text-[#7A4100] font-bold text-xs flex items-center justify-center shrink-0">
-                            {initials}
+                          <div className="w-9 h-9 rounded-full bg-[#FDE8CD] text-[#7A4100] font-bold text-xs flex items-center justify-center shrink-0 overflow-hidden">
+                            {photoUrl ? (
+                              <img
+                                src={photoUrl}
+                                alt={s.name}
+                                className="w-full h-full object-cover"
+                                onError={(e) => {
+                                  e.currentTarget.style.display = 'none';
+                                }}
+                              />
+                            ) : (
+                              initials
+                            )}
                           </div>
                           <div className="min-w-0">
                             <div className="font-bold text-slate-900 group-hover:text-[#0E2F5A] text-xs sm:text-[13px] truncate">

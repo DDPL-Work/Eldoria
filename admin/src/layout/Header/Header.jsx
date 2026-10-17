@@ -8,7 +8,7 @@ export function Header({ onNewBooking, onOpenAlerts, onOpenMobileMenu, onToggleC
   const { unread, enqAll, inCity, cityName, selectedCity } = useStore();
   const { logout, user } = useAuth();
   const navigate = useNavigate();
-  const unreadAlerts = unread("admin") || 4;
+  const unreadAlerts = unread("admin");
 
   const [notifOpen, setNotifOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);

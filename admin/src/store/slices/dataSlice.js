@@ -1,5 +1,12 @@
 import { createSlice, createAsyncThunk } from '@reduxjs/toolkit';
-import { adminAPI, bookingAPI, cityAPI } from '../../services/api';
+import {
+  adminAPI,
+  bookingAPI,
+  cityAPI,
+  staffAPI,
+  clientAPI,
+  serviceAPI,
+} from '../../services/api';
 import { demoData } from '../../constants/data';
 
 // Purge any previously stored data from localStorage so nothing persists locally
@@ -54,10 +61,40 @@ export const fetchStaffRequestsThunk = createAsyncThunk(
   'data/fetchStaffRequests',
   async (params = '', { rejectWithValue }) => {
     try {
-      const res = await adminAPI.getStaffRequests(params);
+      const res = await staffAPI.getStaffRequests(params);
       return res.data || res;
     } catch (err) {
       return rejectWithValue(err.message || 'Failed to fetch staff requests');
+    }
+  }
+);
+
+/**
+ * Async Thunk: Fetch Single Staff Registration Request by ID or staffId
+ */
+export const fetchStaffRequestByIdThunk = createAsyncThunk(
+  'data/fetchStaffRequestById',
+  async (id, { rejectWithValue }) => {
+    try {
+      const res = await staffAPI.getStaffRequestById(id);
+      return res.data || res;
+    } catch (err) {
+      return rejectWithValue(err.message || 'Failed to fetch staff request details');
+    }
+  }
+);
+
+/**
+ * Async Thunk: Verify Staff Document
+ */
+export const verifyStaffDocumentThunk = createAsyncThunk(
+  'data/verifyStaffDocument',
+  async ({ id, payload }, { rejectWithValue }) => {
+    try {
+      const res = await staffAPI.verifyStaffDocument(id, payload);
+      return { id, data: res.data || res };
+    } catch (err) {
+      return rejectWithValue(err.message || 'Failed to update document status');
     }
   }
 );
@@ -69,7 +106,7 @@ export const approveStaffThunk = createAsyncThunk(
   'data/approveStaff',
   async ({ id, payload = {} }, { rejectWithValue }) => {
     try {
-      const res = await adminAPI.approveStaffRequest(id, payload);
+      const res = await staffAPI.approveStaffRequest(id, payload);
       return { id, data: res.data || res };
     } catch (err) {
       return rejectWithValue(err.message || 'Failed to approve staff');
@@ -78,12 +115,28 @@ export const approveStaffThunk = createAsyncThunk(
 );
 
 /**
+ * Async Thunk: Request Changes on Staff Registration Request
+ */
+export const requestStaffChangesThunk = createAsyncThunk(
+  'data/requestStaffChanges',
+  async ({ id, payload }, { rejectWithValue }) => {
+    try {
+      const res = await staffAPI.requestStaffChanges(id, payload);
+      return { id, data: res.data || res };
+    } catch (err) {
+      return rejectWithValue(err.message || 'Failed to request changes on staff application');
+    }
+  }
+);
+
+/**
  * Async Thunk: Reject Staff Request on Backend API
  */
-export const rejectStaffThunk = createAsyncThunk('data/rejectStaff',
+export const rejectStaffThunk = createAsyncThunk(
+  'data/rejectStaff',
   async ({ id, payload = {} }, { rejectWithValue }) => {
     try {
-      const res = await adminAPI.rejectStaffRequest(id, payload);
+      const res = await staffAPI.rejectStaffRequest(id, payload);
       return { id, data: res.data || res };
     } catch (err) {
       return rejectWithValue(err.message || 'Failed to reject staff');
@@ -92,12 +145,28 @@ export const rejectStaffThunk = createAsyncThunk('data/rejectStaff',
 );
 
 /**
+ * Async Thunk: Revoke Decision on Staff Request / Move back to pending
+ */
+export const revokeStaffDecisionThunk = createAsyncThunk(
+  'data/revokeStaffDecision',
+  async ({ id, payload = {} }, { rejectWithValue }) => {
+    try {
+      const res = await staffAPI.revokeStaffRequest(id, payload);
+      return { id, data: res.data || res };
+    } catch (err) {
+      return rejectWithValue(err.message || 'Failed to revoke staff request decision');
+    }
+  }
+);
+
+/**
  * Async Thunk: Fetch Clients from Backend API
  */
-export const fetchClientsThunk = createAsyncThunk('data/fetchClients',
+export const fetchClientsThunk = createAsyncThunk(
+  'data/fetchClients',
   async (params = '', { rejectWithValue }) => {
     try {
-      const res = await adminAPI.getClients(params);
+      const res = await clientAPI.getClients(params);
       return res.data || res;
     } catch (err) {
       return rejectWithValue(err.message || 'Failed to fetch clients');
@@ -106,9 +175,25 @@ export const fetchClientsThunk = createAsyncThunk('data/fetchClients',
 );
 
 /**
+ * Async Thunk: Fetch Single Client by ID or clientId
+ */
+export const fetchClientByIdThunk = createAsyncThunk(
+  'data/fetchClientById',
+  async (clientId, { rejectWithValue }) => {
+    try {
+      const res = await clientAPI.getClientById(clientId);
+      return res.data || res;
+    } catch (err) {
+      return rejectWithValue(err.message || 'Failed to fetch client details');
+    }
+  }
+);
+
+/**
  * Async Thunk: Fetch Dashboard Metrics & Data from Backend API
  */
-export const fetchDashboardThunk = createAsyncThunk('data/fetchDashboard',
+export const fetchDashboardThunk = createAsyncThunk(
+  'data/fetchDashboard',
   async (city = 'all', { rejectWithValue }) => {
     try {
       const res = await adminAPI.getDashboardData({ city: city || 'all' });
@@ -122,7 +207,8 @@ export const fetchDashboardThunk = createAsyncThunk('data/fetchDashboard',
 /**
  * Async Thunk: Fetch Bookings List from Backend API
  */
-export const fetchBookingsThunk = createAsyncThunk('data/fetchBookings',
+export const fetchBookingsThunk = createAsyncThunk(
+  'data/fetchBookings',
   async (params = '', { rejectWithValue }) => {
     try {
       const res = await bookingAPI.getBookings(params);
@@ -136,7 +222,8 @@ export const fetchBookingsThunk = createAsyncThunk('data/fetchBookings',
 /**
  * Async Thunk: Fetch Single Booking Details by ID or Code from Backend API
  */
-export const fetchBookingByIdThunk = createAsyncThunk('data/fetchBookingById',
+export const fetchBookingByIdThunk = createAsyncThunk(
+  'data/fetchBookingById',
   async (id, { rejectWithValue }) => {
     try {
       const res = await bookingAPI.getBookingById(id);
@@ -222,6 +309,129 @@ export const deleteCityThunk = createAsyncThunk(
   }
 );
 
+/**
+ * Async Thunks: Services & Categories Management CRUD
+ */
+export const fetchServicesThunk = createAsyncThunk(
+  'data/fetchServices',
+  async (params = '', { rejectWithValue }) => {
+    try {
+      const res = await serviceAPI.getServices(params);
+      return res.data || res;
+    } catch (err) {
+      return rejectWithValue(err.message || 'Failed to fetch services');
+    }
+  }
+);
+
+export const fetchServiceByIdThunk = createAsyncThunk(
+  'data/fetchServiceById',
+  async (id, { rejectWithValue }) => {
+    try {
+      const res = await serviceAPI.getServiceById(id);
+      return res.data || res;
+    } catch (err) {
+      return rejectWithValue(err.message || 'Failed to fetch service details');
+    }
+  }
+);
+
+export const createServiceThunk = createAsyncThunk(
+  'data/createService',
+  async (serviceData, { rejectWithValue }) => {
+    try {
+      const res = await serviceAPI.createService(serviceData);
+      return res.data || res;
+    } catch (err) {
+      return rejectWithValue(err.message || 'Failed to create service');
+    }
+  }
+);
+
+export const updateServiceThunk = createAsyncThunk(
+  'data/updateService',
+  async ({ id, data }, { rejectWithValue }) => {
+    try {
+      const res = await serviceAPI.updateService(id, data);
+      return { id, data: res.data || res };
+    } catch (err) {
+      return rejectWithValue(err.message || 'Failed to update service');
+    }
+  }
+);
+
+export const toggleServiceStatusThunk = createAsyncThunk(
+  'data/toggleServiceStatus',
+  async ({ id, payload = {} }, { rejectWithValue }) => {
+    try {
+      const res = await serviceAPI.toggleServiceStatus(id, payload);
+      return { id, data: res.data || res };
+    } catch (err) {
+      return rejectWithValue(err.message || 'Failed to toggle service status');
+    }
+  }
+);
+
+export const reorderServicesThunk = createAsyncThunk(
+  'data/reorderServices',
+  async (data, { rejectWithValue }) => {
+    try {
+      const res = await serviceAPI.reorderServices(data);
+      return res.data || res;
+    } catch (err) {
+      return rejectWithValue(err.message || 'Failed to reorder services');
+    }
+  }
+);
+
+export const deleteServiceThunk = createAsyncThunk(
+  'data/deleteService',
+  async (id, { rejectWithValue }) => {
+    try {
+      const res = await serviceAPI.deleteService(id);
+      return { id, data: res.data || res };
+    } catch (err) {
+      return rejectWithValue(err.message || 'Failed to delete service');
+    }
+  }
+);
+
+export const updateCategoryThunk = createAsyncThunk(
+  'data/updateCategory',
+  async ({ category, data }, { rejectWithValue }) => {
+    try {
+      const res = await serviceAPI.updateCategory(category, data);
+      return { category, data: res.data || res };
+    } catch (err) {
+      return rejectWithValue(err.message || 'Failed to update category');
+    }
+  }
+);
+
+export const toggleCategoryStatusThunk = createAsyncThunk(
+  'data/toggleCategoryStatus',
+  async ({ category, payload = {} }, { rejectWithValue }) => {
+    try {
+      const res = await serviceAPI.toggleCategoryStatus(category, payload);
+      return { category, data: res.data || res };
+    } catch (err) {
+      return rejectWithValue(err.message || 'Failed to toggle category status');
+    }
+  }
+);
+
+export const deleteCategoryThunk = createAsyncThunk(
+  'data/deleteCategory',
+  async (category, { rejectWithValue }) => {
+    try {
+      const res = await serviceAPI.deleteCategory(category);
+      return { category, data: res.data || res };
+    } catch (err) {
+      return rejectWithValue(err.message || 'Failed to delete category');
+    }
+  }
+);
+
 const dataSlice = createSlice({
   name: 'data',
   initialState: {
@@ -231,7 +441,26 @@ const dataSlice = createSlice({
     dashboardLoading: false,
     dashboardError: null,
     backendStaffRequests: [],
+    staffRequestsPagination: null,
+    staffRequestsLoading: false,
+    staffRequestsError: null,
+    currentStaffRequest: null,
+    staffRequestDetailLoading: false,
+    staffRequestDetailError: null,
     backendClients: [],
+    clientsPagination: null,
+    currentClientDetail: null,
+    clientDetailLoading: false,
+    clientDetailError: null,
+    backendServices: [],
+    backendCategories: [],
+    servicesSummary: null,
+    servicesPagination: null,
+    currentServiceDetail: null,
+    servicesLoading: false,
+    servicesError: null,
+    serviceActionLoading: false,
+    serviceActionError: null,
     backendBookings: [],
     bookingsPagination: null,
     bookingsLoading: false,
@@ -284,20 +513,59 @@ const dataSlice = createSlice({
     setStatus: (state, action) => {
       const { bookingId, status, extra = {}, by = 'admin' } = action.payload;
       const b = state.data.bookings?.[bookingId];
-      if (!b) return;
-      const hist = (b.history || []).concat([{ status, at: Date.now(), by: by || 'admin' }]);
-      state.data.bookings[bookingId] = {
-        ...b,
-        status,
-        history: hist,
-        updatedAt: Date.now(),
-        ...extra,
-      };
+      if (b) {
+        const hist = (b.history || []).concat([{ status, at: Date.now(), by: by || 'admin' }]);
+        state.data.bookings[bookingId] = {
+          ...b,
+          status,
+          history: hist,
+          updatedAt: Date.now(),
+          ...extra,
+        };
+      }
+      if (Array.isArray(state.dashboardData?.needsAction)) {
+        state.dashboardData.needsAction = state.dashboardData.needsAction.map((item) =>
+          String(item.id) === String(bookingId) || String(item.code) === String(bookingId)
+            ? { ...item, status }
+            : item
+        );
+      }
     },
     assign: (state, action) => {
       const { bid, sid, by = 'admin' } = action.payload;
-      const b = state.data.bookings?.[bid];
-      const st = state.data.staff?.[sid];
+      if (!state.data.bookings) state.data.bookings = {};
+      if (!state.data.staff) state.data.staff = {};
+
+      let b = state.data.bookings[bid];
+      if (!b && Array.isArray(state.dashboardData?.needsAction)) {
+        const found = state.dashboardData.needsAction.find(
+          (x) => String(x.id) === String(bid) || String(x.code) === String(bid)
+        );
+        if (found) {
+          state.data.bookings[bid] = { ...found, id: bid };
+          b = state.data.bookings[bid];
+        }
+      }
+
+      let st = state.data.staff[sid];
+      if (!st && Array.isArray(state.dashboardData?.staffAvailability)) {
+        const foundStaff = state.dashboardData.staffAvailability.find(
+          (x) => String(x.staffId || x.id) === String(sid)
+        );
+        if (foundStaff) {
+          state.data.staff[sid] = {
+            id: String(sid),
+            staffId: foundStaff.staffId || String(sid),
+            name: foundStaff.name,
+            role: foundStaff.role || 'Caregiver',
+            city: (foundStaff.city || 'mumbai').toLowerCase().trim(),
+            onDuty: Boolean(foundStaff.onDuty),
+            approval: 'approved',
+          };
+          st = state.data.staff[sid];
+        }
+      }
+
       if (!b || !st) return;
 
       const s = state.data.services?.[b.service] || { name: 'Service', tasks: [] };
@@ -325,6 +593,15 @@ const dataSlice = createSlice({
         updatedAt: now,
         ...extra,
       };
+
+      // Also update dashboardData.needsAction so Dashboard immediately shows assigned staff
+      if (Array.isArray(state.dashboardData?.needsAction)) {
+        state.dashboardData.needsAction = state.dashboardData.needsAction.map((item) =>
+          String(item.id) === String(bid) || String(item.code) === String(bid)
+            ? { ...item, staffId: sid, status: 'assigned' }
+            : item
+        );
+      }
 
       if (!state.data.notifications) state.data.notifications = {};
       const nIdAdmin = 'n' + Date.now().toString(36);
@@ -365,31 +642,40 @@ const dataSlice = createSlice({
     unassign: (state, action) => {
       const { bid } = action.payload;
       const b = state.data.bookings?.[bid];
-      if (!b || !b.staffId) return;
-      const old = b.staffId;
-      const hist = (b.history || []).concat([{ status: 'confirmed', at: Date.now(), by: 'admin' }]);
+      if (b && b.staffId) {
+        const old = b.staffId;
+        const hist = (b.history || []).concat([{ status: 'confirmed', at: Date.now(), by: 'admin' }]);
 
-      state.data.bookings[bid] = {
-        ...b,
-        status: 'confirmed',
-        staffId: '',
-        assignedBy: '',
-        assignedAt: 0,
-        history: hist,
-        updatedAt: Date.now(),
-      };
+        state.data.bookings[bid] = {
+          ...b,
+          status: 'confirmed',
+          staffId: '',
+          assignedBy: '',
+          assignedAt: 0,
+          history: hist,
+          updatedAt: Date.now(),
+        };
 
-      if (!state.data.notifications) state.data.notifications = {};
-      const nId = 'n' + Date.now().toString(36);
-      state.data.notifications[nId] = {
-        id: nId,
-        to: 'staff:' + old,
-        title: 'Visit removed',
-        body: `${b.patientName} is no longer assigned to you.`,
-        bookingId: bid,
-        at: Date.now(),
-        read: false,
-      };
+        if (!state.data.notifications) state.data.notifications = {};
+        const nId = 'n' + Date.now().toString(36);
+        state.data.notifications[nId] = {
+          id: nId,
+          to: 'staff:' + old,
+          title: 'Visit removed',
+          body: `${b.patientName} is no longer assigned to you.`,
+          bookingId: bid,
+          at: Date.now(),
+          read: false,
+        };
+      }
+
+      if (Array.isArray(state.dashboardData?.needsAction)) {
+        state.dashboardData.needsAction = state.dashboardData.needsAction.map((item) =>
+          String(item.id) === String(bid) || String(item.code) === String(bid)
+            ? { ...item, staffId: null, status: 'confirmed' }
+            : item
+        );
+      }
     },
     setSelectedCity: (state, action) => {
       state.selectedCity = action.payload;
@@ -421,10 +707,13 @@ const dataSlice = createSlice({
       // fetchStaffRequests
       .addCase(fetchStaffRequestsThunk.pending, (state) => {
         state.loading = true;
+        state.staffRequestsLoading = true;
         state.error = null;
+        state.staffRequestsError = null;
       })
       .addCase(fetchStaffRequestsThunk.fulfilled, (state, action) => {
         state.loading = false;
+        state.staffRequestsLoading = false;
         const payload = action.payload;
         const list = Array.isArray(payload)
           ? payload
@@ -436,31 +725,278 @@ const dataSlice = createSlice({
         state.backendStaffRequests = list;
         state.staffRequestsPagination =
           payload?.pagination || payload?.data?.pagination || null;
+
+        // Keep state.data.staff in sync
+        if (!state.data.staff) state.data.staff = {};
+        list.forEach((s) => {
+          if (s && (s.id || s.staffId)) {
+            const key = String(s.staffId || s.id);
+            const userName = s.user?.name || s.name || 'Staff Member';
+            const userPhone = s.user?.phone || s.phone || '';
+            const userEmail = s.user?.email || s.email || '';
+            let skillsStr = '';
+            if (Array.isArray(s.skills)) {
+              skillsStr = s.skills.join(', ');
+            } else if (typeof s.skills === 'string') {
+              try {
+                const parsed = JSON.parse(s.skills);
+                skillsStr = Array.isArray(parsed) ? parsed.join(', ') : s.skills;
+              } catch {
+                skillsStr = s.skills;
+              }
+            }
+
+            state.data.staff[key] = {
+              ...(state.data.staff[key] || {}),
+              id: key,
+              backendId: s.id,
+              staffId: s.staffId || key,
+              name: userName,
+              phone: userPhone,
+              email: userEmail,
+              role: s.qualification || s.role || 'Caregiver',
+              qualification: s.qualification || '',
+              city: (s.city || 'mumbai').toLowerCase().trim(),
+              area: s.area || '',
+              skills: skillsStr,
+              docs: s.docs || 'pending',
+              approval: s.approval || 'approved',
+              applied: s.applied !== undefined ? Boolean(s.applied) : true,
+              files: s.files || {},
+              docChecks: s.docChecks || {},
+              onDuty: Boolean(s.onDuty),
+              experience: s.experience || 0,
+              regNo: s.regNo || '',
+              dob: s.dob || '',
+              gender: s.gender || '',
+              raw: s,
+            };
+          }
+        });
       })
       .addCase(fetchStaffRequestsThunk.rejected, (state, action) => {
         state.loading = false;
+        state.staffRequestsLoading = false;
         state.error = action.payload;
+        state.staffRequestsError = action.payload;
+      })
+      // fetchStaffRequestById
+      .addCase(fetchStaffRequestByIdThunk.pending, (state) => {
+        state.staffRequestDetailLoading = true;
+        state.staffRequestDetailError = null;
+      })
+      .addCase(fetchStaffRequestByIdThunk.fulfilled, (state, action) => {
+        state.staffRequestDetailLoading = false;
+        const staffObj = action.payload?.data || action.payload;
+        state.currentStaffRequest = staffObj;
+        if (staffObj && (staffObj.id || staffObj.staffId)) {
+          const sId = String(staffObj.id || staffObj.staffId);
+          state.backendStaffRequests = (state.backendStaffRequests || []).map((item) =>
+            String(item.id) === sId || String(item.staffId) === sId
+              ? { ...item, ...staffObj }
+              : item
+          );
+          if (state.data?.staff) {
+            const key = state.data.staff[sId]
+              ? sId
+              : staffObj.staffId && state.data.staff[String(staffObj.staffId)]
+              ? String(staffObj.staffId)
+              : null;
+            if (key) {
+              state.data.staff[key] = {
+                ...state.data.staff[key],
+                ...staffObj,
+                files: staffObj.files || state.data.staff[key].files || {},
+                applied: true,
+              };
+            }
+          }
+        }
+      })
+      .addCase(fetchStaffRequestByIdThunk.rejected, (state, action) => {
+        state.staffRequestDetailLoading = false;
+        state.staffRequestDetailError = action.payload;
+      })
+      // verifyStaffDocument
+      .addCase(verifyStaffDocumentThunk.fulfilled, (state, action) => {
+        const id = action.payload?.id;
+        const resData = action.payload?.data?.staff || action.payload?.data || {};
+        if (id) {
+          state.backendStaffRequests = (state.backendStaffRequests || []).map((item) =>
+            String(item.id) === String(id) || String(item.staffId) === String(id)
+              ? { ...item, ...resData }
+              : item
+          );
+          if (
+            state.currentStaffRequest &&
+            (String(state.currentStaffRequest.id) === String(id) ||
+              String(state.currentStaffRequest.staffId) === String(id))
+          ) {
+            state.currentStaffRequest = { ...state.currentStaffRequest, ...resData };
+          }
+          if (state.data?.staff) {
+            const key = String(id);
+            if (state.data.staff[key]) {
+              state.data.staff[key] = {
+                ...state.data.staff[key],
+                ...(resData.docChecks ? { docChecks: resData.docChecks } : {}),
+                ...(resData.docs ? { docs: resData.docs } : {}),
+              };
+            }
+          }
+        }
       })
       // approveStaff
       .addCase(approveStaffThunk.fulfilled, (state, action) => {
         const id = action.payload?.id;
+        const updatedStaff = action.payload?.data?.data || action.payload?.data?.staff || action.payload?.data;
         if (id) {
           state.backendStaffRequests = (state.backendStaffRequests || []).map((item) =>
             String(item.id) === String(id) || String(item.staffId) === String(id)
-              ? { ...item, approval: 'approved', docs: 'verified' }
+              ? {
+                  ...item,
+                  approval: 'approved',
+                  docs: 'verified',
+                  ...(updatedStaff && typeof updatedStaff === 'object' ? updatedStaff : {}),
+                }
               : item
           );
+          if (
+            state.currentStaffRequest &&
+            (String(state.currentStaffRequest.id) === String(id) ||
+              String(state.currentStaffRequest.staffId) === String(id))
+          ) {
+            state.currentStaffRequest = {
+              ...state.currentStaffRequest,
+              approval: 'approved',
+              docs: 'verified',
+              ...(updatedStaff && typeof updatedStaff === 'object' ? updatedStaff : {}),
+            };
+          }
+          if (state.data?.staff) {
+            const key = String(id);
+            if (state.data.staff[key]) {
+              state.data.staff[key] = {
+                ...state.data.staff[key],
+                approval: 'approved',
+                docs: 'verified',
+                onDuty: false,
+              };
+            }
+          }
+        }
+      })
+      // requestStaffChanges
+      .addCase(requestStaffChangesThunk.fulfilled, (state, action) => {
+        const id = action.payload?.id;
+        const updatedStaff = action.payload?.data?.data || action.payload?.data?.staff || action.payload?.data;
+        if (id) {
+          state.backendStaffRequests = (state.backendStaffRequests || []).map((item) =>
+            String(item.id) === String(id) || String(item.staffId) === String(id)
+              ? {
+                  ...item,
+                  approval: 'changes',
+                  ...(updatedStaff && typeof updatedStaff === 'object' ? updatedStaff : {}),
+                }
+              : item
+          );
+          if (
+            state.currentStaffRequest &&
+            (String(state.currentStaffRequest.id) === String(id) ||
+              String(state.currentStaffRequest.staffId) === String(id))
+          ) {
+            state.currentStaffRequest = {
+              ...state.currentStaffRequest,
+              approval: 'changes',
+              ...(updatedStaff && typeof updatedStaff === 'object' ? updatedStaff : {}),
+            };
+          }
+          if (state.data?.staff) {
+            const key = String(id);
+            if (state.data.staff[key]) {
+              state.data.staff[key] = {
+                ...state.data.staff[key],
+                approval: 'changes',
+                docs: 'pending',
+              };
+            }
+          }
         }
       })
       // rejectStaff
       .addCase(rejectStaffThunk.fulfilled, (state, action) => {
         const id = action.payload?.id;
+        const updatedStaff = action.payload?.data?.data || action.payload?.data?.staff || action.payload?.data;
         if (id) {
           state.backendStaffRequests = (state.backendStaffRequests || []).map((item) =>
             String(item.id) === String(id) || String(item.staffId) === String(id)
-              ? { ...item, approval: 'rejected' }
+              ? {
+                  ...item,
+                  approval: 'rejected',
+                  ...(updatedStaff && typeof updatedStaff === 'object' ? updatedStaff : {}),
+                }
               : item
           );
+          if (
+            state.currentStaffRequest &&
+            (String(state.currentStaffRequest.id) === String(id) ||
+              String(state.currentStaffRequest.staffId) === String(id))
+          ) {
+            state.currentStaffRequest = {
+              ...state.currentStaffRequest,
+              approval: 'rejected',
+              ...(updatedStaff && typeof updatedStaff === 'object' ? updatedStaff : {}),
+            };
+          }
+          if (state.data?.staff) {
+            const key = String(id);
+            if (state.data.staff[key]) {
+              state.data.staff[key] = {
+                ...state.data.staff[key],
+                approval: 'rejected',
+                docs: 'rejected',
+              };
+            }
+          }
+        }
+      })
+      // revokeStaffDecision
+      .addCase(revokeStaffDecisionThunk.fulfilled, (state, action) => {
+        const id = action.payload?.id;
+        const updatedStaff = action.payload?.data?.data || action.payload?.data?.staff || action.payload?.data;
+        if (id) {
+          state.backendStaffRequests = (state.backendStaffRequests || []).map((item) =>
+            String(item.id) === String(id) || String(item.staffId) === String(id)
+              ? {
+                  ...item,
+                  approval: 'pending',
+                  docs: 'pending',
+                  ...(updatedStaff && typeof updatedStaff === 'object' ? updatedStaff : {}),
+                }
+              : item
+          );
+          if (
+            state.currentStaffRequest &&
+            (String(state.currentStaffRequest.id) === String(id) ||
+              String(state.currentStaffRequest.staffId) === String(id))
+          ) {
+            state.currentStaffRequest = {
+              ...state.currentStaffRequest,
+              approval: 'pending',
+              docs: 'pending',
+              ...(updatedStaff && typeof updatedStaff === 'object' ? updatedStaff : {}),
+            };
+          }
+          if (state.data?.staff) {
+            const key = String(id);
+            if (state.data.staff[key]) {
+              state.data.staff[key] = {
+                ...state.data.staff[key],
+                approval: 'pending',
+                docs: 'pending',
+              };
+            }
+          }
         }
       })
       // fetchClients
@@ -486,6 +1022,19 @@ const dataSlice = createSlice({
         state.loading = false;
         state.error = action.payload;
       })
+      // fetchClientById
+      .addCase(fetchClientByIdThunk.pending, (state) => {
+        state.clientDetailLoading = true;
+        state.clientDetailError = null;
+      })
+      .addCase(fetchClientByIdThunk.fulfilled, (state, action) => {
+        state.clientDetailLoading = false;
+        state.currentClientDetail = action.payload?.data || action.payload;
+      })
+      .addCase(fetchClientByIdThunk.rejected, (state, action) => {
+        state.clientDetailLoading = false;
+        state.clientDetailError = action.payload;
+      })
       // fetchDashboard
       .addCase(fetchDashboardThunk.pending, (state) => {
         state.dashboardLoading = true;
@@ -494,7 +1043,45 @@ const dataSlice = createSlice({
       .addCase(fetchDashboardThunk.fulfilled, (state, action) => {
         state.dashboardLoading = false;
         const payload = action.payload;
-        state.dashboardData = payload?.data || payload;
+        const dData = payload?.data || payload;
+        state.dashboardData = dData;
+
+        // Sync staffAvailability into state.data.staff
+        if (Array.isArray(dData?.staffAvailability)) {
+          if (!state.data.staff) state.data.staff = {};
+          dData.staffAvailability.forEach((s) => {
+            const key = String(s.staffId || s.id);
+            if (!state.data.staff[key]) {
+              state.data.staff[key] = {
+                id: key,
+                backendId: s.id,
+                staffId: s.staffId || key,
+                name: s.name,
+                phone: s.phone || '',
+                role: s.role || 'Caregiver',
+                city: (s.city || 'mumbai').toLowerCase().trim(),
+                area: s.area || '',
+                approval: 'approved',
+                onDuty: Boolean(s.onDuty),
+              };
+            }
+          });
+        }
+
+        // Sync needsAction into state.data.bookings
+        if (Array.isArray(dData?.needsAction)) {
+          if (!state.data.bookings) state.data.bookings = {};
+          dData.needsAction.forEach((b) => {
+            const key = String(b.id || b.code);
+            if (!state.data.bookings[key]) {
+              state.data.bookings[key] = {
+                ...b,
+                id: key,
+                backendId: b.id,
+              };
+            }
+          });
+        }
       })
       .addCase(fetchDashboardThunk.rejected, (state, action) => {
         state.dashboardLoading = false;
@@ -740,6 +1327,290 @@ const dataSlice = createSlice({
           liveCities: liveCount,
           pausedCities: totalCount - liveCount,
         };
+      })
+      // fetchServices
+      .addCase(fetchServicesThunk.pending, (state) => {
+        state.servicesLoading = true;
+        state.servicesError = null;
+      })
+      .addCase(fetchServicesThunk.fulfilled, (state, action) => {
+        state.servicesLoading = false;
+        const payload = action.payload;
+        const list = Array.isArray(payload)
+          ? payload
+          : Array.isArray(payload?.services)
+          ? payload.services
+          : Array.isArray(payload?.data?.services)
+          ? payload.data.services
+          : [];
+        state.backendServices = list;
+        state.servicesPagination =
+          payload?.pagination || payload?.data?.pagination || null;
+
+        const catList = Array.isArray(payload?.categories)
+          ? payload.categories
+          : Array.isArray(payload?.data?.categories)
+          ? payload.data.categories
+          : [];
+        state.backendCategories = catList;
+        state.servicesSummary =
+          payload?.summary || payload?.data?.summary || null;
+
+        // Keep state.data.services & state.data.categories in sync
+        if (!state.data.services) state.data.services = {};
+        if (!state.data.categories) state.data.categories = {};
+
+        // Sync categories from grouped response if available
+        if (catList.length > 0) {
+          catList.forEach((c) => {
+            if (c && c.id) {
+              state.data.categories[c.id] = {
+                ...(state.data.categories[c.id] || {}),
+                id: c.id,
+                name: c.name || c.id,
+                desc: c.desc || '',
+                icon: c.icon || 'cross',
+                kind: c.kind || c.type || 'care',
+                order: c.order ?? 0,
+                enabled: c.enabled !== false,
+                comingSoon: Boolean(c.comingSoon),
+                servicesCount: c.servicesCount || 0,
+                liveCount: c.liveCount || 0,
+              };
+            }
+          });
+        }
+
+        // Sync all individual services
+        list.forEach((s) => {
+          if (s && (s.id || s.code)) {
+            const key = s.code || s.serviceId || String(s.id);
+            state.data.services[key] = {
+              ...(state.data.services[key] || {}),
+              ...s,
+              id: key,
+              backendId: s.id,
+              categoryId: s.category || s.categoryId,
+            };
+            if (s.category && !state.data.categories[s.category]) {
+              const catKey = s.category;
+              state.data.categories[catKey] = {
+                id: catKey,
+                name: s.categoryName || catKey,
+                icon: s.categoryIcon || 'cross',
+                desc: s.categoryDesc || '',
+                kind: s.type || 'care',
+                order: s.categoryOrder ?? 0,
+                enabled: s.enabled !== false,
+                comingSoon: Boolean(s.comingSoon),
+              };
+            }
+          }
+        });
+      })
+      .addCase(fetchServicesThunk.rejected, (state, action) => {
+        state.servicesLoading = false;
+        state.servicesError = action.payload;
+      })
+      // fetchServiceById
+      .addCase(fetchServiceByIdThunk.pending, (state) => {
+        state.servicesLoading = true;
+        state.servicesError = null;
+      })
+      .addCase(fetchServiceByIdThunk.fulfilled, (state, action) => {
+        state.servicesLoading = false;
+        state.currentServiceDetail = action.payload?.data || action.payload;
+      })
+      .addCase(fetchServiceByIdThunk.rejected, (state, action) => {
+        state.servicesLoading = false;
+        state.servicesError = action.payload;
+      })
+      // createService
+      .addCase(createServiceThunk.pending, (state) => {
+        state.serviceActionLoading = true;
+        state.serviceActionError = null;
+      })
+      .addCase(createServiceThunk.fulfilled, (state, action) => {
+        state.serviceActionLoading = false;
+        const newService = action.payload?.data?.data || action.payload?.data || action.payload;
+        if (newService && (newService.id || newService.code)) {
+          state.backendServices = [newService, ...state.backendServices];
+          const key = newService.code || newService.serviceId || String(newService.id);
+          if (!state.data.services) state.data.services = {};
+          state.data.services[key] = {
+            ...newService,
+            id: key,
+            backendId: newService.id,
+            categoryId: newService.category || newService.categoryId,
+          };
+          if (newService.category) {
+            const catKey = newService.category;
+            if (!state.data.categories) state.data.categories = {};
+            state.data.categories[catKey] = {
+              id: catKey,
+              name: newService.categoryName || catKey,
+              icon: newService.categoryIcon || 'cross',
+              desc: newService.categoryDesc || '',
+              kind: newService.type || 'care',
+              order: newService.categoryOrder ?? 0,
+              ...(state.data.categories[catKey] || {}),
+            };
+          }
+        }
+      })
+      .addCase(createServiceThunk.rejected, (state, action) => {
+        state.serviceActionLoading = false;
+        state.serviceActionError = action.payload;
+      })
+      // updateService
+      .addCase(updateServiceThunk.pending, (state) => {
+        state.serviceActionLoading = true;
+        state.serviceActionError = null;
+      })
+      .addCase(updateServiceThunk.fulfilled, (state, action) => {
+        state.serviceActionLoading = false;
+        const updated = action.payload?.data?.data || action.payload?.data || action.payload;
+        const id = action.payload?.id;
+        if (updated) {
+          state.backendServices = state.backendServices.map((s) =>
+            s.id === id || s.code === id || s.id === updated.id || s.code === updated.code
+              ? { ...s, ...updated }
+              : s
+          );
+          const key = updated.code || updated.serviceId || String(updated.id) || id;
+          if (!state.data.services) state.data.services = {};
+          state.data.services[key] = {
+            ...(state.data.services[key] || {}),
+            ...updated,
+            id: key,
+            backendId: updated.id,
+            categoryId: updated.category || updated.categoryId,
+          };
+        }
+      })
+      .addCase(updateServiceThunk.rejected, (state, action) => {
+        state.serviceActionLoading = false;
+        state.serviceActionError = action.payload;
+      })
+      // toggleServiceStatus
+      .addCase(toggleServiceStatusThunk.fulfilled, (state, action) => {
+        const updated = action.payload?.data?.data || action.payload?.data || action.payload;
+        const id = action.payload?.id;
+        if (updated) {
+          state.backendServices = state.backendServices.map((s) =>
+            s.id === id || s.code === id || s.id === updated.id || s.code === updated.code
+              ? { ...s, enabled: updated.enabled }
+              : s
+          );
+          const key = updated.code || updated.serviceId || String(updated.id) || id;
+          if (state.data.services?.[key]) {
+            state.data.services[key] = {
+              ...state.data.services[key],
+              enabled: updated.enabled,
+            };
+          }
+        }
+      })
+      // reorderServices
+      .addCase(reorderServicesThunk.fulfilled, (state) => {
+        state.serviceActionLoading = false;
+      })
+      // deleteService
+      .addCase(deleteServiceThunk.fulfilled, (state, action) => {
+        const id = action.payload?.id;
+        const resData = action.payload?.data?.data || action.payload?.data || {};
+        const targetId = resData.id || id;
+        const targetCode = resData.code || id;
+
+        state.backendServices = state.backendServices.filter(
+          (s) => s.id !== targetId && s.code !== targetCode && s.id !== id && s.code !== id
+        );
+        if (state.data.services) {
+          delete state.data.services[targetCode];
+          delete state.data.services[targetId];
+          delete state.data.services[id];
+        }
+      })
+      .addCase(deleteServiceThunk.rejected, (state, action) => {
+        state.serviceActionError = action.payload;
+      })
+      // updateCategory
+      .addCase(updateCategoryThunk.fulfilled, (state, action) => {
+        const category = action.payload?.category;
+        const resData = action.payload?.data?.data || action.payload?.data || {};
+        const targetCat = resData.category || category;
+        if (state.data.categories?.[category]) {
+          state.data.categories[targetCat] = {
+            ...state.data.categories[category],
+            id: targetCat,
+            name: targetCat,
+          };
+          if (category !== targetCat) {
+            delete state.data.categories[category];
+            // Also update any services that had old category name
+            if (state.data.services) {
+              Object.keys(state.data.services).forEach((k) => {
+                if (state.data.services[k]?.categoryId === category || state.data.services[k]?.category === category) {
+                  state.data.services[k] = {
+                    ...state.data.services[k],
+                    category: targetCat,
+                    categoryId: targetCat,
+                  };
+                }
+              });
+            }
+          }
+        }
+      })
+      .addCase(updateCategoryThunk.rejected, (state, action) => {
+        state.serviceActionError = action.payload;
+      })
+      // toggleCategoryStatus
+      .addCase(toggleCategoryStatusThunk.fulfilled, (state, action) => {
+        const category = action.payload?.category;
+        const resData = action.payload?.data?.data || action.payload?.data || {};
+        const enabled = resData.enabled !== undefined ? resData.enabled : action.payload?.payload?.enabled;
+        if (category && enabled !== undefined) {
+          state.backendServices = state.backendServices.map((s) =>
+            s.category === category ? { ...s, enabled: Boolean(enabled) } : s
+          );
+          if (state.data.categories?.[category]) {
+            state.data.categories[category] = {
+              ...state.data.categories[category],
+              enabled: Boolean(enabled),
+            };
+          }
+          if (state.data.services) {
+            Object.keys(state.data.services).forEach((k) => {
+              if (state.data.services[k]?.categoryId === category || state.data.services[k]?.category === category) {
+                state.data.services[k] = { ...state.data.services[k], enabled: Boolean(enabled) };
+              }
+            });
+          }
+        }
+      })
+      .addCase(toggleCategoryStatusThunk.rejected, (state, action) => {
+        state.serviceActionError = action.payload;
+      })
+      // deleteCategory
+      .addCase(deleteCategoryThunk.fulfilled, (state, action) => {
+        const category = action.payload?.category;
+        if (category) {
+          state.backendServices = state.backendServices.filter((s) => s.category !== category);
+          if (state.data.categories) {
+            delete state.data.categories[category];
+          }
+          if (state.data.services) {
+            Object.keys(state.data.services).forEach((k) => {
+              if (state.data.services[k]?.categoryId === category || state.data.services[k]?.category === category) {
+                delete state.data.services[k];
+              }
+            });
+          }
+        }
+      })
+      .addCase(deleteCategoryThunk.rejected, (state, action) => {
+        state.serviceActionError = action.payload;
       });
   },
 });

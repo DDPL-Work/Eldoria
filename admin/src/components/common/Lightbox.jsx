@@ -5,7 +5,23 @@ export function Lightbox({ fileId, onClose }) {
   const { fileGet } = useFiles();
   if (!fileId) return null;
 
-  const f = fileGet(fileId);
+  let f = fileGet(fileId);
+  if (!f && typeof fileId === 'string' && (fileId.startsWith('http') || fileId.startsWith('data:'))) {
+    f = {
+      id: fileId,
+      data: fileId,
+      url: fileId,
+      name: 'Document Preview',
+      type: 'image/jpeg',
+    };
+  }
+
+  const fileSrc = f?.data || f?.url;
+  const isImg =
+    f?.type?.startsWith('image/') ||
+    /cloudinary\.com/i.test(fileSrc || '') ||
+    /\.(jpeg|jpg|gif|png|webp|avif|svg)($|\?|#)/i.test(fileSrc || '') ||
+    fileSrc?.startsWith('data:image/');
 
   return (
     <div
@@ -36,9 +52,9 @@ export function Lightbox({ fileId, onClose }) {
             <div className="text-slate-500 py-12">Loading preview…</div>
           ) : f.missing ? (
             <div className="text-red-500 py-12">This file could not be loaded.</div>
-          ) : f.type?.startsWith('image/') ? (
+          ) : isImg ? (
             <img
-              src={f.data}
+              src={fileSrc}
               alt={f.name || 'Preview'}
               className="max-h-[75vh] w-auto object-contain rounded-lg"
             />

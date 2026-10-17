@@ -149,6 +149,10 @@ export const authAPI = {
   // POST /api/v1/admin/forgot-password
   forgotPassword: (email) => api.post('/admin/forgot-password', { email }),
 
+  // POST /api/v1/admin/verify-otp & /api/v1/admin/forgot-password/verify
+  verifyOtp: (payload) => api.post('/admin/verify-otp', payload),
+  verifyForgotOtp: (payload) => api.post('/admin/forgot-password/verify', payload),
+
   // POST /api/v1/admin/reset-password
   resetPassword: (payload) => api.post('/admin/reset-password', payload),
 
@@ -181,8 +185,18 @@ export const adminAPI = {
   getDashboardData: (params = '') => api.get(`/admin/dashboard${buildQuery(params)}`),
 
   // --- Bookings Management ---
-  // GET /api/v1/admin/bookings
-  getBookings: (params = '') => api.get(`/admin/bookings${buildQuery(params)}`),
+  // GET /api/v1/admin/bookings/all (fallback /admin/bookings)
+  getBookings: async (params = '') => {
+    const qs = buildQuery(params);
+    try {
+      return await api.get(`/admin/bookings/all${qs}`);
+    } catch (err) {
+      if (err.status === 404) {
+        return await api.get(`/admin/bookings${qs}`);
+      }
+      throw err;
+    }
+  },
 
   // GET /api/v1/admin/booking/:id
   getBookingById: (id) => api.get(`/admin/booking/${id}`),
@@ -209,15 +223,26 @@ export const adminAPI = {
   // --- Staff Registration Requests ---
   // GET /api/v1/admin/staff-requests
   getStaffRequests: (params = '') => api.get(`/admin/staff-requests${buildQuery(params)}`),
-
   // GET /api/v1/admin/staff-requests/:id
   getStaffRequestById: (id) => api.get(`/admin/staff-requests/${id}`),
+
+
+  // PATCH /api/v1/admin/staff-requests/:id/verify-document
+  verifyStaffDocument: (id, payload) => api.patch(`/admin/staff-requests/${id}/verify-document`, payload),
 
   // PATCH /api/v1/admin/staff-requests/:id/approve
   approveStaffRequest: (id, payload = {}) => api.patch(`/admin/staff-requests/${id}/approve`, payload),
 
+  // PATCH /api/v1/admin/staff-requests/:id/request-changes
+  requestStaffChanges: (id, payload) => api.patch(`/admin/staff-requests/${id}/request-changes`, payload),
+
   // PATCH /api/v1/admin/staff-requests/:id/reject
   rejectStaffRequest: (id, payload = {}) => api.patch(`/admin/staff-requests/${id}/reject`, payload),
+
+
+
+  // PATCH /api/v1/admin/staff-requests/:id/revoke & /pending
+  revokeStaffRequest: (id, payload = {}) => api.patch(`/admin/staff-requests/${id}/revoke`, payload),
 
   // --- Client Management ---
   // GET /api/v1/admin/clients
@@ -225,6 +250,43 @@ export const adminAPI = {
 
   // GET /api/v1/admin/clients/:id
   getClientById: (clientId) => api.get(`/admin/clients/${clientId}`),
+
+
+
+  // --- Services & Categories Catalog CRUD ---
+
+  
+  // GET /api/v1/admin/services
+  getServices: (params = '') => api.get(`/admin/services${buildQuery(params)}`),
+
+  // GET /api/v1/admin/services/:id
+  getServiceById: (id) => api.get(`/admin/services/${id}`),
+
+  // POST /api/v1/admin/service/create
+  createService: (data) => api.post('/admin/service/create', data),
+
+  // PATCH /api/v1/admin/service/:id/update (also PUT /api/v1/admin/services/:id)
+  updateService: (id, data) => api.patch(`/admin/service/${id}/update`, data),
+
+  // PATCH /api/v1/admin/service/:id/status
+  toggleServiceStatus: (id, payload = {}) => api.patch(`/admin/service/${id}/status`, payload),
+
+  // PATCH /api/v1/admin/services/reorder
+  reorderServices: (data) => api.patch('/admin/services/reorder', data),
+
+  // DELETE /api/v1/admin/service/:id/delete
+  deleteService: (id) => api.delete(`/admin/service/${id}/delete`),
+
+  // PATCH /api/v1/admin/services/categories/:category
+  updateCategory: (category, data) => api.patch(`/admin/services/categories/${encodeURIComponent(category)}`, data),
+
+  // PATCH /api/v1/admin/services/categories/:category/status
+  toggleCategoryStatus: (category, payload = {}) =>
+    api.patch(`/admin/services/categories/${encodeURIComponent(category)}/status`, payload),
+
+  // DELETE /api/v1/admin/services/categories/:category/delete
+  deleteCategory: (category) =>
+    api.delete(`/admin/services/categories/${encodeURIComponent(category)}/delete`),
 };
 
 /**========================= Dedicated Modular API Exports =============================*/
@@ -233,11 +295,20 @@ export const dashboardAPI = {
   getDashboardData: (params = '') => api.get(`/admin/dashboard${buildQuery(params)}`),
 };
 
-
-export const bookingAPI = {getBookings: (params = '') => api.get(`/admin/bookings${buildQuery(params)}`),
-  getBookingById: (id) => api.get(`/admin/booking/${id}`),};
- 
-
+export const bookingAPI = {
+  getBookings: async (params = '') => {
+    const qs = buildQuery(params);
+    try {
+      return await api.get(`/admin/bookings/all${qs}`);
+    } catch (err) {
+      if (err.status === 404) {
+        return await api.get(`/admin/bookings${qs}`);
+      }
+      throw err;
+    }
+  },
+  getBookingById: (id) => api.get(`/admin/booking/${id}`),
+};
 
 export const cityAPI = {
   getCities: (params = '') => api.get(`/admin/cities${buildQuery(params)}`),
@@ -248,8 +319,40 @@ export const cityAPI = {
   deleteCity: (id) => api.delete(`/admin/cities/${id}`),
 };
 
+export const staffAPI = {
+  getStaffRequests: (params = '') => api.get(`/admin/staff-requests${buildQuery(params)}`),
+  getStaffRequestById: (id) => api.get(`/admin/staff-requests/${id}`),
+  verifyStaffDocument: (id, payload) => api.patch(`/admin/staff-requests/${id}/verify-document`, payload),
+  approveStaffRequest: (id, payload = {}) => api.patch(`/admin/staff-requests/${id}/approve`, payload),
+  requestStaffChanges: (id, payload) => api.patch(`/admin/staff-requests/${id}/request-changes`, payload),
+  rejectStaffRequest: (id, payload = {}) => api.patch(`/admin/staff-requests/${id}/reject`, payload),
+  revokeStaffRequest: (id, payload = {}) => api.patch(`/admin/staff-requests/${id}/revoke`, payload),
+};
+
+export const clientAPI = {
+  getClients: (params = '') => api.get(`/admin/clients${buildQuery(params)}`),
+  getClientById: (clientId) => api.get(`/admin/clients/${clientId}`),
+};
+
+export const serviceAPI = {
+  getServices: (params = '') => api.get(`/admin/services${buildQuery(params)}`),
+  getServiceById: (id) => api.get(`/admin/services/${id}`),
+  createService: (data) => api.post('/admin/service/create', data),
+  updateService: (id, data) => api.patch(`/admin/service/${id}/update`, data),
+  toggleServiceStatus: (id, payload = {}) => api.patch(`/admin/service/${id}/status`, payload),
+  reorderServices: (data) => api.patch('/admin/services/reorder', data),
+  deleteService: (id) => api.delete(`/admin/service/${id}/delete`),
+  updateCategory: (category, data) => api.patch(`/admin/services/categories/${encodeURIComponent(category)}`, data),
+  toggleCategoryStatus: (category, payload = {}) =>
+    api.patch(`/admin/services/categories/${encodeURIComponent(category)}/status`, payload),
+  deleteCategory: (category) =>
+    api.delete(`/admin/services/categories/${encodeURIComponent(category)}/delete`),
+};
+
 /** ===============================System Health Check Endpoint ============================== */
 
-export const healthAPI = {check: () => api.get('/health'),};
+export const healthAPI = {
+  check: () => api.get('/health'),
+};
 
 export default api;

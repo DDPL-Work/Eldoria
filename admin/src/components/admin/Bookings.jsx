@@ -6,6 +6,7 @@ import { CityDropdown } from '../common/CityDropdown';
 import { DatabaseLoader } from '../common/DatabaseLoader';
 import { useStore } from '../../context/StoreContext';
 import { fmtDate, todayISO, ACTIVE } from '../../constants/data';
+import bookingErrorImg from '../../assets/booking-error.png';
 
 export function Bookings({ onOpenBooking, onNewBooking }) {
   const {
@@ -101,7 +102,7 @@ export function Bookings({ onOpenBooking, onNewBooking }) {
   };
 
   return (
-    <div className="p-3.5 sm:p-4 max-w-[1440px] mx-auto space-y-3">
+    <div className="px-3.5 sm:px-4 py-2 sm:py-2.5 max-w-[1440px] mx-auto space-y-2.5">
       {/* 1. TOP CITY SELECTOR & LIVE REFRESH BUTTON */}
       <div className="flex items-center justify-between gap-3">
         <CityDropdown />
@@ -123,30 +124,13 @@ export function Bookings({ onOpenBooking, onNewBooking }) {
         </button>
       </div>
 
-      {/* Non-blocking API Notice */}
-      {bookingsError && (
-        <div className="bg-amber-50 border border-amber-200/80 rounded-xl p-3 sm:p-4 text-xs sm:text-sm text-amber-900 flex items-center justify-between gap-3 shadow-2xs">
-          <div className="flex items-center gap-2 min-w-0">
-            <span className="text-amber-600 font-bold shrink-0">⚠️ API Notice:</span>
-            <span className="truncate">{bookingsError}</span>
-          </div>
-          <button
-            type="button"
-            onClick={loadBookings}
-            className="shrink-0 bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs px-3 py-1.5 rounded-lg transition cursor-pointer"
-          >
-            Retry
-          </button>
-        </div>
-      )}
-
       {/* 2. HEADER: Bookings Title & + New Booking Button */}
       <div className="flex items-center justify-between gap-3">
         <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Bookings</h1>
-       <button
+        <button
           type="button"
           onClick={onNewBooking}
-          className="bg-[#F2A01F] hover:bg-[#e09115] text-[#0A2342] font-extrabold text-xs sm:text-sm px-4 py-2.5 rounded-lg flex items-center gap-2 shadow-xs transition shrink-0 cursor-pointer"
+          className="bg-[#F2A01F] hover:bg-[#e09115] text-[#0A2342] font-extrabold text-xs sm:text-sm px-4 py-2 rounded-lg flex items-center gap-2 shadow-xs transition shrink-0 cursor-pointer"
         >
           <span className="text-base leading-none font-black">+</span>
           <span>New booking</span>
@@ -170,7 +154,7 @@ export function Bookings({ onOpenBooking, onNewBooking }) {
               type="button"
               onClick={() => setFilter(k)}
               aria-pressed={filter === k}
-              className={`px-3.5 py-2 rounded-lg text-xs sm:text-[13px] whitespace-nowrap transition cursor-pointer select-none ${
+              className={`px-3.5 py-1.5 sm:py-2 rounded-lg text-xs sm:text-[13px] whitespace-nowrap transition cursor-pointer select-none ${
                 filter === k
                   ? 'bg-[#E4ECF7] border-1 border-[#0E2F5A] text-[#0E2F5A] font-extrabold shadow-2xs'
                   : 'bg-white hover:bg-slate-50 border border-slate-200/90 text-slate-600 font-semibold shadow-2xs'
@@ -189,7 +173,7 @@ export function Bookings({ onOpenBooking, onNewBooking }) {
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Search name, phone, code"
             aria-label="Search bookings"
-            className="w-full sm:w-[280px] bg-white border border-slate-200/90 rounded-lg px-3.5 py-2 text-xs sm:text-[13px] text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-[#0E2F5A] focus:border-[#0E2F5A] shadow-2xs transition"
+            className="w-full sm:w-[280px] bg-white border border-slate-200/90 rounded-lg px-3.5 py-1.5 sm:py-2 text-xs sm:text-[13px] text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-[#0E2F5A] focus:border-[#0E2F5A] shadow-2xs transition"
           />
           {query && (
             <button
@@ -211,13 +195,18 @@ export function Bookings({ onOpenBooking, onNewBooking }) {
             subtitle="Connecting to Eldoria backend server"
           />
         ) : bookingsError ? (
-          <div className="py-16 px-4 text-center flex flex-col items-center justify-center space-y-3">
-            <div className="w-12 h-12 rounded-2xl bg-rose-50 text-rose-500 flex items-center justify-center text-xl font-bold">
-              ⚠️
+          <div className="flex flex-col items-center justify-center px-4 py-5 sm:py-6 text-center bg-white h-[calc(100vh-225px)] min-h-[340px] max-h-[560px] space-y-3">
+            <div className="w-full max-w-[270px] sm:max-w-[310px] md:max-w-[340px] h-[145px] sm:h-[165px] md:h-[185px] flex items-center justify-center shrink-0">
+              <img
+                src={bookingErrorImg}
+                alt="Bookings not fetched illustration"
+                className="w-full h-full object-contain select-none pointer-events-none drop-shadow-xs"
+                loading="lazy"
+              />
             </div>
             <div className="space-y-1">
-              <p className="font-bold text-slate-900 text-sm">Bookings Not Fetched</p>
-              <p className="text-xs text-slate-500 max-w-md mx-auto">
+              <p className="font-bold text-slate-900 text-sm sm:text-base">Bookings Not Fetched</p>
+              <p className="text-xs text-slate-500 max-w-md mx-auto leading-relaxed">
                 {bookingsError || 'Failed to retrieve bookings from the server. Please check database connection.'}
               </p>
             </div>
@@ -231,7 +220,7 @@ export function Bookings({ onOpenBooking, onNewBooking }) {
             </button>
           </div>
         ) : list.length === 0 ? (
-          <div className="py-16 px-4 text-center flex flex-col items-center justify-center space-y-3">
+          <div className="flex flex-col items-center justify-center px-4 py-5 sm:py-6 text-center bg-white h-[calc(100vh-225px)] min-h-[340px] max-h-[560px] space-y-3">
             <div className="w-14 h-14 rounded-2xl bg-slate-100/90 border border-slate-200/80 flex items-center justify-center shadow-2xs">
               <Icon name="cal" size={26} className="text-slate-400" />
             </div>

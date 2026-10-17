@@ -701,22 +701,26 @@ const updateCategory = async (req, res) => {
     }
 
     const targetCategory = category.trim();
+    const whereCategory = {
+      [Op.or]: [
+        { category: targetCategory },
+        { categoryName: targetCategory },
+        sequelize.where(sequelize.fn('LOWER', sequelize.col('category')), targetCategory.toLowerCase()),
+        sequelize.where(sequelize.fn('LOWER', sequelize.col('categoryName')), targetCategory.toLowerCase()),
+      ],
+    };
+
     const count = await Service.count({
-      where: { category: targetCategory },
+      where: whereCategory,
       transaction,
     });
 
-    if (count === 0) {
-      await transaction.rollback();
-      return errorResponse(res, `No services found under category '${targetCategory}'`, 404);
-    }
-
     const updatePayload = {};
-    const finalCatKey = (newCategory || name || '').trim();
-
-    if (finalCatKey) {
-      updatePayload.category = finalCatKey;
-      updatePayload.categoryName = name ? name.trim() : finalCatKey;
+    if (name && name.trim()) {
+      updatePayload.categoryName = name.trim();
+    }
+    if (newCategory && newCategory.trim()) {
+      updatePayload.category = newCategory.trim();
     }
     if (desc !== undefined) updatePayload.categoryDesc = desc ? desc.trim() : null;
     if (icon !== undefined) updatePayload.categoryIcon = icon.trim() || 'cross';
@@ -729,17 +733,19 @@ const updateCategory = async (req, res) => {
     if (enabled !== undefined) updatePayload.enabled = Boolean(enabled);
     if (comingSoon !== undefined) updatePayload.comingSoon = Boolean(comingSoon);
 
-    await Service.update(updatePayload, {
-      where: { category: targetCategory },
-      transaction,
-    });
+    if (count > 0) {
+      await Service.update(updatePayload, {
+        where: whereCategory,
+        transaction,
+      });
+    }
 
     await transaction.commit();
 
     return successResponse(
       res,
-      { category: finalCatKey || targetCategory, updatedCount: count },
-      `Category '${finalCatKey || targetCategory}' updated across ${count} service(s)`
+      { category: targetCategory, updatedCount: count, payload: updatePayload },
+      `Category '${name || targetCategory}' updated successfully across ${count} service(s)`
     );
   } catch (error) {
     await transaction.rollback();
@@ -761,13 +767,18 @@ const toggleCategoryStatus = async (req, res) => {
     }
 
     const targetCategory = category.trim();
-    const servicesInCat = await Service.findAll({
-      where: { category: targetCategory },
-    });
+    const whereCategory = {
+      [Op.or]: [
+        { category: targetCategory },
+        { categoryName: targetCategory },
+        sequelize.where(sequelize.fn('LOWER', sequelize.col('category')), targetCategory.toLowerCase()),
+        sequelize.where(sequelize.fn('LOWER', sequelize.col('categoryName')), targetCategory.toLowerCase()),
+      ],
+    };
 
-    if (servicesInCat.length === 0) {
-      return errorResponse(res, `No services found under category '${targetCategory}'`, 404);
-    }
+    const servicesInCat = await Service.findAll({
+      where: whereCategory,
+    });
 
     const updates = {};
     if (enabled !== undefined) {
@@ -782,9 +793,11 @@ const toggleCategoryStatus = async (req, res) => {
       updates.comingSoon = Boolean(comingSoon);
     }
 
-    await Service.update(updates, {
-      where: { category: targetCategory },
-    });
+    if (servicesInCat.length > 0) {
+      await Service.update(updates, {
+        where: whereCategory,
+      });
+    }
 
     const statusLabel = updates.enabled ? 'now live' : 'hidden';
     return successResponse(
@@ -812,14 +825,27 @@ const deleteCategory = async (req, res) => {
     }
 
     const targetCategory = category.trim();
+    const whereCategory = {
+      [Op.or]: [
+        { category: targetCategory },
+        { categoryName: targetCategory },
+        sequelize.where(sequelize.fn('LOWER', sequelize.col('category')), targetCategory.toLowerCase()),
+        sequelize.where(sequelize.fn('LOWER', sequelize.col('categoryName')), targetCategory.toLowerCase()),
+      ],
+    };
+
     const servicesInCat = await Service.findAll({
-      where: { category: targetCategory },
+      where: whereCategory,
       transaction,
     });
 
     if (servicesInCat.length === 0) {
-      await transaction.rollback();
-      return errorResponse(res, `No services found under category '${targetCategory}'`, 404);
+      await transaction.commit();
+      return successResponse(
+        res,
+        { category: targetCategory, deletedCount: 0 },
+        `Category '${targetCategory}' deleted successfully`
+      );
     }
 
     const codes = servicesInCat.map((s) => s.code);

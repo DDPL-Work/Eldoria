@@ -9,6 +9,11 @@ import {
   fetchAdminProfile,
   updateAdminProfile,
   clearAuthError,
+  forgotPasswordThunk,
+  verifyForgotOtpThunk,
+  resetPasswordThunk,
+  changePasswordThunk,
+  changePhoneThunk,
 } from './slices/authSlice';
 
 import {
@@ -23,9 +28,14 @@ import {
   loadDemoData as loadDemoDataAction,
   resetAllData as resetAllDataAction,
   fetchStaffRequestsThunk,
+  fetchStaffRequestByIdThunk,
+  verifyStaffDocumentThunk,
   approveStaffThunk,
+  requestStaffChangesThunk,
   rejectStaffThunk,
+  revokeStaffDecisionThunk,
   fetchClientsThunk,
+  fetchClientByIdThunk,
   fetchDashboardThunk,
   fetchBookingsThunk,
   fetchBookingByIdThunk,
@@ -35,6 +45,16 @@ import {
   updateCityThunk,
   toggleCityStatusThunk,
   deleteCityThunk,
+  fetchServicesThunk,
+  fetchServiceByIdThunk,
+  createServiceThunk,
+  updateServiceThunk,
+  toggleServiceStatusThunk,
+  reorderServicesThunk,
+  deleteServiceThunk,
+  updateCategoryThunk,
+  toggleCategoryStatusThunk,
+  deleteCategoryThunk,
   syncExternalData as syncExternalDataAction,
 } from './slices/dataSlice';
 
@@ -94,6 +114,31 @@ export function useAuth() {
     return dispatch(updateAdminProfile(profileData));
   }, [dispatch]);
 
+  const forgotPassword = useCallback(
+    (email) => dispatch(forgotPasswordThunk(email)),
+    [dispatch]
+  );
+
+  const verifyForgotOtp = useCallback(
+    ({ email, otp }) => dispatch(verifyForgotOtpThunk({ email, otp })),
+    [dispatch]
+  );
+
+  const resetPassword = useCallback(
+    (payload) => dispatch(resetPasswordThunk(payload)),
+    [dispatch]
+  );
+
+  const changePassword = useCallback(
+    (payload) => dispatch(changePasswordThunk(payload)),
+    [dispatch]
+  );
+
+  const changePhone = useCallback(
+    (payload) => dispatch(changePhoneThunk(payload)),
+    [dispatch]
+  );
+
   return {
     isAuthenticated,
     user,
@@ -105,6 +150,11 @@ export function useAuth() {
     clearError,
     fetchProfile,
     updateProfile,
+    forgotPassword,
+    verifyForgotOtp,
+    resetPassword,
+    changePassword,
+    changePhone,
   };
 }
 
@@ -173,7 +223,18 @@ export function useFiles() {
   const fileGet = useCallback(
     (id) => {
       if (!id) return null;
-      return cache[id] || null;
+      if (cache[id]) return cache[id];
+      // If id is a direct image URL (e.g. Cloudinary or data URL)
+      if (typeof id === 'string' && (id.startsWith('http') || id.startsWith('data:'))) {
+        return {
+          id,
+          data: id,
+          url: id,
+          type: 'image/jpeg',
+          name: 'Document',
+        };
+      }
+      return null;
     },
     [cache]
   );
@@ -188,6 +249,167 @@ export function useFiles() {
   };
 }
 
+export const normalizeStaffRequest = (req) => {
+  if (!req) return null;
+  const u = req.user || {};
+  let skills = [];
+  if (Array.isArray(req.skills)) skills = req.skills;
+  else if (typeof req.skills === 'string') {
+    try { skills = JSON.parse(req.skills); } catch { skills = req.skills.split(',').map((s) => s.trim()).filter(Boolean); }
+  }
+
+  let languages = [];
+  if (Array.isArray(req.language)) languages = req.language;
+  else if (typeof req.language === 'string') {
+    try { languages = JSON.parse(req.language); } catch { languages = req.language.split(',').map((s) => s.trim()).filter(Boolean); }
+  }
+
+  let availability = [];
+  if (Array.isArray(req.availability)) availability = req.availability;
+  else if (typeof req.availability === 'string') {
+    try { availability = JSON.parse(req.availability); } catch { availability = req.availability.split(',').map((s) => s.trim()).filter(Boolean); }
+  }
+
+  let files = req.files || {};
+  while (typeof files === 'string') {
+    try {
+      const parsed = JSON.parse(files);
+      if (parsed === files) break;
+      files = parsed;
+    } catch {
+      break;
+    }
+  }
+
+  // Convert array to object map if needed
+  const normalizedFiles = {};
+  if (Array.isArray(files)) {
+    files.forEach((f, idx) => {
+      if (!f) return;
+      const k = f.k || f.key || f.type || `doc_${idx}`;
+      normalizedFiles[k] = f;
+    });
+  } else if (files && typeof files === 'object') {
+    Object.assign(normalizedFiles, files);
+  }
+
+  // Support key aliases
+  const keyAliases = {
+    id_proof: 'idProof',
+    idproof: 'idProof',
+    photo_id: 'idProof',
+    qualification_certificate: 'qualification',
+    qualificationcert: 'qualification',
+    experience_letter: 'experience',
+    experienceletter: 'experience',
+    police_verification: 'police',
+    policeverification: 'police',
+  };
+
+  Object.entries(keyAliases).forEach(([alias, target]) => {
+    if (normalizedFiles[alias] && !normalizedFiles[target]) {
+      normalizedFiles[target] = normalizedFiles[alias];
+    }
+  });
+
+  // Ensure each entry has url, data, isImage, type, name
+  Object.keys(normalizedFiles).forEach((k) => {
+    let f = normalizedFiles[k];
+    if (!f) return;
+    if (typeof f === 'string') {
+      f = { id: `doc_${k}`, data: f, url: f, name: `${k}.jpg` };
+    }
+    const fileUrl = f.data || f.url || '';
+    const isImg =
+      (f.type && f.type.startsWith('image/')) ||
+      /cloudinary\.com/i.test(fileUrl) ||
+      /\.(jpeg|jpg|gif|png|webp|avif|svg)($|\?|#)/i.test(fileUrl) ||
+      /\.(jpeg|jpg|gif|png|webp|avif|svg)($|\?|#)/i.test(f.name || '') ||
+      fileUrl.startsWith('data:image/');
+
+    normalizedFiles[k] = {
+      ...f,
+      id: f.id || `doc_${k}`,
+      data: fileUrl,
+      url: fileUrl,
+      name: f.name || f.filename || `${k}.jpg`,
+      type: f.type || (isImg ? 'image/jpeg' : 'application/pdf'),
+      isImage: isImg,
+    };
+  });
+
+  let docChecks = req.docChecks || {};
+  while (typeof docChecks === 'string') {
+    try {
+      const parsed = JSON.parse(docChecks);
+      if (parsed === docChecks) break;
+      docChecks = parsed;
+    } catch {
+      break;
+    }
+  }
+
+  let appHistory = req.appHistory || [];
+  while (typeof appHistory === 'string') {
+    try {
+      const parsed = JSON.parse(appHistory);
+      if (parsed === appHistory) break;
+      appHistory = parsed;
+    } catch {
+      break;
+    }
+  }
+
+  const submittedAt = req.submittedAt
+    ? new Date(req.submittedAt).getTime()
+    : req.createdAt
+    ? new Date(req.createdAt).getTime()
+    : Date.now();
+
+  const id = String(req.id || req.staffId);
+
+  return {
+    id,
+    backendId: req.id,
+    staffId: req.staffId || id,
+    name: u.name || req.name || 'Staff Member',
+    phone: u.phone || req.phone || '',
+    email: u.email || req.email || '',
+    role: req.qualification || req.role || 'Caregiver',
+    qualification: req.qualification || '',
+    experience: req.experience || 0,
+    city: (req.city || 'mumbai').toLowerCase().trim(),
+    area: req.area || '',
+    address: req.address || '',
+    regNo: req.regNo || '',
+    dob: req.dob || '',
+    gender: req.gender || '',
+    applied: true,
+    approval: req.approval || 'pending',
+    docs: req.docs || 'pending',
+    docChecks,
+    skillList: skills,
+    skills,
+    languages,
+    availability,
+    emergency: {
+      name: req.emergencyName || '',
+      phone: req.emergencyPhone || '',
+      relation: req.emergencyRelation || '',
+    },
+    files: normalizedFiles,
+    appHistory,
+    reviewNote: req.reviewNote || '',
+    reviewedAt: req.reviewedAt ? new Date(req.reviewedAt).getTime() : null,
+    approvedAt: req.approvedAt ? new Date(req.approvedAt).getTime() : null,
+    rejectedAt: req.rejectedAt ? new Date(req.rejectedAt).getTime() : null,
+    submittedAt,
+    createdAt: req.createdAt ? new Date(req.createdAt).getTime() : submittedAt,
+    notes: req.notes || '',
+    raw: req,
+  };
+};
+
 /**
  * Redux-backed useStore hook
  * Full replacement for StoreContext using Redux Toolkit state & reducers
@@ -199,7 +421,64 @@ export function useStore() {
   const backendStaffRequests = useSelector(
     (state) => state.data.backendStaffRequests
   );
+  const staffRequestsPagination = useSelector(
+    (state) => state.data.staffRequestsPagination
+  );
+  const staffRequestsLoading = useSelector(
+    (state) => state.data.staffRequestsLoading
+  );
+  const staffRequestsError = useSelector(
+    (state) => state.data.staffRequestsError
+  );
+  const currentStaffRequest = useSelector(
+    (state) => state.data.currentStaffRequest
+  );
+  const staffRequestDetailLoading = useSelector(
+    (state) => state.data.staffRequestDetailLoading
+  );
+  const staffRequestDetailError = useSelector(
+    (state) => state.data.staffRequestDetailError
+  );
   const backendClients = useSelector((state) => state.data.backendClients);
+  const clientsPagination = useSelector(
+    (state) => state.data.clientsPagination
+  );
+  const currentClientDetail = useSelector(
+    (state) => state.data.currentClientDetail
+  );
+  const clientDetailLoading = useSelector(
+    (state) => state.data.clientDetailLoading
+  );
+  const clientDetailError = useSelector(
+    (state) => state.data.clientDetailError
+  );
+  const backendServices = useSelector(
+    (state) => state.data.backendServices
+  );
+  const backendCategories = useSelector(
+    (state) => state.data.backendCategories
+  );
+  const servicesSummary = useSelector(
+    (state) => state.data.servicesSummary
+  );
+  const servicesPagination = useSelector(
+    (state) => state.data.servicesPagination
+  );
+  const currentServiceDetail = useSelector(
+    (state) => state.data.currentServiceDetail
+  );
+  const servicesLoading = useSelector(
+    (state) => state.data.servicesLoading
+  );
+  const servicesError = useSelector(
+    (state) => state.data.servicesError
+  );
+  const serviceActionLoading = useSelector(
+    (state) => state.data.serviceActionLoading
+  );
+  const serviceActionError = useSelector(
+    (state) => state.data.serviceActionError
+  );
   const dashboardData = useSelector((state) => state.data.dashboardData);
   const dashboardLoading = useSelector((state) => state.data.dashboardLoading);
   const dashboardError = useSelector((state) => state.data.dashboardError);
@@ -310,7 +589,7 @@ export function useStore() {
   );
 
   const svcBookable = useCallback(
-    (x) => svcLive(x) && !catOf(x.categoryId).comingSoon,
+    (x) => svcLive(x) && !catOf(x.categoryId).comingSoon && !x.comingSoon,
     [svcLive, catOf]
   );
 
@@ -409,87 +688,43 @@ export function useStore() {
     [data.staff]
   );
 
-const normalizeStaffRequest = (req) => {
-  if (!req) return null;
-  const u = req.user || {};
-  let skills = [];
-  if (Array.isArray(req.skills)) skills = req.skills;
-  else if (typeof req.skills === 'string') {
-    try { skills = JSON.parse(req.skills); } catch { skills = req.skills.split(',').map((s) => s.trim()).filter(Boolean); }
-  }
-
-  let languages = [];
-  if (Array.isArray(req.language)) languages = req.language;
-  else if (typeof req.language === 'string') {
-    try { languages = JSON.parse(req.language); } catch { languages = req.language.split(',').map((s) => s.trim()).filter(Boolean); }
-  }
-
-  let availability = [];
-  if (Array.isArray(req.availability)) availability = req.availability;
-  else if (typeof req.availability === 'string') {
-    try { availability = JSON.parse(req.availability); } catch { availability = req.availability.split(',').map((s) => s.trim()).filter(Boolean); }
-  }
-
-  let files = req.files || {};
-  if (typeof files === 'string') {
-    try { files = JSON.parse(files); } catch { files = {}; }
-  }
-
-  const submittedAt = req.submittedAt
-    ? new Date(req.submittedAt).getTime()
-    : req.createdAt
-    ? new Date(req.createdAt).getTime()
-    : Date.now();
-
-  const id = String(req.id || req.staffId);
-
-  return {
-    id,
-    staffId: req.staffId || id,
-    name: u.name || req.name || 'Staff Member',
-    phone: u.phone || req.phone || '',
-    email: u.email || req.email || '',
-    role: req.qualification || req.role || 'Caregiver',
-    qualification: req.qualification || '',
-    experience: req.experience || 0,
-    city: (req.city || 'mumbai').toLowerCase().trim(),
-    area: req.area || '',
-    address: req.address || '',
-    regNo: req.regNo || '',
-    dob: req.dob || '',
-    gender: req.gender || '',
-    applied: true,
-    approval: req.approval || 'pending',
-    docs: req.docs || 'pending',
-    docChecks: req.docChecks || {},
-    skillList: skills,
-    skills,
-    languages,
-    availability,
-    emergency: {
-      name: req.emergencyName || '',
-      phone: req.emergencyPhone || '',
-      relation: req.emergencyRelation || '',
-    },
-    files,
-    submittedAt,
-    createdAt: req.createdAt ? new Date(req.createdAt).getTime() : submittedAt,
-    notes: req.notes || '',
-    raw: req,
-  };
-};
-
   const applications = useCallback(
     () => {
+      let list = [];
       if (backendStaffRequests && backendStaffRequests.length > 0) {
-        return backendStaffRequests
+        list = backendStaffRequests
           .map(normalizeStaffRequest)
-          .filter(Boolean)
-          .sort((a, b) => (b.submittedAt || 0) - (a.submittedAt || 0));
+          .filter(Boolean);
+      } else {
+        list = Object.values(data.staff || {})
+          .filter((s) => s.applied)
+          .map((s) => ({
+            ...s,
+            id: String(s.id || s.staffId),
+            backendId: s.id,
+            staffId: s.staffId || s.id,
+            applied: true,
+          }));
       }
-      return [];
+
+      // If currentStaffRequest exists and is not yet in the list, merge it
+      if (currentStaffRequest) {
+        const currNorm = normalizeStaffRequest(currentStaffRequest);
+        if (currNorm) {
+          const idx = list.findIndex(
+            (x) => String(x.id) === String(currNorm.id) || String(x.staffId) === String(currNorm.staffId)
+          );
+          if (idx >= 0) {
+            list[idx] = { ...list[idx], ...currNorm };
+          } else {
+            list.unshift(currNorm);
+          }
+        }
+      }
+
+      return list.sort((a, b) => (b.submittedAt || 0) - (a.submittedAt || 0));
     },
-    [backendStaffRequests]
+    [backendStaffRequests, currentStaffRequest, data.staff]
   );
 
   const enqAll = useCallback(
@@ -521,8 +756,23 @@ const normalizeStaffRequest = (req) => {
     [dispatch]
   );
 
+  const fetchStaffRequestById = useCallback(
+    (id) => dispatch(fetchStaffRequestByIdThunk(id)),
+    [dispatch]
+  );
+
+  const verifyStaffDocument = useCallback(
+    (id, payload) => dispatch(verifyStaffDocumentThunk({ id, payload })),
+    [dispatch]
+  );
+
   const approveStaff = useCallback(
     (id, payload) => dispatch(approveStaffThunk({ id, payload })),
+    [dispatch]
+  );
+
+  const requestStaffChanges = useCallback(
+    (id, payload) => dispatch(requestStaffChangesThunk({ id, payload })),
     [dispatch]
   );
 
@@ -531,8 +781,18 @@ const normalizeStaffRequest = (req) => {
     [dispatch]
   );
 
+  const revokeStaffDecision = useCallback(
+    (id, payload = {}) => dispatch(revokeStaffDecisionThunk({ id, payload })),
+    [dispatch]
+  );
+
   const fetchClients = useCallback(
     (params) => dispatch(fetchClientsThunk(params)),
+    [dispatch]
+  );
+
+  const fetchClientById = useCallback(
+    (clientId) => dispatch(fetchClientByIdThunk(clientId)),
     [dispatch]
   );
 
@@ -581,6 +841,56 @@ const normalizeStaffRequest = (req) => {
     [dispatch]
   );
 
+  const fetchServices = useCallback(
+    (params = '') => dispatch(fetchServicesThunk(params)),
+    [dispatch]
+  );
+
+  const fetchServiceById = useCallback(
+    (id) => dispatch(fetchServiceByIdThunk(id)),
+    [dispatch]
+  );
+
+  const createService = useCallback(
+    (serviceData) => dispatch(createServiceThunk(serviceData)),
+    [dispatch]
+  );
+
+  const updateService = useCallback(
+    (id, serviceData) => dispatch(updateServiceThunk({ id, data: serviceData })),
+    [dispatch]
+  );
+
+  const toggleServiceStatus = useCallback(
+    (id, payload = {}) => dispatch(toggleServiceStatusThunk({ id, payload })),
+    [dispatch]
+  );
+
+  const reorderServices = useCallback(
+    (data) => dispatch(reorderServicesThunk(data)),
+    [dispatch]
+  );
+
+  const deleteService = useCallback(
+    (id) => dispatch(deleteServiceThunk(id)),
+    [dispatch]
+  );
+
+  const updateCategory = useCallback(
+    (category, data) => dispatch(updateCategoryThunk({ category, data })),
+    [dispatch]
+  );
+
+  const toggleCategoryStatus = useCallback(
+    (category, payload = {}) => dispatch(toggleCategoryStatusThunk({ category, payload })),
+    [dispatch]
+  );
+
+  const deleteCategory = useCallback(
+    (category) => dispatch(deleteCategoryThunk(category)),
+    [dispatch]
+  );
+
   return {
     data,
     put,
@@ -621,9 +931,28 @@ const normalizeStaffRequest = (req) => {
     notesFor,
     unread,
     settings,
-    // Backend API Thunk Triggers
+    // Backend API Thunk Triggers & State
     backendStaffRequests,
+    staffRequestsPagination,
+    staffRequestsLoading,
+    staffRequestsError,
+    currentStaffRequest,
+    staffRequestDetailLoading,
+    staffRequestDetailError,
     backendClients,
+    clientsPagination,
+    currentClientDetail,
+    clientDetailLoading,
+    clientDetailError,
+    backendServices,
+    backendCategories,
+    servicesSummary,
+    servicesPagination,
+    currentServiceDetail,
+    servicesLoading,
+    servicesError,
+    serviceActionLoading,
+    serviceActionError,
     dashboardData,
     dashboardLoading,
     dashboardError,
@@ -643,9 +972,14 @@ const normalizeStaffRequest = (req) => {
     dataLoading,
     dataError,
     fetchStaffRequests,
+    fetchStaffRequestById,
+    verifyStaffDocument,
     approveStaff,
+    requestStaffChanges,
     rejectStaff,
+    revokeStaffDecision,
     fetchClients,
+    fetchClientById,
     fetchDashboard,
     fetchBookings,
     fetchBookingById,
@@ -655,5 +989,15 @@ const normalizeStaffRequest = (req) => {
     updateCity,
     toggleCityStatus,
     deleteCity,
+    fetchServices,
+    fetchServiceById,
+    createService,
+    updateService,
+    toggleServiceStatus,
+    reorderServices,
+    deleteService,
+    updateCategory,
+    toggleCategoryStatus,
+    deleteCategory,
   };
 }

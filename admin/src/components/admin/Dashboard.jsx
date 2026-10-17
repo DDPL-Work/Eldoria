@@ -36,13 +36,15 @@ export function Dashboard({ onTab, onOpenBooking, onNewBooking }) {
     dashboardData,
     dashboardLoading,
     dashboardError,
-    fetchDashboard
+    fetchDashboard,
+    fetchStaffRequests
   } = useStore();
 
-  // Fetch live dashboard metrics on mount and when selectedCity changes
+  // Fetch live dashboard metrics and staff requests on mount and when selectedCity changes
   useEffect(() => {
     fetchDashboard(selectedCity || 'all');
-  }, [fetchDashboard, selectedCity]);
+    fetchStaffRequests?.({ approval: 'all', limit: 100 });
+  }, [fetchDashboard, fetchStaffRequests, selectedCity]);
 
   // Date and greeting helpers
   const d = new Date();
@@ -471,11 +473,30 @@ export function Dashboard({ onTab, onOpenBooking, onNewBooking }) {
                               Confirm
                             </button>
                           ) : (() => {
-                            const stList = staffList();
-                            const bc = b.city || bCity(b);
+                            // Combine staff from Redux store and dashboardData.staffAvailability
+                            const rawStaffList = staffList();
+                            const dashStaff = (dashboardData?.staffAvailability || []).map((s) => ({
+                              id: String(s.staffId || s.id),
+                              staffId: s.staffId || String(s.id),
+                              name: s.name,
+                              role: s.role || 'Caregiver',
+                              city: (s.city || 'mumbai').toLowerCase().trim(),
+                              onDuty: Boolean(s.onDuty),
+                              approval: s.approval || 'approved',
+                            }));
+                            const staffMap = new Map();
+                            dashStaff.forEach((s) => staffMap.set(String(s.id), s));
+                            rawStaffList.forEach((s) => staffMap.set(String(s.id || s.staffId), s));
+                            const stList = Array.from(staffMap.values());
+
                             const defaultCityId = DEFAULT_CITIES[0]?.id || 'mumbai';
-                            const local = stList.filter((s) => (s.city || defaultCityId) === bc);
-                            const other = stList.filter((s) => (s.city || defaultCityId) !== bc);
+                            const bc = String(b.city || bCity(b) || defaultCityId).toLowerCase().trim();
+                            const local = stList.filter(
+                              (s) => String(s.city || defaultCityId).toLowerCase().trim() === bc
+                            );
+                            const other = stList.filter(
+                              (s) => String(s.city || defaultCityId).toLowerCase().trim() !== bc
+                            );
                             return (
                               <select
                                 aria-label={`Assign staff for ${b.code}`}

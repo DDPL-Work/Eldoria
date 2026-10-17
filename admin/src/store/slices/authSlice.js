@@ -108,6 +108,81 @@ export const updateAdminProfile = createAsyncThunk(
   }
 );
 
+/**
+ * Async Thunk: Forgot Password (Request OTP)
+ */
+export const forgotPasswordThunk = createAsyncThunk(
+  'auth/forgotPassword',
+  async (email, { rejectWithValue }) => {
+    try {
+      const res = await authAPI.forgotPassword(email);
+      return res.data || res;
+    } catch (err) {
+      return rejectWithValue(err.message || 'Failed to request password reset OTP');
+    }
+  }
+);
+
+/**
+ * Async Thunk: Verify Forgot Password OTP
+ */
+export const verifyForgotOtpThunk = createAsyncThunk(
+  'auth/verifyForgotOtp',
+  async ({ email, otp }, { rejectWithValue }) => {
+    try {
+      const res = await authAPI.verifyOtp({ email, otp });
+      return res.data || res;
+    } catch (err) {
+      return rejectWithValue(err.message || 'Failed to verify OTP');
+    }
+  }
+);
+
+/**
+ * Async Thunk: Reset Password
+ */
+export const resetPasswordThunk = createAsyncThunk(
+  'auth/resetPassword',
+  async (payload, { rejectWithValue }) => {
+    try {
+      const res = await authAPI.resetPassword(payload);
+      return res.data || res;
+    } catch (err) {
+      return rejectWithValue(err.message || 'Failed to reset password');
+    }
+  }
+);
+
+/**
+ * Async Thunk: Change Password from Profile
+ */
+export const changePasswordThunk = createAsyncThunk(
+  'auth/changePassword',
+  async ({ currentPassword, newPassword, confirmPassword }, { rejectWithValue }) => {
+    try {
+      const res = await authAPI.changePassword({ currentPassword, newPassword, confirmPassword });
+      return res.data || res;
+    } catch (err) {
+      return rejectWithValue(err.message || 'Failed to change password');
+    }
+  }
+);
+
+/**
+ * Async Thunk: Change Phone Number
+ */
+export const changePhoneThunk = createAsyncThunk(
+  'auth/changePhone',
+  async ({ phone, newPhone }, { rejectWithValue }) => {
+    try {
+      const res = await authAPI.changePhone({ phone, newPhone });
+      return res.data || res;
+    } catch (err) {
+      return rejectWithValue(err.message || 'Failed to update mobile number');
+    }
+  }
+);
+
 const authSlice = createSlice({
   name: 'auth',
   initialState: {
@@ -178,6 +253,53 @@ const authSlice = createSlice({
             saveTokenStorage(action.payload.token);
           }
         }
+      })
+      // changePhoneThunk
+      .addCase(changePhoneThunk.fulfilled, (state, action) => {
+        if (action.payload) {
+          const profileData = action.payload.user || action.payload.data || action.payload;
+          state.user = { ...state.user, ...profileData };
+          if (action.payload.token) {
+            state.token = action.payload.token;
+            saveTokenStorage(action.payload.token);
+          }
+        }
+      })
+      // forgotPasswordThunk
+      .addCase(forgotPasswordThunk.pending, (state) => {
+        state.loading = true;
+        state.error = null;
+      })
+      .addCase(forgotPasswordThunk.fulfilled, (state) => {
+        state.loading = false;
+      })
+      .addCase(forgotPasswordThunk.rejected, (state, action) => {
+        state.loading = false;
+        state.error = action.payload;
+      })
+      // verifyForgotOtpThunk
+      .addCase(verifyForgotOtpThunk.pending, (state) => {
+        state.loading = true;
+        state.error = null;
+      })
+      .addCase(verifyForgotOtpThunk.fulfilled, (state) => {
+        state.loading = false;
+      })
+      .addCase(verifyForgotOtpThunk.rejected, (state, action) => {
+        state.loading = false;
+        state.error = action.payload;
+      })
+      // resetPasswordThunk
+      .addCase(resetPasswordThunk.pending, (state) => {
+        state.loading = true;
+        state.error = null;
+      })
+      .addCase(resetPasswordThunk.fulfilled, (state) => {
+        state.loading = false;
+      })
+      .addCase(resetPasswordThunk.rejected, (state, action) => {
+        state.loading = false;
+        state.error = action.payload;
       });
   },
 });
