@@ -1,0 +1,1629 @@
+const { Op } = require("sequelize");
+const { sequelize, Booking, Staff, User, Service, City } = require("../database/models");
+const { errorResponse, successResponse } = require("../utills/responseHandler");
+const { generateBookingId } = require("../helpers/generateBookingID");
+const { scoreAndRankStaffForBooking } = require("../helpers/staffMatching.helper");
+
+/**
+ * Format date helper for human-readable notification text
+ */
+const formatNotificationDate = (dateStr, timeStr) => {
+  if (!dateStr) return timeStr || "";
+  try {
+    const d = new Date(dateStr + "T00:00:00");
+    const today = new Date();
+    const todayStr = today.toISOString().split("T")[0];
+
+    const tm = new Date();
+    tm.setDate(tm.getDate() + 1);
+    const tmStr = tm.toISOString().split("T")[0];
+
+    let dayPart = dateStr;
+    if (dateStr === todayStr) dayPart = "today";
+    else if (dateStr === tmStr) dayPart = "tomorrow";
+    else {
+      const DOW = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+      const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+      dayPart = `on ${DOW[d.getDay()]} ${d.getDate()} ${MON[d.getMonth()]}`;
+    }
+
+    return `${dayPart} at ${timeStr || "scheduled time"}`;
+  } catch {
+    return `${dateStr} ${timeStr || ""}`;
+  }
+};
+
+/**
+ * Look up helper for Booking by ID or Code
+ */
+const buildBookingLookup = (identifier) => {
+  const numericId = parseInt(identifier, 10);
+  if (!isNaN(numericId) && String(numericId) === String(identifier).trim()) {
+    return { id: numericId };
+  }
+  return { code: String(identifier).trim() };
+};
+
+/**
+ * Helper to fetch staff lookup condition
+ */
+const buildStaffLookup = (identifier) => {
+  const num = parseInt(identifier, 10);
+  if (!isNaN(num) && String(num) === String(identifier).trim()) {
+    return { id: num };
+  }
+  return { staffId: String(identifier).trim() };
+};
+
+// =========================================================================
+// 1. CLIENT BOOKING FLOW
+// =========================================================================
+
+/**
+ * Client Creates a Booking Request
+ * POST /api/v1/client/bookings
+ */
+const createClientBooking = async (req, res) => {
+  const transaction = await sequelize.transaction();
+
+  try {
+    const {
+      service: legacyService,
+      serviceId: directServiceId,
+      category: legacyCategory,
+      categoryId: directCategoryId,
+      plan,
+      patientName,
+      patientAge,
+      patientGender,
+      relation,
+      city,
+      area,
+      address,
+      date,
+      time,
+      notes,
+      source,
+    } = req.body;
+
+    const serviceInput = (directServiceId || legacyService || "").toString().trim();
+    const categoryInput = (directCategoryId || legacyCategory || "").toString().trim();
+
+    // Get client identity from authenticated token or payload
+    const clientName = (req.user?.name || req.body.clientName || "").trim();
+    const clientPhone = (req.user?.phone || req.body.clientPhone || "").trim();
+    const clientId = req.user?.id || req.body.clientId || null;
+
+    // Validation
+    if (!clientName || !clientPhone) {
+      await transaction.rollback();
+      return errorResponse(res, "Client name and a valid phone number are required.", 400);
+    }
+    if (!patientName || !patientName.trim()) {
+      await transaction.rollback();
+      return errorResponse(res, "Patient name is required.", 400);
+    }
+    if (!serviceInput) {
+      await transaction.rollback();
+      return errorResponse(res, "Service selection ('serviceId' or 'service') is required.", 400);
+    }
+    if (!categoryInput) {
+      await transaction.rollback();
+      return errorResponse(res, "Category selection ('categoryId' or 'category') is required.", 400);
+    }
+    if (!address || !address.trim()) {
+      await transaction.rollback();
+      return errorResponse(res, "Visit address is required.", 400);
+    }
+    if (!date || !time) {
+      await transaction.rollback();
+      return errorResponse(res, "Start date and preferred time are required.", 400);
+    }
+
+    const bookingCity = (city || req.user?.city || "mumbai").toLowerCase().trim();
+
+    // Fetch service details for tasks and price
+    const isServiceNumeric = !isNaN(Number(serviceInput)) && /^\d+$/.test(serviceInput);
+    const serviceWhere = isServiceNumeric
+      ? { [Op.or]: [{ id: Number(serviceInput) }, { serviceId: serviceInput }, { code: serviceInput }] }
+      : { [Op.or]: [{ serviceId: serviceInput }, { name: serviceInput }, { code: serviceInput }] };
+
+    const serviceRecord = await Service.findOne({
+      where: serviceWhere,
+      transaction,
+    });
+
+    const finalServiceId = serviceRecord?.serviceId || serviceInput;
+    const finalServiceName = serviceRecord?.name || serviceInput;
+    const finalCategoryId = directCategoryId || serviceRecord?.category || categoryInput;
+    const finalCategory = serviceRecord?.categoryName || serviceRecord?.category || categoryInput;
+    const servicePrice = serviceRecord ? Number(serviceRecord.price) : 0.0;
+
+    // Initialize default tasks for the visit from the service catalog
+    const initialTasks = Array.isArray(serviceRecord?.tasks)
+      ? serviceRecord.tasks.map((taskLabel) => ({
+          label: typeof taskLabel === "string" ? taskLabel : taskLabel.label || "Care task",
+          done: false,
+        }))
+      : [];
+
+    // Generate unique Booking Code
+    const bookingCode = await generateBookingId(clientName, bookingCity, transaction);
+
+    const now = new Date();
+    const initialHistory = [
+      {
+        status: "requested",
+        at: now.toISOString(),
+        by: "client",
+        note: "Booking request created by client",
+      },
+    ];
+
+    const newBooking = await Booking.create(
+      {
+        code: bookingCode,
+        clientId,
+        clientName,
+        clientPhone,
+        patientName: patientName.trim(),
+        patientAge: patientAge ? String(patientAge).trim() : null,
+        patientGender: patientGender || null,
+        relation: relation || "Mother",
+        serviceId: finalServiceId,
+        service: finalServiceId,
+        serviceName: finalServiceName,
+        categoryId: finalCategoryId,
+        category: finalCategory,
+        plan: plan || "Single visit",
+        city: bookingCity,
+        area: area ? area.trim() : null,
+        address: address.trim(),
+        date: String(date).trim(),
+        time: String(time).trim(),
+        status: "requested",
+        staffId: null,
+        source: source || "App",
+        notes: notes ? notes.trim() : null,
+        price: servicePrice,
+        tasks: initialTasks,
+        visit: {},
+        history: initialHistory,
+        confirmedBy: null,
+        confirmedAt: null,
+        assignedBy: null,
+        assignedAt: null,
+      },
+      { transaction }
+    );
+
+    await transaction.commit();
+
+    return successResponse(
+      res,
+      {
+        booking: newBooking,
+        notification: {
+          client: {
+            title: "Request received",
+            body: `We'll confirm your ${finalServiceName} booking ${bookingCode} shortly.`,
+          },
+          admin: {
+            title: `New request ${bookingCode}`,
+            body: `${clientName} booked ${finalServiceName} for ${patientName.trim()} in ${bookingCity} · ${date}, ${time}`,
+          },
+        },
+      },
+      "Booking request submitted successfully. Care desk will confirm shortly.",
+      201
+    );
+  } catch (error) {
+    if (transaction && !transaction.finished) {
+      await transaction.rollback();
+    }
+    return errorResponse(res, error.message || "Failed to create booking request", 500, error);
+  }
+};
+
+/**
+ * Get Client's Bookings List
+ * GET /api/v1/client/bookings
+ */
+const getClientBookings = async (req, res) => {
+  try {
+    const clientPhone = req.user?.phone || req.query.phone || "";
+    const clientId = req.user?.id || req.query.clientId || null;
+
+    if (!clientPhone && !clientId) {
+      return errorResponse(res, "Authentication or client phone is required to view bookings", 400);
+    }
+
+    const where = {};
+    if (clientPhone) {
+      where.clientPhone = clientPhone;
+    } else if (clientId) {
+      where.clientId = clientId;
+    }
+
+    const bookings = await Booking.findAll({
+      where,
+      include: [
+        {
+          model: Staff,
+          as: "assignedStaff",
+          attributes: ["id", "staffId", "qualification", "city", "area", "docs", "onDuty"],
+          required: false,
+          include: [
+            {
+              model: User,
+              as: "user",
+              attributes: ["id", "name", "phone", "email"],
+            },
+          ],
+        },
+      ],
+      order: [
+        ["date", "DESC"],
+        ["time", "DESC"],
+        ["createdAt", "DESC"],
+      ],
+    });
+
+    return successResponse(res, bookings, "Client bookings retrieved successfully");
+  } catch (error) {
+    return errorResponse(res, error.message || "Failed to retrieve bookings", 500, error);
+  }
+};
+
+/**
+ * Get Client Booking Details by ID or Code
+ * GET /api/v1/client/bookings/:id
+ */
+const getClientBookingById = async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!id) {
+      return errorResponse(res, "Booking identifier is required", 400);
+    }
+
+    const booking = await Booking.findOne({
+      where: buildBookingLookup(id),
+      include: [
+        {
+          model: Staff,
+          as: "assignedStaff",
+          attributes: ["id", "staffId", "qualification", "city", "area", "docs", "onDuty"],
+          required: false,
+          include: [
+            {
+              model: User,
+              as: "user",
+              attributes: ["id", "name", "phone", "email"],
+            },
+          ],
+        },
+      ],
+    });
+
+    if (!booking) {
+      return errorResponse(res, `Booking '${id}' not found`, 404);
+    }
+
+    // Prepare staff assignment info for client display
+    let staffAssignmentNotice = null;
+    let assignedStaffData = null;
+
+    if (booking.assignedStaff) {
+      const staffUser = booking.assignedStaff.user;
+      const staffName = staffUser?.name || booking.assignedStaff.staffId;
+      const staffPhone = staffUser?.phone || "";
+      const staffRole = booking.assignedStaff.qualification || "Caregiver";
+
+      assignedStaffData = {
+        staffId: booking.assignedStaff.staffId,
+        name: staffName,
+        phone: staffPhone,
+        role: staffRole,
+        city: booking.assignedStaff.city,
+        area: booking.assignedStaff.area,
+        isVerified: booking.assignedStaff.docs === "verified",
+      };
+
+      staffAssignmentNotice = `${staffName} (${staffRole}) will visit ${booking.patientName} ${formatNotificationDate(
+        booking.date,
+        booking.time
+      )}.`;
+    }
+
+    return successResponse(
+      res,
+      {
+        booking,
+        assignedStaff: assignedStaffData,
+        assignmentNotice: staffAssignmentNotice,
+      },
+      "Booking details retrieved successfully"
+    );
+  } catch (error) {
+    return errorResponse(res, error.message || "Failed to retrieve booking details", 500, error);
+  }
+};
+
+/**
+ * View Status of Created Booking (Client Side)
+ * Returns visual progress tracker, status badge, assigned caregiver card, visit vitals, and timeline
+ * GET /api/v1/client/bookings/:id/status
+ * GET /api/v1/client/booking/:id/status
+ * GET /api/v1/client/booking/:id/track
+ */
+const getClientBookingStatus = async (req, res) => {
+  try {
+    let lookupId = req.params.id || req.query.id || "my";
+    if (String(lookupId).trim() === ":id" || String(lookupId).trim() === "{id}") {
+      lookupId = "my";
+    }
+
+    let bookingLookup = null;
+    const isKeyword = ["active", "current", "latest", "my"].includes(String(lookupId).toLowerCase().trim());
+
+    if (isKeyword) {
+      // Find the latest booking created by this authenticated client
+      const userPhone = req.user?.phone ? String(req.user.phone).trim() : null;
+      const userId = req.user?.id ? String(req.user.id) : null;
+      const clientWhere = {};
+      if (userPhone && userId) {
+        clientWhere[Op.or] = [{ clientPhone: userPhone }, { clientId: userId }];
+      } else if (userPhone) {
+        clientWhere.clientPhone = userPhone;
+      } else if (userId) {
+        clientWhere.clientId = userId;
+      }
+
+      // If client has bookings, lookup the latest; otherwise fallback to latest booking
+      if (Object.keys(clientWhere).length > 0) {
+        bookingLookup = clientWhere;
+      } else {
+        bookingLookup = {};
+      }
+    } else {
+      bookingLookup = buildBookingLookup(lookupId);
+    }
+
+    const booking = await Booking.findOne({
+      where: bookingLookup,
+      order: [["createdAt", "DESC"]],
+      include: [
+        {
+          model: Staff,
+          as: "assignedStaff",
+          attributes: ["id", "staffId", "qualification", "city", "area", "docs", "files", "onDuty"],
+          required: false,
+          include: [
+            {
+              model: User,
+              as: "user",
+              attributes: ["id", "name", "phone", "email"],
+            },
+          ],
+        },
+      ],
+    });
+
+    if (!booking) {
+      return errorResponse(res, `Booking '${id}' not found`, 404);
+    }
+
+    // Determine ownership flag without blocking valid authenticated users
+    let isMyBooking = true;
+    if (req.user && req.user.role === "client") {
+      const userPhone = req.user.phone ? String(req.user.phone).replace(/\D/g, "") : "";
+      const bookingPhone = booking.clientPhone ? String(booking.clientPhone).replace(/\D/g, "") : "";
+      const isOwnerPhone =
+        userPhone &&
+        bookingPhone &&
+        (userPhone.endsWith(bookingPhone) || bookingPhone.endsWith(userPhone));
+      const isOwnerId =
+        req.user.id && booking.clientId && String(req.user.id) === String(booking.clientId);
+      isMyBooking = Boolean(isOwnerPhone || isOwnerId);
+    }
+
+    // Status metadata mapping
+    const statusMeta = {
+      requested: {
+        badge: "p-warn",
+        color: "amber",
+        label: "Requested",
+        stepIndex: 1,
+        title: "Booking Request Received",
+        description: `Your care request for ${booking.patientName} has been received. Our care desk will confirm availability shortly.`,
+      },
+      confirmed: {
+        badge: "p-info",
+        color: "blue",
+        label: "Confirmed",
+        stepIndex: 2,
+        title: "Booking Confirmed",
+        description: `Your appointment for ${booking.patientName} is confirmed for ${booking.date} at ${booking.time}. Caregiver matching is in progress.`,
+      },
+      assigned: {
+        badge: "p-purple",
+        color: "purple",
+        label: "Caregiver Assigned",
+        stepIndex: 3,
+        title: "Caregiver Assigned",
+        description: `${booking.assignedStaff?.user?.name || booking.staffId || "A caregiver"} (${booking.assignedStaff?.qualification || "Caregiver"}) will visit ${booking.patientName} ${formatNotificationDate(booking.date, booking.time)}.`,
+      },
+      on_the_way: {
+        badge: "p-indigo",
+        color: "indigo",
+        label: "On The Way",
+        stepIndex: 4,
+        title: "Caregiver On The Way",
+        description: `${booking.assignedStaff?.user?.name || "Caregiver"} is traveling to your location (${booking.address}). Please keep the patient area ready.`,
+      },
+      in_progress: {
+        badge: "p-teal",
+        color: "teal",
+        label: "In Progress",
+        stepIndex: 5,
+        title: "Care Visit In Progress",
+        description: `${booking.assignedStaff?.user?.name || "Caregiver"} has checked in and started the visit. Vitals and care checklist are being recorded.`,
+      },
+      completed: {
+        badge: "p-ok",
+        color: "emerald",
+        label: "Completed",
+        stepIndex: 6,
+        title: "Visit Completed",
+        description: `Care session for ${booking.patientName} has been completed successfully. Summary and vitals recorded are available below.`,
+      },
+      cancelled: {
+        badge: "p-err",
+        color: "red",
+        label: "Cancelled",
+        stepIndex: 0,
+        title: "Booking Cancelled",
+        description: `This booking has been cancelled.${booking.notes ? ` Reason: ${booking.notes}` : ""}`,
+      },
+    };
+
+    const currentMeta = statusMeta[booking.status] || {
+      badge: "p-warn",
+      color: "gray",
+      label: booking.status,
+      stepIndex: 1,
+      title: `Status: ${booking.status}`,
+      description: `Current status is ${booking.status}`,
+    };
+
+    // Standard workflow steps
+    const standardSteps = [
+      { key: "requested", title: "Request Placed", description: "Booking request received" },
+      { key: "confirmed", title: "Confirmed", description: "Schedule confirmed by care desk" },
+      { key: "assigned", title: "Caregiver Assigned", description: "Staff assigned to visit" },
+      { key: "on_the_way", title: "On The Way", description: "Caregiver traveling to home" },
+      { key: "in_progress", title: "Visit Started", description: "Caregiver arrived and checked in" },
+      { key: "completed", title: "Completed", description: "Visit care completed" },
+    ];
+
+    const currentStepIndex = currentMeta.stepIndex;
+    const isCancelled = booking.status === "cancelled";
+
+    // Build timeline events from booking history & current state
+    const historyList = Array.isArray(booking.history) ? booking.history : [];
+    const historyMap = {};
+    historyList.forEach((h) => {
+      if (h && h.status) {
+        historyMap[h.status] = h;
+      }
+    });
+
+    const timeline = standardSteps.map((step, idx) => {
+      const stepNum = idx + 1;
+      const isPast = !isCancelled && stepNum < currentStepIndex;
+      const isCurrent = !isCancelled && stepNum === currentStepIndex;
+      const historyEntry = historyMap[step.key];
+
+      let timestamp = historyEntry?.at || null;
+      if (!timestamp) {
+        if (step.key === "requested") timestamp = booking.createdAt;
+        if (step.key === "confirmed") timestamp = booking.confirmedAt;
+        if (step.key === "assigned") timestamp = booking.assignedAt;
+        if (step.key === "in_progress") timestamp = booking.checkInAt;
+        if (step.key === "completed") timestamp = booking.checkOutAt;
+      }
+
+      return {
+        key: step.key,
+        step: stepNum,
+        title: step.title,
+        description: step.description,
+        status: isCurrent ? "current" : isPast ? "completed" : "pending",
+        isCompleted: isPast || isCurrent,
+        isCurrent,
+        timestamp,
+        note: historyEntry?.note || null,
+        staffName: historyEntry?.staffName || null,
+      };
+    });
+
+    // Caregiver presentation info
+    let caregiver = null;
+    if (booking.assignedStaff) {
+      const staffUser = booking.assignedStaff.user;
+      const files = booking.assignedStaff.files || {};
+      const photoUrl =
+        files.photo?.data ||
+        files["files.photo"]?.data ||
+        files.photo?.url ||
+        null;
+
+      caregiver = {
+        staffId: booking.assignedStaff.staffId,
+        name: staffUser?.name || booking.assignedStaff.staffId,
+        phone: staffUser?.phone || null,
+        email: staffUser?.email || null,
+        role: booking.assignedStaff.qualification || "Caregiver",
+        city: booking.assignedStaff.city,
+        area: booking.assignedStaff.area,
+        photo: photoUrl,
+        isVerified: booking.assignedStaff.docs === "verified",
+        onDuty: Boolean(booking.assignedStaff.onDuty),
+      };
+    }
+
+    // Care metrics / visit details
+    const visitDetails = {
+      checkInAt: booking.checkInAt,
+      checkOutAt: booking.checkOutAt,
+      durationMinutes: null,
+      vitals: booking.visit || {},
+      tasks: Array.isArray(booking.tasks) ? booking.tasks : [],
+      tasksCompletedCount: Array.isArray(booking.tasks)
+        ? booking.tasks.filter((t) => t.done).length
+        : 0,
+      tasksTotalCount: Array.isArray(booking.tasks) ? booking.tasks.length : 0,
+    };
+
+    if (booking.checkInAt && booking.checkOutAt) {
+      const start = new Date(booking.checkInAt).getTime();
+      const end = new Date(booking.checkOutAt).getTime();
+      if (!isNaN(start) && !isNaN(end) && end >= start) {
+        visitDetails.durationMinutes = Math.round((end - start) / 60000);
+      }
+    } else if (booking.checkInAt && booking.status === "in_progress") {
+      const start = new Date(booking.checkInAt).getTime();
+      const now = Date.now();
+      if (!isNaN(start) && now >= start) {
+        visitDetails.durationMinutes = Math.round((now - start) / 60000);
+      }
+    }
+
+    const responseData = {
+      id: booking.id,
+      code: booking.code,
+      status: booking.status,
+      statusBadge: currentMeta.badge,
+      statusColor: currentMeta.color,
+      statusLabel: currentMeta.label,
+      statusTitle: currentMeta.title,
+      statusDescription: currentMeta.description,
+      isCancelled,
+      isMyBooking,
+      activeStep: isCancelled ? 0 : currentStepIndex,
+      totalSteps: 6,
+      progressPercent: isCancelled ? 0 : Math.round((currentStepIndex / 6) * 100),
+      timeline,
+      caregiver,
+      service: {
+        serviceId: booking.serviceId || booking.service,
+        serviceName: booking.serviceName || booking.service,
+        categoryId: booking.categoryId,
+        category: booking.category,
+        plan: booking.plan,
+        price: booking.price,
+      },
+      patient: {
+        name: booking.patientName,
+        age: booking.patientAge,
+        gender: booking.patientGender,
+        relation: booking.relation,
+      },
+      schedule: {
+        date: booking.date,
+        time: booking.time,
+        formatted: formatNotificationDate(booking.date, booking.time),
+      },
+      location: {
+        city: booking.city,
+        area: booking.area,
+        address: booking.address,
+      },
+      visitDetails,
+      history: historyList,
+      createdAt: booking.createdAt,
+      updatedAt: booking.updatedAt,
+    };
+
+    return successResponse(res, responseData, "Booking status retrieved successfully");
+  } catch (error) {
+    return errorResponse(res, error.message || "Failed to retrieve booking status", 500, error);
+  }
+};
+
+/**
+ * Client Cancels a Booking
+ * PATCH /api/v1/client/bookings/:id/cancel
+ */
+const cancelClientBooking = async (req, res) => {
+  const transaction = await sequelize.transaction();
+
+  try {
+    const { id } = req.params;
+    const { reason } = req.body;
+
+    const booking = await Booking.findOne({
+      where: buildBookingLookup(id),
+      transaction,
+    });
+
+    if (!booking) {
+      await transaction.rollback();
+      return errorResponse(res, "Booking not found", 404);
+    }
+
+    // Guard: Can only cancel if in requested, confirmed, or assigned state
+    if (!["requested", "confirmed", "assigned"].includes(booking.status)) {
+      await transaction.rollback();
+      return errorResponse(
+        res,
+        `Cannot cancel booking with current status '${booking.status}'. Only pending or scheduled visits can be cancelled.`,
+        400
+      );
+    }
+
+    const now = new Date();
+    const cancelItem = {
+      status: "cancelled",
+      at: now.toISOString(),
+      by: "client",
+      note: reason || "Cancelled by client",
+    };
+
+    const existingHistory = Array.isArray(booking.history) ? booking.history : [];
+    const updatedHistory = [...existingHistory, cancelItem];
+
+    await booking.update(
+      {
+        status: "cancelled",
+        history: updatedHistory,
+      },
+      { transaction }
+    );
+
+    await transaction.commit();
+
+    return successResponse(res, booking, "Booking cancelled successfully");
+  } catch (error) {
+    if (transaction && !transaction.finished) {
+      await transaction.rollback();
+    }
+    return errorResponse(res, error.message || "Failed to cancel booking", 500, error);
+  }
+};
+
+// =========================================================================
+// 2. ADMIN BOOKING FLOW: CONFIRM & ASSIGN STAFF
+// =========================================================================
+
+/**
+ * Admin Assigns Staff to a Booking (Confirms booking and assigns staff)
+ * PATCH /api/v1/admin/bookings/:id/assign
+ */
+const assignStaffToBooking = async (req, res) => {
+  const transaction = await sequelize.transaction();
+
+  try {
+    const { id } = req.params;
+    const { staffId: staffIdentifier } = req.body;
+
+    if (!staffIdentifier) {
+      await transaction.rollback();
+      return errorResponse(res, "Staff ID ('staffId') is required to assign staff", 400);
+    }
+
+    const booking = await Booking.findOne({
+      where: buildBookingLookup(id),
+      transaction,
+    });
+
+    if (!booking) {
+      await transaction.rollback();
+      return errorResponse(res, `Booking '${id}' not found`, 404);
+    }
+
+    if (booking.status === "cancelled") {
+      await transaction.rollback();
+      return errorResponse(res, "Cannot assign staff to a cancelled booking", 400);
+    }
+
+    if (booking.status === "completed") {
+      await transaction.rollback();
+      return errorResponse(res, "Booking is already completed", 400);
+    }
+
+    // Look up staff member (must be approved)
+    const staff = await Staff.findOne({
+      where: buildStaffLookup(staffIdentifier),
+      include: [
+        {
+          model: User,
+          as: "user",
+          attributes: ["id", "name", "phone", "email"],
+        },
+      ],
+      transaction,
+    });
+
+    if (!staff) {
+      await transaction.rollback();
+      return errorResponse(res, `Staff member '${staffIdentifier}' not found`, 404);
+    }
+
+    if (staff.approval !== "approved") {
+      await transaction.rollback();
+      return errorResponse(
+        res,
+        `Staff member '${staff.user?.name || staff.staffId}' is not approved yet (status: '${staff.approval}'). Only approved staff can be assigned.`,
+        400
+      );
+    }
+
+    const now = new Date();
+    const existingHistory = Array.isArray(booking.history) ? [...booking.history] : [];
+
+    // Step A: If booking was in 'requested' state, confirm it first
+    let confirmedBy = booking.confirmedBy;
+    let confirmedAt = booking.confirmedAt;
+
+    if (!existingHistory.some((h) => h.status === "confirmed")) {
+      confirmedBy = "admin";
+      confirmedAt = now;
+      existingHistory.push({
+        status: "confirmed",
+        at: now.toISOString(),
+        by: "admin",
+        note: "Booking confirmed by admin upon staff assignment",
+      });
+    }
+
+    // Step B: Record staff assignment
+    existingHistory.push({
+      status: "assigned",
+      at: now.toISOString(),
+      by: "admin",
+      staffId: staff.staffId,
+      note: `Assigned to ${staff.user?.name || staff.staffId}`,
+    });
+
+    // Populate tasks from service if not already present
+    let currentTasks = booking.tasks;
+    if (!Array.isArray(currentTasks) || currentTasks.length === 0) {
+      const svc = await Service.findOne({
+        where: {
+          [Op.or]: [{ serviceId: booking.service }, { name: booking.service }],
+        },
+        transaction,
+      });
+      if (svc && Array.isArray(svc.tasks)) {
+        currentTasks = svc.tasks.map((t) => ({
+          label: typeof t === "string" ? t : t.label || "Care task",
+          done: false,
+        }));
+      }
+    }
+
+    await booking.update(
+      {
+        staffId: staff.staffId,
+        status: "assigned",
+        confirmedBy,
+        confirmedAt,
+        assignedBy: "admin",
+        assignedAt: now,
+        tasks: currentTasks,
+        history: existingHistory,
+      },
+      { transaction }
+    );
+
+    await transaction.commit();
+
+    // Fetch refreshed booking with associations
+    const refreshedBooking = await Booking.findOne({
+      where: { id: booking.id },
+      include: [
+        {
+          model: Staff,
+          as: "assignedStaff",
+          include: [{ model: User, as: "user", attributes: ["name", "phone", "email"] }],
+        },
+      ],
+    });
+
+    const staffName = staff.user?.name || staff.staffId;
+    const staffRole = staff.qualification || "Caregiver";
+    const notificationTimeStr = formatNotificationDate(booking.date, booking.time);
+
+    const notificationPayload = {
+      client: {
+        to: `client:${booking.clientPhone}`,
+        title: "Caregiver assigned",
+        body: `${staffName} (${staffRole}) will visit ${booking.patientName} ${notificationTimeStr}.`,
+      },
+      staff: {
+        to: `staff:${staff.staffId}`,
+        title: "New visit assigned",
+        body: `${booking.patientName} · ${booking.serviceName || booking.service} · ${notificationTimeStr} · ${booking.address}`,
+      },
+    };
+
+    return successResponse(
+      res,
+      {
+        booking: refreshedBooking,
+        notification: notificationPayload,
+      },
+      `${staffName} assigned successfully to booking ${booking.code}. Client informed.`
+    );
+  } catch (error) {
+    if (transaction && !transaction.finished) {
+      await transaction.rollback();
+    }
+    return errorResponse(res, error.message || "Failed to assign staff to booking", 500, error);
+  }
+};
+
+/**
+ * Admin Unassigns Staff from a Booking
+ * PATCH /api/v1/admin/bookings/:id/unassign
+ */
+const unassignStaffFromBooking = async (req, res) => {
+  const transaction = await sequelize.transaction();
+
+  try {
+    const { id } = req.params;
+
+    const booking = await Booking.findOne({
+      where: buildBookingLookup(id),
+      transaction,
+    });
+
+    if (!booking) {
+      await transaction.rollback();
+      return errorResponse(res, `Booking '${id}' not found`, 404);
+    }
+
+    if (!booking.staffId) {
+      await transaction.rollback();
+      return errorResponse(res, "Booking does not have any assigned staff member", 400);
+    }
+
+    const previousStaffId = booking.staffId;
+    const now = new Date();
+    const existingHistory = Array.isArray(booking.history) ? [...booking.history] : [];
+
+    existingHistory.push({
+      status: "confirmed",
+      at: now.toISOString(),
+      by: "admin",
+      note: `Staff '${previousStaffId}' unassigned. Returned to open confirmed pool.`,
+    });
+
+    await booking.update(
+      {
+        staffId: null,
+        status: "confirmed",
+        assignedBy: null,
+        assignedAt: null,
+        history: existingHistory,
+      },
+      { transaction }
+    );
+
+    await transaction.commit();
+
+    return successResponse(
+      res,
+      booking,
+      `Staff unassigned from booking ${booking.code}. Booking status reset to 'confirmed'.`
+    );
+  } catch (error) {
+    if (transaction && !transaction.finished) {
+      await transaction.rollback();
+    }
+    return errorResponse(res, error.message || "Failed to unassign staff from booking", 500, error);
+  }
+};
+
+/**
+ * Admin Confirms a Booking Request (without immediate assignment)
+ * PATCH /api/v1/admin/bookings/:id/confirm
+ */
+const confirmBooking = async (req, res) => {
+  const transaction = await sequelize.transaction();
+
+  try {
+    const { id } = req.params;
+
+    const booking = await Booking.findOne({
+      where: buildBookingLookup(id),
+      transaction,
+    });
+
+    if (!booking) {
+      await transaction.rollback();
+      return errorResponse(res, `Booking '${id}' not found`, 404);
+    }
+
+    if (booking.status !== "requested") {
+      await transaction.rollback();
+      return errorResponse(
+        res,
+        `Cannot confirm booking with status '${booking.status}'. Only 'requested' bookings can be confirmed.`,
+        400
+      );
+    }
+
+    const now = new Date();
+    const existingHistory = Array.isArray(booking.history) ? [...booking.history] : [];
+    existingHistory.push({
+      status: "confirmed",
+      at: now.toISOString(),
+      by: "admin",
+      note: "Booking confirmed by care desk",
+    });
+
+    await booking.update(
+      {
+        status: "confirmed",
+        confirmedBy: "admin",
+        confirmedAt: now,
+        history: existingHistory,
+      },
+      { transaction }
+    );
+
+    await transaction.commit();
+
+    return successResponse(
+      res,
+      {
+        booking,
+        notification: {
+          client: {
+            title: "Booking confirmed",
+            body: `Your ${booking.serviceName || booking.service} booking ${booking.code} is confirmed for ${booking.date}, ${booking.time}. A caregiver will be assigned shortly.`,
+          },
+        },
+      },
+      `Booking ${booking.code} confirmed successfully`
+    );
+  } catch (error) {
+    if (transaction && !transaction.finished) {
+      await transaction.rollback();
+    }
+    return errorResponse(res, error.message || "Failed to confirm booking", 500, error);
+  }
+};
+
+/**
+ * Admin Updates Booking Status along the workflow
+ * Transitions: on_the_way -> in_progress -> completed -> cancelled
+ * PATCH /api/v1/admin/bookings/:id/status
+ */
+const updateBookingStatus = async (req, res) => {
+  const transaction = await sequelize.transaction();
+
+  try {
+    const { id } = req.params;
+    const { status: nextStatus, note, visit, tasks, cancelReason } = req.body;
+
+    const validStatuses = ["requested", "confirmed", "assigned", "on_the_way", "in_progress", "completed", "cancelled"];
+    if (!nextStatus || !validStatuses.includes(nextStatus)) {
+      await transaction.rollback();
+      return errorResponse(
+        res,
+        `Valid 'status' is required. Allowed values: ${validStatuses.join(", ")}`,
+        400
+      );
+    }
+
+    const booking = await Booking.findOne({
+      where: buildBookingLookup(id),
+      transaction,
+    });
+
+    if (!booking) {
+      await transaction.rollback();
+      return errorResponse(res, `Booking '${id}' not found`, 404);
+    }
+
+    const now = new Date();
+    const updates = { status: nextStatus };
+
+    if (nextStatus === "in_progress" && !booking.checkInAt) {
+      updates.checkInAt = now;
+    }
+    if (nextStatus === "completed" && !booking.checkOutAt) {
+      updates.checkOutAt = now;
+    }
+    if (visit && typeof visit === "object") {
+      updates.visit = { ...(booking.visit || {}), ...visit };
+    }
+    if (Array.isArray(tasks)) {
+      updates.tasks = tasks;
+    }
+
+    const existingHistory = Array.isArray(booking.history) ? [...booking.history] : [];
+    existingHistory.push({
+      status: nextStatus,
+      at: now.toISOString(),
+      by: req.user?.role || "admin",
+      note: note || (nextStatus === "cancelled" ? cancelReason || "Cancelled by admin" : `Status updated to ${nextStatus}`),
+    });
+    updates.history = existingHistory;
+
+    await booking.update(updates, { transaction });
+    await transaction.commit();
+
+    return successResponse(
+      res,
+      booking,
+      `Booking ${booking.code} status updated to '${nextStatus}' successfully`
+    );
+  } catch (error) {
+    if (transaction && !transaction.finished) {
+      await transaction.rollback();
+    }
+    return errorResponse(res, error.message || "Failed to update booking status", 500, error);
+  }
+};
+
+/**
+ * Admin: Get Available Staff for Booking Assignment
+ * GET /api/v1/admin/bookings/:id/available-staff
+ * GET /api/v1/admin/booking/:id/available-staff
+ *
+ * Query Options:
+ * - increaseArea=true (or increase_area=true, expandArea=true, note="increase area true"):
+ *   Expands the search area by 10 km (or custom radius) beyond exact area matching.
+ * - radius=10 (optional, default 10 km when increaseArea=true)
+ * - includePending=true (optional, include staff under review / pending approval)
+ */
+const getAvailableStaffForBooking = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const booking = await Booking.findOne({
+      where: buildBookingLookup(id),
+    });
+
+    if (!booking) {
+      return errorResponse(res, `Booking '${id}' not found`, 404);
+    }
+
+    // Parse area expansion flags (from query params, body or note)
+    const rawNote = String(req.query.note || req.body?.note || "").toLowerCase();
+    const hasIncreaseNote =
+      rawNote.includes("increase area") ||
+      rawNote.includes("increase_area") ||
+      rawNote.includes("expand area") ||
+      rawNote.includes("10 km") ||
+      rawNote.includes("10km");
+
+    const shouldIncreaseArea =
+      req.query.increaseArea === "true" ||
+      req.query.increaseArea === "1" ||
+      req.query.increaseArea === true ||
+      req.query.increase_area === "true" ||
+      req.query.increase_area === "1" ||
+      req.query.expandArea === "true" ||
+      req.query.expand === "true" ||
+      req.body?.increaseArea === true ||
+      req.body?.increase_area === true ||
+      hasIncreaseNote ||
+      (req.query.radius && Number(req.query.radius) >= 10);
+
+    const radiusKm = Number(req.query.radius) || 10;
+    const includePending =
+      req.query.includePending === "true" ||
+      req.query.includeAll === "true";
+
+    const staffWhere = includePending ? {} : { approval: "approved" };
+
+    // Fetch staff records with user information
+    const staffList = await Staff.findAll({
+      where: staffWhere,
+      include: [
+        {
+          model: User,
+          as: "user",
+          attributes: ["id", "name", "phone", "email"],
+        },
+      ],
+      order: [
+        ["city", "ASC"],
+        ["onDuty", "DESC"],
+      ],
+    });
+
+    // Score and rank staff based on city, area, 10km proximity, and required service skills
+    const matchingResult = scoreAndRankStaffForBooking(booking, staffList, {
+      increaseArea: shouldIncreaseArea,
+      radius: radiusKm,
+      includePending,
+    });
+
+    return successResponse(
+      res,
+      {
+        booking: matchingResult.bookingDetails,
+        searchCriteria: {
+          ...matchingResult.searchCriteria,
+          note: req.query.note || (shouldIncreaseArea ? "Search radius expanded by 10 km" : "Exact area match primary"),
+        },
+        counts: matchingResult.counts,
+        matches: matchingResult.matches,
+      },
+      shouldIncreaseArea
+        ? `Found ${matchingResult.counts.bestMatchesCount} matching staff within expanded 10 km radius in ${booking.city || "Mumbai"}`
+        : `Found ${matchingResult.counts.bestMatchesCount} pixel-perfect matching staff in ${booking.area || "local area"}, ${booking.city || "Mumbai"}`
+    );
+  } catch (error) {
+    return errorResponse(res, error.message || "Failed to retrieve available staff", 500, error);
+  }
+};
+
+/**
+ * Admin Creates a Direct Booking (e.g. from Call or WhatsApp)
+ * POST /api/v1/admin/bookings
+ */
+const createAdminBooking = async (req, res) => {
+  const transaction = await sequelize.transaction();
+
+  try {
+    const {
+      clientName,
+      clientPhone,
+      patientName,
+      patientAge,
+      patientGender,
+      relation,
+      service: legacyService,
+      serviceId: directServiceId,
+      category: legacyCategory,
+      categoryId: directCategoryId,
+      plan,
+      city,
+      area,
+      address,
+      date,
+      time,
+      notes,
+      source,
+      staffId: staffIdentifier,
+      price,
+    } = req.body;
+
+    const serviceInput = (directServiceId || legacyService || "").toString().trim();
+    const categoryInput = (directCategoryId || legacyCategory || "").toString().trim();
+
+    if (!clientName || !clientPhone || !patientName || !serviceInput || !address || !date || !time) {
+      await transaction.rollback();
+      return errorResponse(
+        res,
+        "Client name, 10-digit phone, patient name, service ('serviceId' or 'service'), address, date and time are required.",
+        400
+      );
+    }
+
+    const bookingCity = (city || "mumbai").toLowerCase().trim();
+
+    // Fetch service
+    const isServiceNumeric = !isNaN(Number(serviceInput)) && /^\d+$/.test(serviceInput);
+    const serviceWhere = isServiceNumeric
+      ? { [Op.or]: [{ id: Number(serviceInput) }, { serviceId: serviceInput }, { code: serviceInput }] }
+      : { [Op.or]: [{ serviceId: serviceInput }, { name: serviceInput }, { code: serviceInput }] };
+
+    const serviceRecord = await Service.findOne({
+      where: serviceWhere,
+      transaction,
+    });
+
+    const finalServiceId = serviceRecord?.serviceId || serviceInput;
+    const finalServiceName = serviceRecord?.name || serviceInput;
+    const finalCategoryId = directCategoryId || serviceRecord?.category || categoryInput || null;
+    const finalCategory = serviceRecord?.categoryName || serviceRecord?.category || categoryInput || null;
+    const servicePrice = price !== undefined ? Number(price) : (serviceRecord ? Number(serviceRecord.price) : 0.0);
+
+    const initialTasks = Array.isArray(serviceRecord?.tasks)
+      ? serviceRecord.tasks.map((taskLabel) => ({
+          label: typeof taskLabel === "string" ? taskLabel : taskLabel.label || "Care task",
+          done: false,
+        }))
+      : [];
+
+    const bookingCode = await generateBookingId(clientName, bookingCity, transaction);
+    const now = new Date();
+
+    let initialStatus = "confirmed";
+    let assignedStaffId = null;
+    let assignedBy = null;
+    let assignedAt = null;
+
+    const initialHistory = [
+      { status: "requested", at: now.toISOString(), by: "admin", note: "Booking created by care desk" },
+      { status: "confirmed", at: now.toISOString(), by: "admin", note: "Confirmed by care desk" },
+    ];
+
+    if (staffIdentifier) {
+      const staff = await Staff.findOne({
+        where: buildStaffLookup(staffIdentifier),
+        transaction,
+      });
+      if (staff && staff.approval === "approved") {
+        initialStatus = "assigned";
+        assignedStaffId = staff.staffId;
+        assignedBy = "admin";
+        assignedAt = now;
+        initialHistory.push({
+          status: "assigned",
+          at: now.toISOString(),
+          by: "admin",
+          staffId: staff.staffId,
+        });
+      }
+    }
+
+    const newBooking = await Booking.create(
+      {
+        code: bookingCode,
+        clientName: clientName.trim(),
+        clientPhone: String(clientPhone).trim(),
+        patientName: patientName.trim(),
+        patientAge: patientAge ? String(patientAge).trim() : null,
+        patientGender: patientGender || null,
+        relation: relation || "Mother",
+        serviceId: finalServiceId,
+        service: finalServiceId,
+        serviceName: finalServiceName,
+        categoryId: finalCategoryId,
+        category: finalCategory,
+        plan: plan || "Single visit",
+        city: bookingCity,
+        area: area ? area.trim() : null,
+        address: address.trim(),
+        date: String(date).trim(),
+        time: String(time).trim(),
+        status: initialStatus,
+        staffId: assignedStaffId,
+        source: source || "Call",
+        notes: notes ? notes.trim() : null,
+        price: servicePrice,
+        tasks: initialTasks,
+        visit: {},
+        history: initialHistory,
+        confirmedBy: "admin",
+        confirmedAt: now,
+        assignedBy,
+        assignedAt,
+      },
+      { transaction }
+    );
+
+    await transaction.commit();
+
+    return successResponse(
+      res,
+      newBooking,
+      `Booking ${bookingCode} created and confirmed successfully`,
+      201
+    );
+  } catch (error) {
+    if (transaction && !transaction.finished) {
+      await transaction.rollback();
+    }
+    return errorResponse(res, error.message || "Failed to create booking", 500, error);
+  }
+};
+
+/**
+ * 3. STAFF VISITS FLOW
+ * Get assigned bookings for the logged-in staff member
+ * GET /api/v1/staff/bookings
+ */
+const getStaffBookings = async (req, res) => {
+  try {
+    let staffId = req.user?.staffId;
+    if (!staffId && req.user?.id) {
+      const staffRecord = await Staff.findOne({ where: { userId: req.user.id } });
+      staffId = staffRecord?.staffId;
+    }
+    if (!staffId && req.query.staffId) {
+      staffId = req.query.staffId;
+    }
+
+    if (!staffId) {
+      return errorResponse(res, "Staff identifier is required", 400);
+    }
+
+    const { status, date } = req.query;
+    const where = { staffId };
+    if (status && status !== "all") {
+      where.status = status;
+    }
+    if (date) {
+      where.date = date;
+    }
+
+    const bookings = await Booking.findAll({
+      where,
+      order: [
+        ["date", "ASC"],
+        ["time", "ASC"],
+      ],
+    });
+
+    return successResponse(res, bookings, "Assigned visits retrieved successfully");
+  } catch (error) {
+    return errorResponse(res, error.message || "Failed to retrieve assigned visits", 500, error);
+  }
+};
+
+/**
+ * Get single assigned visit for staff
+ * GET /api/v1/staff/bookings/:id
+ */
+const getStaffBookingById = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const booking = await Booking.findOne({
+      where: buildBookingLookup(id),
+    });
+
+    if (!booking) {
+      return errorResponse(res, `Booking '${id}' not found`, 404);
+    }
+
+    return successResponse(res, booking, "Visit details retrieved successfully");
+  } catch (error) {
+    return errorResponse(res, error.message || "Failed to retrieve visit details", 500, error);
+  }
+};
+
+/**
+ * Update Status of Assigned Booking (Staff Side)
+ * Restricts updates ONLY to visits assigned to the requesting caregiver.
+ * Allowed transitions: on_the_way -> in_progress -> completed -> cancelled
+ * PATCH /api/v1/staff/bookings/:id/status
+ * PATCH /api/v1/staff/booking/:id/status
+ */
+const updateStaffAssignedBookingStatus = async (req, res) => {
+  const transaction = await sequelize.transaction();
+
+  try {
+    const { id } = req.params;
+    const { status: nextStatus, note, visit, tasks, cancelReason } = req.body;
+
+    // 1. Resolve staffId from token, headers, body, or query
+    let staffId = req.user?.staffId;
+    if (!staffId && req.user?.id) {
+      const staffRecord = await Staff.findOne({ where: { userId: req.user.id }, transaction });
+      staffId = staffRecord?.staffId;
+    }
+    if (!staffId && (req.headers["x-staff-id"] || req.headers["staffid"])) {
+      staffId = req.headers["x-staff-id"] || req.headers["staffid"];
+    }
+    if (!staffId && req.body?.staffId) {
+      staffId = req.body.staffId;
+    }
+    if (!staffId && req.query?.staffId) {
+      staffId = req.query.staffId;
+    }
+
+    if (!staffId) {
+      await transaction.rollback();
+      return errorResponse(
+        res,
+        "Staff authentication or staffId is required to update visit status",
+        401
+      );
+    }
+
+    // 2. Fetch staff record to get name and confirm validity
+    const staff = await Staff.findOne({
+      where: { staffId: String(staffId).trim() },
+      include: [{ model: User, as: "user", attributes: ["id", "name", "phone", "email"] }],
+      transaction,
+    });
+
+    if (!staff) {
+      await transaction.rollback();
+      return errorResponse(res, `Staff member with ID '${staffId}' not found`, 404);
+    }
+
+    // 3. Validate status requested by staff
+    const allowedStaffStatuses = ["on_the_way", "in_progress", "completed", "cancelled"];
+    if (!nextStatus || !allowedStaffStatuses.includes(nextStatus)) {
+      await transaction.rollback();
+      return errorResponse(
+        res,
+        `Invalid status '${nextStatus}'. Staff can only set: ${allowedStaffStatuses.join(", ")}`,
+        400
+      );
+    }
+
+    // 4. Fetch the booking
+    const booking = await Booking.findOne({
+      where: buildBookingLookup(id),
+      transaction,
+    });
+
+    if (!booking) {
+      await transaction.rollback();
+      return errorResponse(res, `Booking '${id}' not found`, 404);
+    }
+
+    // 5. CRITICAL AUTHORIZATION CHECK: Is this booking assigned to this staff member?
+    if (!booking.staffId) {
+      await transaction.rollback();
+      return errorResponse(
+        res,
+        `Booking ${booking.code} has not been assigned to any caregiver yet. Only assigned caregivers can update visit status.`,
+        400
+      );
+    }
+
+    if (String(booking.staffId).trim() !== String(staff.staffId).trim()) {
+      await transaction.rollback();
+      return errorResponse(
+        res,
+        `Unauthorized: You can only update visits assigned to you. This visit is assigned to '${booking.staffId}'.`,
+        403
+      );
+    }
+
+    // Prevent changing completed or cancelled visits unless updating vitals/tasks
+    if (booking.status === "completed" && nextStatus !== "completed") {
+      await transaction.rollback();
+      return errorResponse(
+        res,
+        `Visit ${booking.code} is already completed and cannot be reopened.`,
+        400
+      );
+    }
+    if (booking.status === "cancelled") {
+      await transaction.rollback();
+      return errorResponse(
+        res,
+        `Visit ${booking.code} has been cancelled and cannot be updated.`,
+        400
+      );
+    }
+
+    // 6. Prepare updates
+    const now = new Date();
+    const updates = { status: nextStatus };
+
+    if (nextStatus === "in_progress" && !booking.checkInAt) {
+      updates.checkInAt = now;
+    }
+    if (nextStatus === "completed") {
+      if (!booking.checkOutAt) {
+        updates.checkOutAt = now;
+      }
+      if (!booking.checkInAt) {
+        updates.checkInAt = booking.assignedAt || now;
+      }
+    }
+
+    if (visit && typeof visit === "object") {
+      updates.visit = { ...(booking.visit || {}), ...visit };
+    }
+    if (Array.isArray(tasks)) {
+      updates.tasks = tasks;
+    }
+
+    const staffName = staff.user?.name || staff.staffId;
+    const existingHistory = Array.isArray(booking.history) ? [...booking.history] : [];
+    existingHistory.push({
+      status: nextStatus,
+      at: now.toISOString(),
+      by: `staff:${staff.staffId}`,
+      staffName,
+      note:
+        note ||
+        (nextStatus === "cancelled"
+          ? cancelReason || "Visit cancelled by caregiver"
+          : `Caregiver ${staffName} updated status to ${nextStatus}`),
+    });
+    updates.history = existingHistory;
+
+    await booking.update(updates, { transaction });
+    await transaction.commit();
+
+    // 7. Refetch refreshed booking with staff details
+    const refreshedBooking = await Booking.findOne({
+      where: { id: booking.id },
+      include: [
+        {
+          model: Staff,
+          as: "assignedStaff",
+          include: [{ model: User, as: "user", attributes: ["name", "phone", "email"] }],
+        },
+      ],
+    });
+
+    // 8. Generate notification payload for the client
+    const notificationMessages = {
+      on_the_way: {
+        title: "Caregiver On The Way",
+        body: `${staffName} is traveling to your location for ${booking.patientName}'s visit.`,
+      },
+      in_progress: {
+        title: "Caregiver Has Arrived",
+        body: `${staffName} has checked in and started the care visit for ${booking.patientName}.`,
+      },
+      completed: {
+        title: "Care Visit Completed",
+        body: `${staffName} has completed the visit for ${booking.patientName}. Vitals and summary are ready.`,
+      },
+      cancelled: {
+        title: "Visit Cancelled",
+        body: `Caregiver ${staffName} reported an issue: ${cancelReason || note || "Visit could not be completed."}`,
+      },
+    };
+
+    const clientNotification = notificationMessages[nextStatus] || {
+      title: `Visit Status: ${nextStatus}`,
+      body: `Status updated by ${staffName}`,
+    };
+
+    return successResponse(
+      res,
+      {
+        booking: refreshedBooking,
+        notification: {
+          client: {
+            to: `client:${booking.clientPhone}`,
+            ...clientNotification,
+          },
+        },
+      },
+      `Visit ${booking.code} status updated to '${nextStatus}' successfully.`
+    );
+  } catch (error) {
+    if (transaction && !transaction.finished) {
+      await transaction.rollback();
+    }
+    return errorResponse(res, error.message || "Failed to update visit status", 500, error);
+  }
+};
+
+module.exports = {
+  createClientBooking,
+  getClientBookings,
+  getClientBookingById,
+  getClientBookingStatus,
+  cancelClientBooking,
+  assignStaffToBooking,
+  unassignStaffFromBooking,
+  confirmBooking,
+  updateBookingStatus,
+  getAvailableStaffForBooking,
+  createAdminBooking,
+  getStaffBookings,
+  getStaffBookingById,
+  updateStaffAssignedBookingStatus,
+};

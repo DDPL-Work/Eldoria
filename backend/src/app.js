@@ -2,6 +2,7 @@ const express = require('express');
 const cors = require('cors');
 const apiRoutes = require('./routes');
 const { errorHandler, notFoundHandler } = require('./middlewares/errorHandler');
+const { getHealthStatus } = require('./controllers/health.controller');
 
 const app = express();
 
@@ -11,8 +12,8 @@ app.use(cors({
   credentials: true
 }));
 
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
 // Root welcome route
 app.get('/', (req, res) => {
@@ -21,12 +22,16 @@ app.get('/', (req, res) => {
     status: 'Running',
     version: '1.0.0',
     endpoints: {
-      health: '/api/health'
+      health: '/api/v1/health',
+      docs: '/api/v1'
     }
   });
 });
 
-// Mount API routes
+// Direct alias for health check as advertised in server startup log (/api/health)
+app.get('/api/health', getHealthStatus);
+
+// Mount API v1 routes
 app.use('/api/v1', apiRoutes);
 
 // Catch 404 and forward to error handler

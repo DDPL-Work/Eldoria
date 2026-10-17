@@ -9,6 +9,14 @@ const {
 } = require("../controllers/client.controller");
 const { verifyToken, requireClient } = require("../middlewares/auth.middleware");
 
+const { optionalToken } = require("../middlewares/auth.middleware");
+const {
+  createClientBooking,
+  getClientBookings,
+  getClientBookingById,
+  getClientBookingStatus,
+  cancelClientBooking,
+} = require("../controllers/booking.controller");
 // Step 1: Send OTP to phone
 router.post("/send-otp", clientSendOtp);
 
@@ -39,5 +47,28 @@ const {
 router.get("/services", getPublicServices);
 router.get("/services/categories", getPublicCategories);
 router.get("/services/:id", getPublicServiceById);
+
+// Client Booking flow routes
+router.post("/booking/create", optionalToken, createClientBooking);
+router.post("/bookings/create", optionalToken, createClientBooking);
+router.post("/bookings", optionalToken, createClientBooking);
+router.get("/bookings", optionalToken, getClientBookings);
+
+// Booking status & live tracking routes (with and without :id)
+router.get("/booking/status", optionalToken, getClientBookingStatus);
+router.get("/booking/track", optionalToken, getClientBookingStatus);
+router.get("/bookings/status", optionalToken, getClientBookingStatus);
+router.get("/bookings/track", optionalToken, getClientBookingStatus);
+
+router.get("/booking/:id/status", optionalToken, getClientBookingStatus);
+router.get("/booking/:id/track", optionalToken, getClientBookingStatus);
+router.get("/bookings/:id/status", optionalToken, getClientBookingStatus);
+router.get("/bookings/:id/track", optionalToken, getClientBookingStatus);
+
+router.get("/booking/:id", optionalToken, getClientBookingById);
+router.get("/bookings/:id", optionalToken, getClientBookingById);
+
+router.patch("/booking/:id/cancel", optionalToken, cancelClientBooking);
+router.patch("/bookings/:id/cancel", optionalToken, cancelClientBooking);
 
 module.exports = router;

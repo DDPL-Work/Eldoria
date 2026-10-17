@@ -19,6 +19,20 @@ const verifyToken = (req, res, next) => {
   }
 };
 
+const optionalToken = (req, res, next) => {
+  const authHeader = req.headers.authorization;
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    const token = authHeader.split(' ')[1];
+    try {
+      const decoded = jwt.verify(token, process.env.JWT_SECRET || 'eldoria_super_secret_jwt_key_2026');
+      req.user = decoded;
+    } catch {
+      // Ignore token errors for optional authentication
+    }
+  }
+  next();
+};
+
 const requireAdmin = (req, res, next) => {
   if (!req.user || req.user.role !== 'admin') {
     return errorResponse(res, 'Access denied: Administrator privileges required', 403);
@@ -42,6 +56,7 @@ const requireClient = (req, res, next) => {
 
 module.exports = {
   verifyToken,
+  optionalToken,
   requireAdmin,
   requireStaff,
   requireClient,

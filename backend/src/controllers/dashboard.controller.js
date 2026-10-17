@@ -367,7 +367,22 @@ const getBookings = async (req, res) => {
   }
 };
 
+const {
+  confirmBooking,
+  assignStaffToBooking,
+  unassignStaffFromBooking,
+  updateBookingStatus,
+  getAvailableStaffForBooking,
+  createAdminBooking,
+} = require('./booking.controller');
+
 module.exports = {
   getDashboardData,
-  getBookings
+  getBookings,
+  confirmBooking,
+  assignStaffToBooking,
+  unassignStaffFromBooking,
+  updateBookingStatus,
+  getAvailableStaffForBooking,
+  createAdminBooking,
 };
