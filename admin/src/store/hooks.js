@@ -39,6 +39,12 @@ import {
   fetchDashboardThunk,
   fetchBookingsThunk,
   fetchBookingByIdThunk,
+  fetchAvailableStaffThunk,
+  confirmBookingThunk,
+  assignStaffThunk,
+  unassignStaffThunk,
+  updateBookingStatusThunk,
+  createBookingThunk,
   fetchCitiesThunk,
   getCityByIdThunk,
   createCityThunk,
@@ -489,6 +495,13 @@ export function useStore() {
   const currentBookingDetail = useSelector((state) => state.data.currentBookingDetail);
   const bookingDetailLoading = useSelector((state) => state.data.bookingDetailLoading);
   const bookingDetailError = useSelector((state) => state.data.bookingDetailError);
+  const availableStaff = useSelector((state) => state.data.availableStaff);
+  const availableStaffCriteria = useSelector((state) => state.data.availableStaffCriteria);
+  const availableStaffCounts = useSelector((state) => state.data.availableStaffCounts);
+  const availableStaffLoading = useSelector((state) => state.data.availableStaffLoading);
+  const availableStaffError = useSelector((state) => state.data.availableStaffError);
+  const bookingActionLoading = useSelector((state) => state.data.bookingActionLoading);
+  const bookingActionError = useSelector((state) => state.data.bookingActionError);
   const backendCities = useSelector((state) => state.data.backendCities);
   const citiesSummary = useSelector((state) => state.data.citiesSummary);
   const citiesLoading = useSelector((state) => state.data.citiesLoading);
@@ -811,6 +824,36 @@ export function useStore() {
     [dispatch]
   );
 
+  const fetchAvailableStaff = useCallback(
+    (id, params = '') => dispatch(fetchAvailableStaffThunk({ id, params })),
+    [dispatch]
+  );
+
+  const confirmBooking = useCallback(
+    (id, payload = {}) => dispatch(confirmBookingThunk({ id, payload })),
+    [dispatch]
+  );
+
+  const assignStaff = useCallback(
+    (id, staffId) => dispatch(assignStaffThunk({ id, staffId })),
+    [dispatch]
+  );
+
+  const unassignStaff = useCallback(
+    (id, payload = {}) => dispatch(unassignStaffThunk({ id, payload })),
+    [dispatch]
+  );
+
+  const updateBookingStatus = useCallback(
+    (id, payload) => dispatch(updateBookingStatusThunk({ id, payload })),
+    [dispatch]
+  );
+
+  const createBooking = useCallback(
+    (bookingData) => dispatch(createBookingThunk(bookingData)),
+    [dispatch]
+  );
+
   const fetchCities = useCallback(
     (params = '') => dispatch(fetchCitiesThunk(params)),
     [dispatch]
@@ -963,6 +1006,13 @@ export function useStore() {
     currentBookingDetail,
     bookingDetailLoading,
     bookingDetailError,
+    availableStaff,
+    availableStaffCriteria,
+    availableStaffCounts,
+    availableStaffLoading,
+    availableStaffError,
+    bookingActionLoading,
+    bookingActionError,
     backendCities,
     citiesSummary,
     citiesLoading,
@@ -983,6 +1033,12 @@ export function useStore() {
     fetchDashboard,
     fetchBookings,
     fetchBookingById,
+    fetchAvailableStaff,
+    confirmBooking,
+    assignStaff,
+    unassignStaff,
+    updateBookingStatus,
+    createBooking,
     fetchCities,
     getCityById,
     createCity,

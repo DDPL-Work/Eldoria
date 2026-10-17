@@ -7,14 +7,14 @@ export function StatusBadge({ status, type = 'booking', className = '' }) {
     const isWa = s.includes('wa') || s.includes('whatsapp');
     const isCall = s.includes('call') || s.includes('phone');
     const colorClasses = isWa
-      ? 'bg-[#E3F4EA] text-[#1E6B42]'
+      ? 'bg-[#E3F4EA] text-[#1E6B42] border border-[#b8e2c8]'
       : isCall
-      ? 'bg-[#FDF0D9] text-[#8A5000]'
-      : 'bg-[#E4ECF7] text-[#0E2F5A]';
+      ? 'bg-[#FDF0D9] text-[#8A5000] border border-[#f3d9b0]'
+      : 'bg-[#E4ECF7] text-[#0E2F5A] border border-[#c7d9ee]';
 
     return (
       <span
-        className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-bold ${colorClasses} ${className}`}
+        className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10.5px] font-bold tracking-tight whitespace-nowrap select-none ${colorClasses} ${className}`}
       >
         {status || 'App'}
       </span>

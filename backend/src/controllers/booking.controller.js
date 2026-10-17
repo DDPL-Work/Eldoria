@@ -1257,15 +1257,18 @@ const createAdminBooking = async (req, res) => {
     const bookingCode = await generateBookingId(clientName, bookingCity, transaction);
     const now = new Date();
 
-    let initialStatus = "confirmed";
+    let initialStatus = req.body.status || "requested";
     let assignedStaffId = null;
     let assignedBy = null;
     let assignedAt = null;
 
     const initialHistory = [
-      { status: "requested", at: now.toISOString(), by: "admin", note: "Booking created by care desk" },
-      { status: "confirmed", at: now.toISOString(), by: "admin", note: "Confirmed by care desk" },
+      { status: "requested", at: now.toISOString(), by: "admin", note: "Booking request created by care desk" },
     ];
+
+    if (initialStatus === "confirmed") {
+      initialHistory.push({ status: "confirmed", at: now.toISOString(), by: "admin", note: "Confirmed by care desk" });
+    }
 
     if (staffIdentifier) {
       const staff = await Staff.findOne({
@@ -1314,8 +1317,8 @@ const createAdminBooking = async (req, res) => {
         tasks: initialTasks,
         visit: {},
         history: initialHistory,
-        confirmedBy: "admin",
-        confirmedAt: now,
+        confirmedBy: initialStatus === "confirmed" ? "admin" : null,
+        confirmedAt: initialStatus === "confirmed" ? now : null,
         assignedBy,
         assignedAt,
       },

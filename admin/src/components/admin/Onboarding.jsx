@@ -210,7 +210,7 @@ export function Onboarding({ onOpenApplication }) {
                         {a.name}
                       </div>
                       <div className="text-[11px] text-slate-500 font-medium truncate mt-1 leading-tight">
-                        {a.role} · {a.experience || 0} yrs · {cityName(sCity(a))}
+                        {a.role} · {a.experience || 0} yrs · {cityName(sCity(a))}{a.area ? ` · ${a.area}` : ''}
                       </div>
                     </div>
                   </div>

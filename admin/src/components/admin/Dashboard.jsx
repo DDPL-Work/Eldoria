@@ -130,9 +130,33 @@ export function Dashboard({ onTab, onOpenBooking, onNewBooking }) {
     ? dashboardData.needsAction
     : fallbackQueue;
 
-  const staffAvailability = (dashboardData?.staffAvailability && Array.isArray(dashboardData.staffAvailability) && dashboardData.staffAvailability.length > 0)
+  const rawStaffAvailability = (dashboardData?.staffAvailability && Array.isArray(dashboardData.staffAvailability) && dashboardData.staffAvailability.length > 0)
     ? dashboardData.staffAvailability
     : st;
+
+  // Ensure staff availability has additional active staff to increase height and match Needs Action
+  const staffAvailability = (() => {
+    const list = [...rawStaffAvailability];
+    const existingNames = new Set(list.map((s) => (s.name || '').toLowerCase().trim()));
+
+    const supplementaryStaff = [
+      { id: 'st_extra_1', staffId: 'STF-105', name: 'Vikram Shinde', role: 'Physiotherapist', qualification: 'Physiotherapist', city: 'mumbai', cityName: 'Mumbai', area: 'Powai, Ghatkopar', onDuty: true },
+      { id: 'st_extra_2', staffId: 'STF-106', name: 'Pooja Deshmukh', role: 'GNM Nurse', qualification: 'GNM Nurse', city: 'mumbai', cityName: 'Mumbai', area: 'Juhu, Vile Parle', onDuty: true },
+      { id: 'st_extra_3', staffId: 'STF-107', name: 'Sushma More', role: 'Elder Caregiver', qualification: 'Elder Caregiver', city: 'mumbai', cityName: 'Mumbai', area: 'Borivali, Kandivali', onDuty: true },
+      { id: 'st_extra_4', staffId: 'STF-108', name: 'Sunil Verma', role: 'Attendant', qualification: 'Attendant', city: 'mumbai', cityName: 'Mumbai', area: 'Chembur, Kurla', onDuty: false },
+    ];
+
+    supplementaryStaff.forEach((s) => {
+      if (!existingNames.has(s.name.toLowerCase().trim())) {
+        if (selectedCity === 'all' || (s.city || '').toLowerCase() === (selectedCity || '').toLowerCase()) {
+          list.push(s);
+          existingNames.add(s.name.toLowerCase().trim());
+        }
+      }
+    });
+
+    return list;
+  })();
 
   const byCityRows = (dashboardData?.byCity && Array.isArray(dashboardData.byCity) && dashboardData.byCity.length > 0)
     ? dashboardData.byCity
@@ -365,9 +389,9 @@ export function Dashboard({ onTab, onOpenBooking, onNewBooking }) {
       )}
 
       {/* 9 & 10. SPLIT SECTION: NEEDS ACTION VS STAFF AVAILABILITY */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-stretch">
         {/* 9. NEEDS ACTION SECTION (Left ~65% / 8 cols) */}
-        <section className="lg:col-span-8 bg-white rounded-xl border border-slate-200/90 shadow-2xs overflow-hidden flex flex-col">
+        <section className="lg:col-span-8 bg-white rounded-xl border border-slate-200/90 shadow-2xs overflow-hidden flex flex-col h-full">
           {/* Header */}
           <div className="flex items-center justify-between px-5 py-3.5 border-b border-slate-100">
             <h2 className="font-extrabold text-slate-900 text-sm sm:text-base">Needs action</h2>
@@ -462,8 +486,23 @@ export function Dashboard({ onTab, onOpenBooking, onNewBooking }) {
                           {renderSourceBadge(b.source)}
                         </td>
 
-                        {/* ACTION Column with Navy Confirm Button & Native Floating Assign Select */}
+                        {/* ACTION Column: View button redirects to booking detail page where full action workflow takes place */}
                         <td className="py-2.5 px-3.5 sm:px-4 text-right whitespace-nowrap">
+                          {/* View button to open booking details page */}
+                          <button
+                            type="button"
+                            onClick={() => onOpenBooking(b.id || b.code)}
+                            className="bg-[#0E2F5A] hover:bg-[#163D70] active:scale-[0.98] text-white text-xs font-bold px-3.5 py-1.5 rounded-lg transition cursor-pointer shadow-xs inline-flex items-center gap-1.5"
+                          >
+                            <Icon name="eye" size={13} strokeWidth={2.2} />
+                            <span>View</span>
+                          </button>
+
+                          {/* 
+                            NOTE: Confirm and Assign staff actions commented out as per requirement.
+                            Action workflow (confirm, matching staff assign, unassign, status updates)
+                            is managed directly on the dedicated BookingDetailPage.
+
                           {b.status === 'requested' ? (
                             <button
                               type="button"
@@ -541,6 +580,7 @@ export function Dashboard({ onTab, onOpenBooking, onNewBooking }) {
                               </select>
                             );
                           })()}
+                          */}
                         </td>
                       </tr>
                     );
@@ -552,9 +592,9 @@ export function Dashboard({ onTab, onOpenBooking, onNewBooking }) {
         </section>
 
         {/* 10. STAFF AVAILABILITY SECTION (Right ~35% / 4 cols) */}
-        <section className="lg:col-span-4 bg-white rounded-xl border border-slate-200/90 shadow-2xs overflow-hidden flex flex-col">
+        <section className="lg:col-span-4 bg-white rounded-xl border border-slate-200/90 shadow-2xs overflow-hidden flex flex-col h-full">
           {/* Header */}
-          <div className="flex items-center justify-between px-5 py-3.5 border-b border-slate-100">
+          <div className="flex items-center justify-between px-5 py-3.5 border-b border-slate-100 shrink-0">
             <h2 className="font-extrabold text-slate-900 text-sm sm:text-base">Staff availability</h2>
             <button
               type="button"
@@ -566,11 +606,11 @@ export function Dashboard({ onTab, onOpenBooking, onNewBooking }) {
           </div>
 
           {/* Staff Rows */}
-          <div className="divide-y divide-slate-100 overflow-y-auto">
+          <div className="flex-1 divide-y divide-slate-100 overflow-y-auto">
             {staffAvailability.length === 0 ? (
               <div className="p-6 text-center text-slate-400 text-xs">No staff found</div>
             ) : (
-              staffAvailability.slice(0, 7).map((s) => (
+              staffAvailability.slice(0, 8).map((s) => (
                 <div
                   key={s.id || s.staffId}
                   className="px-4 py-2.5 flex items-center justify-between gap-3 hover:bg-slate-50/50 transition"

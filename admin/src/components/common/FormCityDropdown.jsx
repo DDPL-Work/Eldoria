@@ -18,7 +18,7 @@ import {
 export function FormCityDropdown({
   value = '',
   onChange,
-  placeholder = 'Select city',
+  placeholder = 'Select city...',
   className = '',
   disabled = false,
   error = false,
@@ -91,18 +91,39 @@ export function FormCityDropdown({
     );
   }, [allCities, searchText, isEditing]);
 
-  // Close on outside click and revert uncommitted text
+  // Close on outside click and preserve custom typed city or revert if empty
   useEffect(() => {
     function handleClickOutside(event) {
       if (containerRef.current && !containerRef.current.contains(event.target)) {
         setIsOpen(false);
-        setIsEditing(false);
-        setSearchText(selectedDisplayName);
+        if (isEditing) {
+          setIsEditing(false);
+          const trimmed = searchText.trim();
+          if (trimmed) {
+            const match = allCities.find(
+              (c) =>
+                c.name.toLowerCase() === trimmed.toLowerCase() ||
+                c.id.toLowerCase() === trimmed.toLowerCase()
+            );
+            if (match) {
+              onChange?.(match.id);
+              setSearchText(match.name);
+            } else {
+              // Custom city entered by user
+              const customId = trimmed.toLowerCase().replace(/\s+/g, '-');
+              onChange?.(customId);
+              setSearchText(trimmed);
+            }
+          } else {
+            onChange?.('');
+            setSearchText('');
+          }
+        }
       }
     }
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [selectedDisplayName]);
+  }, [allCities, isEditing, searchText, onChange]);
 
   // Auto-scroll selected item into view when dropdown opens
   useEffect(() => {
@@ -115,8 +136,13 @@ export function FormCityDropdown({
   }, [isOpen, isEditing]);
 
   const handleSelect = (city) => {
-    onChange?.(city.id);
-    setSearchText(city.name);
+    if (!city || !city.id) {
+      onChange?.('');
+      setSearchText('');
+    } else {
+      onChange?.(city.id);
+      setSearchText(city.name);
+    }
     setIsEditing(false);
     setIsOpen(false);
     setHighlightIndex(-1);
@@ -166,6 +192,23 @@ export function FormCityDropdown({
         handleSelect(filteredCities[highlightIndex]);
       } else if (filteredCities.length > 0) {
         handleSelect(filteredCities[0]);
+      } else if (searchText.trim()) {
+        const trimmed = searchText.trim();
+        const match = allCities.find(
+          (c) =>
+            c.name.toLowerCase() === trimmed.toLowerCase() ||
+            c.id.toLowerCase() === trimmed.toLowerCase()
+        );
+        if (match) {
+          handleSelect(match);
+        } else {
+          const customId = trimmed.toLowerCase().replace(/\s+/g, '-');
+          onChange?.(customId);
+          setSearchText(trimmed);
+          setIsEditing(false);
+          setIsOpen(false);
+          setHighlightIndex(-1);
+        }
       }
     }
   };
@@ -184,12 +227,12 @@ export function FormCityDropdown({
     <div className={`relative w-full ${className}`} ref={containerRef}>
       {/* Searchable Input Trigger Box matching screenshot */}
       <div
-        className={`w-full rounded-xl border bg-white px-3.5 py-1.5 text-xs sm:text-[13px] shadow-2xs transition min-h-[40px] flex items-center justify-between cursor-text ${
+        className={`w-full rounded-lg border bg-white px-3.5 py-1.5 text-xs sm:text-[13px] shadow-2xs transition h-[40px] flex items-center justify-between cursor-text ${
           error
             ? 'border-red-400 focus-within:ring-1 focus-within:ring-red-400'
             : isOpen
             ? 'border-[#0E2F5A] ring-1 ring-[#0E2F5A]'
-            : 'border-slate-300 hover:border-slate-400 focus-within:ring-1 focus-within:ring-[#0E2F5A] focus-within:border-[#0E2F5A]'
+            : 'border-slate-200 hover:border-slate-300 focus-within:ring-1 focus-within:ring-[#0E2F5A] focus-within:border-[#0E2F5A]'
         } ${disabled ? 'opacity-60 cursor-not-allowed bg-slate-50' : ''}`}
         onClick={() => {
           if (!disabled) {
@@ -265,9 +308,52 @@ export function FormCityDropdown({
           tabIndex={-1}
           className="absolute left-0 right-0 top-full mt-1 w-full bg-white rounded-lg border border-slate-300 shadow-xl z-50 max-h-72 overflow-y-auto thin-scrollbar py-1 animate-in fade-in zoom-in-95 duration-75"
         >
+          {/* Default Unselected Option: Select city… */}
+          <button
+            type="button"
+            role="option"
+            aria-selected={!value}
+            data-selected={!value ? 'true' : 'false'}
+            onClick={() => handleSelect(null)}
+            className={`w-full text-left px-3.5 py-1.5 text-xs sm:text-[13px] italic transition-colors cursor-pointer select-none block truncate border-b border-slate-100 ${
+              !value
+                ? 'bg-[#1A73E8] text-white font-medium not-italic'
+                : 'text-slate-400 hover:bg-[#1A73E8] hover:text-white'
+            }`}
+          >
+            Select city…
+          </button>
+
+          {/* Add custom city option if user typed text that does not exactly match */}
+          {isEditing && searchText.trim() && !allCities.some(
+            (c) => c.name.toLowerCase() === searchText.trim().toLowerCase()
+          ) && (
+            <button
+              type="button"
+              onClick={() => {
+                const trimmed = searchText.trim();
+                const customId = trimmed.toLowerCase().replace(/\s+/g, '-');
+                onChange?.(customId);
+                setSearchText(trimmed);
+                setIsEditing(false);
+                setIsOpen(false);
+                setHighlightIndex(-1);
+              }}
+              className="w-full text-left px-3.5 py-2 text-xs sm:text-[13px] font-semibold text-[#0E2F5A] bg-amber-50 hover:bg-[#1A73E8] hover:text-white border-b border-amber-200/60 flex items-center justify-between transition cursor-pointer"
+            >
+              <span className="flex items-center gap-1.5 truncate">
+                <span className="text-base font-bold leading-none text-amber-600">+</span>
+                <span>Add &ldquo;{searchText.trim()}&rdquo; as city</span>
+              </span>
+              <span className="text-[10px] uppercase font-bold tracking-wider px-1.5 py-0.5 rounded bg-amber-200 text-amber-900 shrink-0 ml-2">
+                New
+              </span>
+            </button>
+          )}
+
           {filteredCities.length === 0 ? (
             <div className="px-3.5 py-2.5 text-xs text-slate-400 text-center">
-              No matching city found
+              No matching city found. Click above to add as custom city.
             </div>
           ) : (
             filteredCities.map((c, idx) => {

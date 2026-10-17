@@ -6,6 +6,7 @@ import { CityDropdown } from '../common/CityDropdown';
 import { DatabaseLoader } from '../common/DatabaseLoader';
 import { useStore } from '../../context/StoreContext';
 import { fmtDate, todayISO, ACTIVE } from '../../constants/data';
+import { bookingAPI } from '../../services/api';
 import bookingErrorImg from '../../assets/booking-error.png';
 
 export function Bookings({ onOpenBooking, onNewBooking }) {
@@ -66,6 +67,8 @@ export function Bookings({ onOpenBooking, onNewBooking }) {
     loadBookings();
   }, [loadBookings]);
 
+
+
   const q = query.trim().toLowerCase();
 
   const filterFn = {
@@ -77,8 +80,13 @@ export function Bookings({ onOpenBooking, onNewBooking }) {
     all: () => true
   }[filter] || (() => true);
 
-  // Strictly real backend bookings from API — no fake demo bookings
-  const rawList = Array.isArray(backendBookings) ? backendBookings : [];
+  // Strictly real backend bookings from API — unassigned newly created bookings default to 'requested'
+  const rawList = (Array.isArray(backendBookings) ? backendBookings : []).map((b) => {
+    if (b && !b.staffId && !b.assignedStaff && b.status === 'confirmed' && (!b.history || b.history.length <= 2)) {
+      return { ...b, status: 'requested' };
+    }
+    return b;
+  });
 
   const list = inCity(rawList)
     .filter(filterFn)
@@ -277,17 +285,17 @@ export function Bookings({ onOpenBooking, onNewBooking }) {
             </div>
           </div>
         ) : (
-          <div className="w-full overflow-hidden">
-            <table className="w-full text-left text-xs table-fixed">
+          <div className="w-full overflow-x-auto">
+            <table className="w-full text-left text-xs min-w-[1040px]">
               <thead>
                 <tr className="bg-[#dfe4e9] text-slate-700 text-[11px] font-bold uppercase tracking-wider">
-                  <th className="py-2.5 pl-4 pr-2 w-[20%]">BOOKING</th>
-                  <th className="py-2.5 px-2 w-[8%]">CITY</th>
-                  <th className="py-2.5 px-2 w-[14%]">PATIENT</th>
-                  <th className="py-2.5 px-2 w-[16%]">SERVICE</th>
-                  <th className="py-2.5 px-2 w-[11%]">WHEN</th>
-                  <th className="py-2.5 px-2 w-[15%]">STAFF</th>
-                  <th className="py-2.5 pl-2 pr-4 w-[17%] text-right whitespace-nowrap">STATUS</th>
+                  <th className="py-3 pl-5 pr-4 w-[26%] min-w-[240px]">BOOKING</th>
+                  <th className="py-3 px-4 w-[11%] min-w-[110px]">CITY</th>
+                  <th className="py-3 px-4 w-[15%] min-w-[140px]">PATIENT</th>
+                  <th className="py-3 px-4 w-[16%] min-w-[150px]">SERVICE</th>
+                  <th className="py-3 px-4 w-[11%] min-w-[115px]">WHEN</th>
+                  <th className="py-3 px-4 w-[10%] min-w-[110px]">STAFF</th>
+                  <th className="py-3 pl-3 pr-5 w-[11%] min-w-[135px] text-right whitespace-nowrap">STATUS</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200">
@@ -303,34 +311,47 @@ export function Bookings({ onOpenBooking, onNewBooking }) {
 
                   const isToday = b.date === todayISO();
                   const whenDate = isToday ? 'Today' : fmtDate(b.date);
-                  const displayCity = b.cityName || cityName(bCity(b) || b.city);
+                  const rawCity = b.cityName || cityName(bCity(b) || b.city);
+                  const displayCity =
+                    rawCity && rawCity !== '—'
+                      ? String(rawCity).charAt(0).toUpperCase() + String(rawCity).slice(1)
+                      : b.city
+                      ? String(b.city).charAt(0).toUpperCase() + String(b.city).slice(1)
+                      : '—';
                   const displayService = b.serviceName || s?.name || b.service || 'Service';
 
                   return (
                     <tr
                       key={b.id || b.code}
                       onClick={() => onOpenBooking(b.id || b.code)}
-                      className="hover:bg-slate-50/60 transition cursor-pointer group"
+                      className="hover:bg-slate-50/60 transition cursor-pointer group align-middle"
                     >
                       {/* BOOKING Column */}
-                      <td className="py-3 pl-4 pr-2">
-                        <div className="font-bold text-slate-900 group-hover:text-[#0E2F5A] text-xs sm:text-[13px] leading-snug truncate">
+                      <td className="py-3.5 pl-5 pr-4 align-middle">
+                        <div className="font-bold text-slate-900 group-hover:text-[#0E2F5A] text-xs sm:text-[13px] leading-snug truncate max-w-[220px]">
                           {b.clientName}
                         </div>
-                        <div className="text-[11px] text-slate-400 mt-0.5 flex items-center gap-1.5 leading-snug">
-                          <span className="font-mono text-slate-400">{b.code}</span>
-                          <span>·</span>
-                          <StatusBadge status={b.source} type="source" />
+                        <div className="text-[11px] text-slate-400 mt-1 flex items-center gap-2 leading-none whitespace-nowrap">
+                          <span className="font-mono text-slate-500 font-medium shrink-0">{b.code}</span>
+                          <span className="text-slate-300 shrink-0">·</span>
+                          <StatusBadge status={b.source} type="source" className="shrink-0" />
                         </div>
                       </td>
 
                       {/* CITY Column */}
-                      <td className="py-3 px-2 text-xs font-medium text-slate-700 truncate">
-                        {displayCity}
+                      <td className="py-3.5 px-4 align-middle whitespace-nowrap">
+                        <div className="font-semibold text-slate-800 text-xs sm:text-[13px] leading-snug">
+                          {displayCity}
+                        </div>
+                        {b.area && (
+                          <div className="text-[11px] text-slate-400 mt-0.5 leading-snug truncate max-w-[120px]">
+                            {b.area}
+                          </div>
+                        )}
                       </td>
 
                       {/* PATIENT Column */}
-                      <td className="py-3 px-2">
+                      <td className="py-3.5 px-4 align-middle">
                         <div className="font-semibold text-slate-800 text-xs sm:text-[13px] leading-snug truncate">
                           {b.patientName}
                         </div>
@@ -342,7 +363,7 @@ export function Bookings({ onOpenBooking, onNewBooking }) {
                       </td>
 
                       {/* SERVICE Column */}
-                      <td className="py-3 px-2">
+                      <td className="py-3.5 px-4 align-middle">
                         <div className="font-medium text-slate-800 text-xs sm:text-[13px] leading-snug truncate">
                           {displayService}
                         </div>
@@ -352,8 +373,8 @@ export function Bookings({ onOpenBooking, onNewBooking }) {
                       </td>
 
                       {/* WHEN Column */}
-                      <td className="py-3 px-2">
-                        <div className="text-xs font-medium text-slate-800 leading-snug whitespace-nowrap">
+                      <td className="py-3.5 px-4 align-middle whitespace-nowrap">
+                        <div className="text-xs font-semibold text-slate-800 leading-snug whitespace-nowrap">
                           {whenDate}
                         </div>
                         <div className="text-[11px] text-slate-400 mt-0.5 leading-snug whitespace-nowrap">
@@ -362,7 +383,7 @@ export function Bookings({ onOpenBooking, onNewBooking }) {
                       </td>
 
                       {/* STAFF Column */}
-                      <td className="py-3 px-2 text-xs">
+                      <td className="py-3.5 px-4 text-xs align-middle">
                         {st ? (
                           <div className="min-w-0">
                             <div className="font-bold text-slate-800 text-xs leading-snug truncate">
@@ -385,7 +406,7 @@ export function Bookings({ onOpenBooking, onNewBooking }) {
                       </td>
 
                       {/* STATUS Column */}
-                      <td className="py-3 pl-2 pr-4 text-right whitespace-nowrap">
+                      <td className="py-3.5 pl-3 pr-5 text-right whitespace-nowrap align-middle">
                         <StatusBadge status={b.status} type="booking" />
                       </td>
                     </tr>

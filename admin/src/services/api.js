@@ -151,10 +151,14 @@ export const authAPI = {
 
   // POST /api/v1/admin/verify-otp & /api/v1/admin/forgot-password/verify
   verifyOtp: (payload) => api.post('/admin/verify-otp', payload),
+
+  // POST /api/v1/admin/forgot-password/verify
   verifyForgotOtp: (payload) => api.post('/admin/forgot-password/verify', payload),
 
   // POST /api/v1/admin/reset-password
   resetPassword: (payload) => api.post('/admin/reset-password', payload),
+
+
 
   // GET /api/v1/admin/profile
   getProfile: () => api.get('/admin/profile'),
@@ -183,8 +187,9 @@ export const adminAPI = {
   // --- Dashboard Metrics & Data ---
   // GET /api/v1/admin/dashboard
   getDashboardData: (params = '') => api.get(`/admin/dashboard${buildQuery(params)}`),
+  
 
-  // --- Bookings Management ---
+  // --------------------------------------- Bookings Management -------------------------------------
   // GET /api/v1/admin/bookings/all (fallback /admin/bookings)
   getBookings: async (params = '') => {
     const qs = buildQuery(params);
@@ -198,10 +203,28 @@ export const adminAPI = {
     }
   },
 
+
+  // POST /api/v1/admin/booking/create
+  createBooking: (data) => api.post('/admin/booking/create', data),
   // GET /api/v1/admin/booking/:id
   getBookingById: (id) => api.get(`/admin/booking/${id}`),
+  // GET /api/v1/admin/booking/:id/available-staff
+  getAvailableStaff: (id, params = '') => api.get(`/admin/booking/${id}/available-staff${buildQuery(params)}`),
+  getAvailableStaffForBooking: (id, params = '') => api.get(`/admin/booking/${id}/available-staff${buildQuery(params)}`),
+  // PATCH /api/v1/admin/booking/:id/confirm
+  confirmBooking: (id, payload = {}) => api.patch(`/admin/booking/${id}/confirm`, payload),
+  // PATCH /api/v1/admin/booking/:id/assign
+  assignStaff: (id, payload) => api.patch(`/admin/booking/${id}/assign`, payload),
+  assignStaffToBooking: (id, payload) => api.patch(`/admin/booking/${id}/assign`, payload),
+  // PATCH /api/v1/admin/booking/:id/unassign
+  unassignStaff: (id, payload = {}) => api.patch(`/admin/booking/${id}/unassign`, payload),
+  unassignStaffFromBooking: (id, payload = {}) => api.patch(`/admin/booking/${id}/unassign`, payload),
+  // PATCH /api/v1/admin/booking/:id/status
+  updateBookingStatus: (id, payload) => api.patch(`/admin/booking/${id}/status`, payload),
 
-  // --- City Management CRUD ---
+
+
+  // ----------------------------------City Management CRUD ---------------------------------------
   // GET /api/v1/admin/cities
   getCities: (params = '') => api.get(`/admin/cities${buildQuery(params)}`),
 
@@ -243,6 +266,7 @@ export const adminAPI = {
 
   // PATCH /api/v1/admin/staff-requests/:id/revoke & /pending
   revokeStaffRequest: (id, payload = {}) => api.patch(`/admin/staff-requests/${id}/revoke`, payload),
+  moveStaffRequestToPending: (id, payload = {}) => api.patch(`/admin/staff-requests/${id}/pending`, payload),
 
   // --- Client Management ---
   // GET /api/v1/admin/clients
@@ -277,6 +301,9 @@ export const adminAPI = {
   // DELETE /api/v1/admin/service/:id/delete
   deleteService: (id) => api.delete(`/admin/service/${id}/delete`),
 
+  // POST /api/v1/admin/services/categories
+  createCategory: (data) => api.post('/admin/services/categories', data),
+
   // PATCH /api/v1/admin/services/categories/:category
   updateCategory: (category, data) => api.patch(`/admin/services/categories/${encodeURIComponent(category)}`, data),
 
@@ -307,7 +334,16 @@ export const bookingAPI = {
       throw err;
     }
   },
+  createBooking: (data) => api.post('/admin/booking/create', data),
   getBookingById: (id) => api.get(`/admin/booking/${id}`),
+  getAvailableStaff: (id, params = '') => api.get(`/admin/booking/${id}/available-staff${buildQuery(params)}`),
+  getAvailableStaffForBooking: (id, params = '') => api.get(`/admin/booking/${id}/available-staff${buildQuery(params)}`),
+  confirmBooking: (id, payload = {}) => api.patch(`/admin/booking/${id}/confirm`, payload),
+  assignStaff: (id, payload) => api.patch(`/admin/booking/${id}/assign`, payload),
+  assignStaffToBooking: (id, payload) => api.patch(`/admin/booking/${id}/assign`, payload),
+  unassignStaff: (id, payload = {}) => api.patch(`/admin/booking/${id}/unassign`, payload),
+  unassignStaffFromBooking: (id, payload = {}) => api.patch(`/admin/booking/${id}/unassign`, payload),
+  updateBookingStatus: (id, payload) => api.patch(`/admin/booking/${id}/status`, payload),
 };
 
 export const cityAPI = {
@@ -327,6 +363,7 @@ export const staffAPI = {
   requestStaffChanges: (id, payload) => api.patch(`/admin/staff-requests/${id}/request-changes`, payload),
   rejectStaffRequest: (id, payload = {}) => api.patch(`/admin/staff-requests/${id}/reject`, payload),
   revokeStaffRequest: (id, payload = {}) => api.patch(`/admin/staff-requests/${id}/revoke`, payload),
+  moveStaffRequestToPending: (id, payload = {}) => api.patch(`/admin/staff-requests/${id}/pending`, payload),
 };
 
 export const clientAPI = {
@@ -342,6 +379,7 @@ export const serviceAPI = {
   toggleServiceStatus: (id, payload = {}) => api.patch(`/admin/service/${id}/status`, payload),
   reorderServices: (data) => api.patch('/admin/services/reorder', data),
   deleteService: (id) => api.delete(`/admin/service/${id}/delete`),
+  createCategory: (data) => api.post('/admin/services/categories', data),
   updateCategory: (category, data) => api.patch(`/admin/services/categories/${encodeURIComponent(category)}`, data),
   toggleCategoryStatus: (category, payload = {}) =>
     api.patch(`/admin/services/categories/${encodeURIComponent(category)}/status`, payload),

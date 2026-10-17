@@ -435,8 +435,8 @@ export function Settings({ onShowToast }) {
         </button>
       </section>
 
-      {/* Backup and Restore */}
-      <section className="bg-white rounded-lg p-6 border border-slate-200/80 shadow-2xs space-y-3">
+      {/* =====================Backup and Restore =======================================*/}
+      {/* <section className="bg-white rounded-lg p-6 border border-slate-200/80 shadow-2xs space-y-3">
         <h2 className="text-sm font-bold text-slate-900">Data &amp; Backup Management</h2>
         <p className="text-xs text-slate-500">
           Export a complete JSON backup of bookings, caregivers, catalog services, cities and
@@ -485,10 +485,11 @@ export function Settings({ onShowToast }) {
             </button>
           )}
         </div>
-      </section>
+      </section> */}
 
-      {/* Sample Demo Data */}
-      <section className="bg-white rounded-lg p-6 border border-slate-200/80 shadow-2xs space-y-3">
+
+      {/*===================== Sample Demo Data =======================================*/}
+      {/* <section className="bg-white rounded-lg p-6 border border-slate-200/80 shadow-2xs space-y-3">
         <h2 className="text-sm font-bold text-slate-900">Sample Mock Datasets</h2>
         <p className="text-xs text-slate-500">
           Reset and reload the sample bookings, verified staff members, onboarding applications,
@@ -522,7 +523,7 @@ export function Settings({ onShowToast }) {
             Load sample data
           </button>
         )}
-      </section>
+      </section> */}
     </div>
   );
 }

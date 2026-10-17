@@ -414,7 +414,7 @@ export function ApplicationDetail({ appId, onBack, onPreviewFile, onShowToast })
               <div className="grow space-y-1.5">
                 <div className="font-extrabold text-slate-900 text-xl">{a.name}</div>
                 <div className="text-xs text-slate-500 font-medium">
-                  {a.role} · {a.experience} yrs experience
+                  {a.role} · {a.experience} yrs experience{a.area ? ` · ${a.area}` : ''}
                 </div>
                 <div className="flex flex-wrap gap-2 pt-1.5">
                   <a
@@ -459,8 +459,13 @@ export function ApplicationDetail({ appId, onBack, onPreviewFile, onShowToast })
                 <div className="font-bold text-slate-800">{a.gender || '—'}</div>
 
                 <div className="text-slate-400 font-medium">City</div>
+                <div className="font-bold text-slate-800 capitalize">
+                  {a.cityName || cityName(sCity(a)) || a.city || '—'}
+                </div>
+
+                <div className="text-slate-400 font-medium">Area</div>
                 <div className="font-bold text-slate-800">
-                  {cityName(sCity(a))}{a.area ? ` · ${a.area}` : ''}
+                  {a.area || '—'}
                 </div>
 
                 <div className="text-slate-400 font-medium">Address</div>

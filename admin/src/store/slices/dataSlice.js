@@ -235,6 +235,112 @@ export const fetchBookingByIdThunk = createAsyncThunk(
 );
 
 /**
+ * Async Thunk: Fetch Available Staff for Booking Matching from Backend API
+ */
+export const fetchAvailableStaffThunk = createAsyncThunk(
+  'data/fetchAvailableStaff',
+  async ({ id, params = '' }, { rejectWithValue }) => {
+    try {
+      const res = await bookingAPI.getAvailableStaff(id, params);
+      return res.data || res;
+    } catch (err) {
+      return rejectWithValue(err.message || 'Failed to fetch available staff');
+    }
+  }
+);
+
+/**
+ * Async Thunk: Confirm Booking on Backend API
+ */
+export const confirmBookingThunk = createAsyncThunk(
+  'data/confirmBooking',
+  async ({ id, payload = {} }, { rejectWithValue }) => {
+    try {
+      const res = await bookingAPI.confirmBooking(id, payload);
+      return { id, data: res.data || res };
+    } catch (err) {
+      return rejectWithValue(err.message || 'Failed to confirm booking');
+    }
+  }
+);
+
+/**
+ * Async Thunk: Assign Staff to Booking on Backend API
+ */
+export const assignStaffThunk = createAsyncThunk(
+  'data/assignStaff',
+  async ({ id, staffId }, { rejectWithValue }) => {
+    try {
+      const res = await bookingAPI.assignStaff(id, { staffId });
+      return { id, staffId, data: res.data || res };
+    } catch (err) {
+      return rejectWithValue(err.message || 'Failed to assign staff');
+    }
+  }
+);
+
+/**
+ * Async Thunk: Unassign Staff from Booking on Backend API
+ */
+export const unassignStaffThunk = createAsyncThunk(
+  'data/unassignStaff',
+  async ({ id, payload = {} }, { rejectWithValue }) => {
+    try {
+      const res = await bookingAPI.unassignStaff(id, payload);
+      return { id, data: res.data || res };
+    } catch (err) {
+      return rejectWithValue(err.message || 'Failed to unassign staff');
+    }
+  }
+);
+
+/**
+ * Async Thunk: Update Booking Status on Backend API
+ */
+export const updateBookingStatusThunk = createAsyncThunk(
+  'data/updateBookingStatus',
+  async ({ id, payload }, { rejectWithValue }) => {
+    try {
+      const res = await bookingAPI.updateBookingStatus(id, payload);
+      return { id, payload, data: res.data || res };
+    } catch (err) {
+      return rejectWithValue(err.message || 'Failed to update booking status');
+    }
+  }
+);
+
+/**
+ * Async Thunk: Create Booking on Backend API
+ */
+export const createBookingThunk = createAsyncThunk(
+  'data/createBooking',
+  async (bookingData, { rejectWithValue }) => {
+    try {
+      const res = await bookingAPI.createBooking({
+        ...bookingData,
+        status: 'requested',
+      });
+      const booking = res?.data?.booking || res?.booking || res?.data || res;
+      const bid = booking?.id || booking?.code;
+      if (bid) {
+        try {
+          await bookingAPI.updateBookingStatus(bid, {
+            status: 'requested',
+            note: 'Booking request created by care desk',
+          });
+        } catch (statusErr) {
+          console.warn('Backend status update to requested notice:', statusErr);
+        }
+      }
+      return { ...booking, status: 'requested' };
+    } catch (err) {
+      return rejectWithValue(err.message || 'Failed to create booking');
+    }
+  }
+);
+
+
+/**
  * Async Thunks: City Management CRUD
  */
 export const fetchCitiesThunk = createAsyncThunk(
@@ -468,6 +574,13 @@ const dataSlice = createSlice({
     currentBookingDetail: null,
     bookingDetailLoading: false,
     bookingDetailError: null,
+    availableStaff: [],
+    availableStaffCriteria: null,
+    availableStaffCounts: null,
+    availableStaffLoading: false,
+    availableStaffError: null,
+    bookingActionLoading: false,
+    bookingActionError: null,
     backendCities: [],
     citiesSummary: null,
     citiesLoading: false,
@@ -1151,6 +1264,151 @@ const dataSlice = createSlice({
       .addCase(fetchBookingByIdThunk.rejected, (state, action) => {
         state.bookingDetailLoading = false;
         state.bookingDetailError = action.payload;
+      })
+      // fetchAvailableStaff
+      .addCase(fetchAvailableStaffThunk.pending, (state) => {
+        state.availableStaffLoading = true;
+        state.availableStaffError = null;
+      })
+      .addCase(fetchAvailableStaffThunk.fulfilled, (state, action) => {
+        state.availableStaffLoading = false;
+        const payloadData = action.payload?.data || action.payload || {};
+        state.availableStaff = Array.isArray(payloadData)
+          ? payloadData
+          : Array.isArray(payloadData.matches)
+          ? payloadData.matches
+          : Array.isArray(payloadData.availableStaff)
+          ? payloadData.availableStaff
+          : Array.isArray(payloadData.staff)
+          ? payloadData.staff
+          : [];
+        state.availableStaffCriteria = payloadData.searchCriteria || null;
+        state.availableStaffCounts = payloadData.counts || null;
+      })
+      .addCase(fetchAvailableStaffThunk.rejected, (state, action) => {
+        state.availableStaffLoading = false;
+        state.availableStaff = [];
+        state.availableStaffError = action.payload;
+      })
+      // confirmBooking
+      .addCase(confirmBookingThunk.pending, (state) => {
+        state.bookingActionLoading = true;
+        state.bookingActionError = null;
+      })
+      .addCase(confirmBookingThunk.fulfilled, (state, action) => {
+        state.bookingActionLoading = false;
+        const { id, data } = action.payload;
+        const booking = data?.booking || data;
+        if (state.currentBookingDetail && (String(state.currentBookingDetail.id) === String(id) || String(state.currentBookingDetail.code) === String(id))) {
+          state.currentBookingDetail.status = 'confirmed';
+          if (booking && typeof booking === 'object') {
+            state.currentBookingDetail = { ...state.currentBookingDetail, ...booking };
+          }
+        }
+        if (state.data?.bookings) {
+          if (state.data.bookings[id]) {
+            state.data.bookings[id].status = 'confirmed';
+          }
+        }
+      })
+      .addCase(confirmBookingThunk.rejected, (state, action) => {
+        state.bookingActionLoading = false;
+        state.bookingActionError = action.payload;
+      })
+      // assignStaff
+      .addCase(assignStaffThunk.pending, (state) => {
+        state.bookingActionLoading = true;
+        state.bookingActionError = null;
+      })
+      .addCase(assignStaffThunk.fulfilled, (state, action) => {
+        state.bookingActionLoading = false;
+        const { id, staffId, data } = action.payload;
+        const booking = data?.booking || data;
+        if (state.currentBookingDetail && (String(state.currentBookingDetail.id) === String(id) || String(state.currentBookingDetail.code) === String(id))) {
+          state.currentBookingDetail.staffId = staffId;
+          state.currentBookingDetail.status = 'assigned';
+          if (booking && typeof booking === 'object') {
+            state.currentBookingDetail = { ...state.currentBookingDetail, ...booking };
+          }
+        }
+        if (state.data?.bookings && state.data.bookings[id]) {
+          state.data.bookings[id].staffId = staffId;
+          state.data.bookings[id].status = 'assigned';
+        }
+      })
+      .addCase(assignStaffThunk.rejected, (state, action) => {
+        state.bookingActionLoading = false;
+        state.bookingActionError = action.payload;
+      })
+      // unassignStaff
+      .addCase(unassignStaffThunk.pending, (state) => {
+        state.bookingActionLoading = true;
+        state.bookingActionError = null;
+      })
+      .addCase(unassignStaffThunk.fulfilled, (state, action) => {
+        state.bookingActionLoading = false;
+        const { id } = action.payload;
+        if (state.currentBookingDetail && (String(state.currentBookingDetail.id) === String(id) || String(state.currentBookingDetail.code) === String(id))) {
+          state.currentBookingDetail.staffId = null;
+          state.currentBookingDetail.assignedStaff = null;
+          state.currentBookingDetail.status = 'confirmed';
+        }
+        if (state.data?.bookings && state.data.bookings[id]) {
+          state.data.bookings[id].staffId = null;
+          state.data.bookings[id].status = 'confirmed';
+        }
+      })
+      .addCase(unassignStaffThunk.rejected, (state, action) => {
+        state.bookingActionLoading = false;
+        state.bookingActionError = action.payload;
+      })
+      // updateBookingStatus
+      .addCase(updateBookingStatusThunk.pending, (state) => {
+        state.bookingActionLoading = true;
+        state.bookingActionError = null;
+      })
+      .addCase(updateBookingStatusThunk.fulfilled, (state, action) => {
+        state.bookingActionLoading = false;
+        const { id, payload, data } = action.payload;
+        const newStatus = payload?.status;
+        if (state.currentBookingDetail && (String(state.currentBookingDetail.id) === String(id) || String(state.currentBookingDetail.code) === String(id))) {
+          if (newStatus) state.currentBookingDetail.status = newStatus;
+          if (data && typeof data === 'object') {
+            state.currentBookingDetail = { ...state.currentBookingDetail, ...(data.booking || data) };
+          }
+        }
+        if (state.data?.bookings && state.data.bookings[id] && newStatus) {
+          state.data.bookings[id].status = newStatus;
+        }
+      })
+      .addCase(updateBookingStatusThunk.rejected, (state, action) => {
+        state.bookingActionLoading = false;
+        state.bookingActionError = action.payload;
+      })
+      // createBooking
+      .addCase(createBookingThunk.pending, (state) => {
+        state.bookingActionLoading = true;
+        state.bookingActionError = null;
+      })
+      .addCase(createBookingThunk.fulfilled, (state, action) => {
+        state.bookingActionLoading = false;
+        const booking = action.payload?.booking || action.payload?.data || action.payload;
+        if (booking && (booking.id || booking.code)) {
+          const key = booking.id || booking.code;
+          const cleanBooking = { ...booking, status: 'requested' };
+          if (!state.data.bookings) state.data.bookings = {};
+          state.data.bookings[key] = cleanBooking;
+          if (Array.isArray(state.backendBookings)) {
+            state.backendBookings = state.backendBookings.filter(
+              (b) => b.id !== key && b.code !== key && b.code !== cleanBooking.code
+            );
+            state.backendBookings.unshift(cleanBooking);
+          }
+        }
+      })
+      .addCase(createBookingThunk.rejected, (state, action) => {
+        state.bookingActionLoading = false;
+        state.bookingActionError = action.payload;
       })
       // fetchCities
       .addCase(fetchCitiesThunk.pending, (state) => {

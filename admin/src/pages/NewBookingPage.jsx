@@ -14,8 +14,8 @@ export function NewBookingPage() {
       fromEnqId={fromEnqId}
       onBack={() => navigate('/bookings')}
       onBookingCreated={(newId, code) => {
-        showToast(`Booking ${code} created`);
-        navigate(`/bookings/${newId}`);
+        showToast(`Booking request ${code} created`);
+        navigate('/bookings');
       }}
     />
   );

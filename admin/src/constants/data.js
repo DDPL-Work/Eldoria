@@ -289,7 +289,10 @@ export function demoData() {
     s6: { name: 'Kiran Jadhav', role: 'Attendant', phone: '9876543215', city: 'pune', area: 'Kothrud', skills: 'Mobility, night shift', docs: 'pending', onDuty: false },
     s5: { name: 'Lata Pawar', role: 'GNM Nurse', phone: '9876543214', city: 'thane', area: 'Thane West', skills: 'Post-surgery, catheter', docs: 'verified', onDuty: true },
     s2: { name: 'Rahul Kadam', role: 'Physiotherapist', phone: '9876543211', city: 'mumbai', area: 'Dadar, Worli', skills: 'Post-stroke, ortho rehab', docs: 'verified', onDuty: true },
-    s3: { name: 'Sushma More', role: 'Elder Caregiver', phone: '9876543212', city: 'mumbai', area: 'Borivali, Kandivali', skills: 'Bedridden care, 24-hr', docs: 'verified', onDuty: true }
+    s3: { name: 'Sushma More', role: 'Elder Caregiver', phone: '9876543212', city: 'mumbai', area: 'Borivali, Kandivali', skills: 'Bedridden care, 24-hr', docs: 'verified', onDuty: true },
+    s7: { name: 'Vikram Shinde', role: 'Physiotherapist', phone: '9876543216', city: 'mumbai', area: 'Powai, Ghatkopar', skills: 'Neuro rehab, geriatric', docs: 'verified', onDuty: true, approval: 'approved' },
+    s8: { name: 'Pooja Deshmukh', role: 'GNM Nurse', phone: '9876543217', city: 'mumbai', area: 'Juhu, Vile Parle', skills: 'ICU care, tracheostomy', docs: 'verified', onDuty: true, approval: 'approved' },
+    s9: { name: 'Sunil Verma', role: 'Attendant', phone: '9876543218', city: 'mumbai', area: 'Chembur, Kurla', skills: 'Mobility assistance, hygiene', docs: 'verified', onDuty: false, approval: 'approved' }
   };
   Object.values(staff).forEach((s) => (s.createdAt = ago(60 * 24 * 30)));
 
