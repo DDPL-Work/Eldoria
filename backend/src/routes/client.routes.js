@@ -43,16 +43,20 @@ router.post("/login", clientVerifyOtp);
 router.get("/profile", verifyToken, requireClient, getClientProfile);
 router.patch("/profile", verifyToken, requireClient, updateClientProfile);
 
-// Client Services catalog routes
+// Operational cities route for client location picker
+const { getPublicLiveCities } = require("../controllers/city.controller");
+router.get("/cities", getPublicLiveCities);
+
+// Client Services catalog routes (Location-aware)
 const {
-  getPublicServices,
-  getPublicCategories,
+  getClientServices,
+  getClientCategories,
   getPublicServiceById,
 } = require("../controllers/service.controller");
 
-router.get("/services", getPublicServices);
-router.get("/services/categories", getPublicCategories);
-router.get("/services/:id", getPublicServiceById);
+router.get("/services", optionalToken, getClientServices);
+router.get("/services/categories", optionalToken, getClientCategories);
+router.get("/services/:id", optionalToken, getPublicServiceById);
 
 // Client Booking flow routes
 router.post("/booking/create", optionalToken, createClientBooking);

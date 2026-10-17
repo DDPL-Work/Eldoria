@@ -86,6 +86,23 @@ module.exports = (sequelize) => {
       defaultValue: [],
       allowNull: false,
     },
+    cityId: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+      references: {
+        model: 'cities',
+        key: 'id',
+      },
+      onUpdate: 'CASCADE',
+      onDelete: 'SET NULL',
+      comment: 'Foreign key reference to City model (cities.id)',
+    },
+    cities: {
+      type: DataTypes.JSON,
+      defaultValue: null,
+      allowNull: true,
+      comment: "Array of operational city slugs e.g. ['mumbai', 'pune']. If null/empty, available across all live cities",
+    },
     enabled: {
       type: DataTypes.BOOLEAN,
       defaultValue: true,
@@ -110,6 +127,7 @@ module.exports = (sequelize) => {
       { fields: ['type'] },
       { fields: ['enabled'] },
       { fields: ['order'] },
+      { fields: ['cityId'] },
     ],
     hooks: {
       beforeValidate: async (service, options) => {
