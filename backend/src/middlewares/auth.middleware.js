@@ -1,6 +1,8 @@
 const jwt = require('jsonwebtoken');
 const { errorResponse } = require('../utills/responseHandler');
 
+const { getJwtSecret } = require('../configs/jwt.config');
+
 const verifyToken = (req, res, next) => {
   const authHeader = req.headers.authorization;
 
@@ -11,7 +13,7 @@ const verifyToken = (req, res, next) => {
   const token = authHeader.split(' ')[1];
 
   try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'eldoria_super_secret_jwt_key_2026');
+    const decoded = jwt.verify(token, getJwtSecret());
     req.user = decoded;
     next();
   } catch (error) {
@@ -24,7 +26,7 @@ const optionalToken = (req, res, next) => {
   if (authHeader && authHeader.startsWith('Bearer ')) {
     const token = authHeader.split(' ')[1];
     try {
-      const decoded = jwt.verify(token, process.env.JWT_SECRET || 'eldoria_super_secret_jwt_key_2026');
+      const decoded = jwt.verify(token, getJwtSecret());
       req.user = decoded;
     } catch {
       // Ignore token errors for optional authentication

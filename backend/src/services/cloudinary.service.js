@@ -19,18 +19,26 @@ const ALLOWED_EXTENSIONS = ['.pdf', '.jpg', '.jpeg', '.png', '.webp', '.gif'];
  * @returns {boolean}
  */
 const isValidDocumentType = (mimetype = '', originalname = '') => {
-  if (mimetype) {
-    const isMimeAllowed = ALLOWED_MIME_TYPES.includes(mimetype.toLowerCase());
-    if (!isMimeAllowed) return false;
-    return true;
+  if (!mimetype && !originalname) return false;
+
+  const mime = (mimetype || '').toLowerCase().trim();
+  const ext = path.extname(originalname || '').toLowerCase().trim();
+
+  // If extension is present, it MUST be in ALLOWED_EXTENSIONS (rejects .exe, .php, etc.)
+  if (ext && !ALLOWED_EXTENSIONS.includes(ext)) {
+    return false;
   }
-  if (originalname) {
-    const ext = path.extname(originalname).toLowerCase();
-    if (ALLOWED_EXTENSIONS.includes(ext)) {
-      return true;
-    }
+
+  // If mimetype is present, it MUST be in ALLOWED_MIME_TYPES
+  if (mime && !ALLOWED_MIME_TYPES.includes(mime)) {
+    return false;
   }
-  return false;
+
+  // At least one must be explicitly valid
+  const isMimeAllowed = mime ? ALLOWED_MIME_TYPES.includes(mime) : false;
+  const isExtAllowed = ext ? ALLOWED_EXTENSIONS.includes(ext) : false;
+
+  return isMimeAllowed || isExtAllowed;
 };
 
 /**

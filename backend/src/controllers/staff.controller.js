@@ -4,7 +4,12 @@ const { errorResponse, successResponse } = require("../utills/responseHandler");
 const https = require("https");
 const http = require("http");
 const { generateStaffId } = require("../helpers/generateStaffID");
-const { uploadStaffFilesToCloudinary, getAuthenticatedDownloadUrl } = require("../services/cloudinary.service");
+const {
+  uploadStaffDocument,
+  uploadStaffFilesToCloudinary,
+  deleteFromCloudinary,
+  getAuthenticatedDownloadUrl,
+} = require("../services/cloudinary.service");
 
 /**
  * Helper to normalize staff uploaded documents:
@@ -62,13 +67,19 @@ const normalizeStaffFiles = (inputFiles = {}) => {
       fileObj.verified || fileObj.status === "verified",
     );
 
+    const dataUrl = fileObj.secure_url || fileObj.url || fileObj.data || "";
     normalized[key] = {
+      ...fileObj,
       id: docId,
       key,
       name: fileObj.name || `${key}.jpg`,
       type: fileObj.type || "image/jpeg",
       size: Number(fileObj.size) || 0,
-      data: fileObj.data || fileObj.url || "",
+      data: dataUrl,
+      url: fileObj.url || dataUrl,
+      secure_url: fileObj.secure_url || dataUrl,
+      public_id: fileObj.public_id || fileObj.publicId || null,
+      publicId: fileObj.publicId || fileObj.public_id || null,
       status: isVerified ? "verified" : fileObj.status || "pending",
       verified: isVerified,
       uploadedAt: fileObj.uploadedAt || new Date().toISOString(),
@@ -318,7 +329,28 @@ const staffRegistration = async (req, res) => {
     );
 
     // Normalize documents: assign unique id, status, verified flag, and initialize docChecks
-    const cloudinaryFiles = await uploadStaffFilesToCloudinary(req);
+    let cloudinaryFiles = {};
+    if (files && typeof files === "object" && Object.keys(files).length > 0) {
+      try {
+        const fileEntries = Array.isArray(files)
+          ? files.map((f, i) => [f.k || f.key || `doc_${i}`, f])
+          : Object.entries(files);
+
+        for (const [key, fileData] of fileEntries) {
+          if (!fileData) continue;
+          const cleanKey = key.replace(/^files[\.\[_]/, "").replace(/\]$/, "") || key;
+          const uploaded = await uploadStaffDocument(fileData, { docKey: cleanKey });
+          cloudinaryFiles[cleanKey] = uploaded;
+        }
+      } catch (uploadErr) {
+        if (transaction && !transaction.finished) {
+          await transaction.rollback();
+        }
+        return errorResponse(res, `Staff document upload failed: ${uploadErr.message}`, 400, uploadErr);
+      }
+    } else {
+      cloudinaryFiles = await uploadStaffFilesToCloudinary(req);
+    }
 
     const { files: normalizedFiles, docChecks: initialDocChecks } =
       normalizeStaffFiles(cloudinaryFiles);
@@ -397,7 +429,9 @@ const staffRegistration = async (req, res) => {
         user: sanitizedUser,
         staff: staffData,
       },
-      "Staff registered successfully",
+      Object.keys(cloudinaryFiles || {}).length > 0
+        ? "Staff registered successfully with Cloudinary documents"
+        : "Staff registered successfully",
       201,
     );
   } catch (error) {
@@ -513,11 +547,38 @@ const updateStaffApplication = async (req, res) => {
     const updatedFiles = { ...cleanExistingFiles };
     const updatedDocChecks = { ...cleanExistingDocChecks };
 
-    const cloudinaryFiles = await uploadStaffFilesToCloudinary(req);
-    const combinedFiles = {
-      ...(files && typeof files === "object" ? files : {}),
-      ...cloudinaryFiles,
-    };
+    let newUploadedFiles = {};
+    if (files && typeof files === "object" && Object.keys(files).length > 0) {
+      try {
+        const fileEntries = Array.isArray(files)
+          ? files.map((f, i) => [f.k || f.key || `doc_${i}`, f])
+          : Object.entries(files);
+
+        for (const [key, fileData] of fileEntries) {
+          if (!fileData) continue;
+          const cleanKey = key.replace(/^files[\.\[_]/, "").replace(/\]$/, "") || key;
+          const oldFile = staff.files?.[cleanKey] || staff.files?.[key];
+          if (oldFile && (oldFile.public_id || oldFile.publicId)) {
+            const pubId = oldFile.public_id || oldFile.publicId;
+            const resType = oldFile.resource_type || "image";
+            try {
+              await deleteFromCloudinary(pubId, resType);
+            } catch (_) {}
+          }
+          const uploaded = await uploadStaffDocument(fileData, { docKey: cleanKey });
+          newUploadedFiles[cleanKey] = uploaded;
+        }
+      } catch (uploadErr) {
+        if (transaction && !transaction.finished) {
+          await transaction.rollback();
+        }
+        return errorResponse(res, `Failed to upload updated document: ${uploadErr.message}`, 400, uploadErr);
+      }
+    } else {
+      newUploadedFiles = await uploadStaffFilesToCloudinary(req);
+    }
+
+    const combinedFiles = newUploadedFiles;
 
     if (Object.keys(combinedFiles).length > 0) {
       const { files: normalizedNewFiles } = normalizeStaffFiles(combinedFiles);

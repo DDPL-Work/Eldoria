@@ -91,6 +91,10 @@ const getStaffRequests = async (req, res) => {
       ];
     }
 
+    const ALLOWED_STAFF_SORT = ['id', 'createdAt', 'updatedAt', 'staffId', 'city', 'approval', 'docs', 'onDuty', 'regNo'];
+    const safeStaffSortBy = ALLOWED_STAFF_SORT.includes(sortBy) ? sortBy : 'createdAt';
+    const safeStaffSortOrder = String(sortOrder).toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
+
     const { count, rows: staffRequests } = await Staff.findAndCountAll({
       where: staffWhere,
       include: [
@@ -102,7 +106,7 @@ const getStaffRequests = async (req, res) => {
           required: false,
         },
       ],
-      order: [[sortBy, sortOrder.toUpperCase() === "ASC" ? "ASC" : "DESC"]],
+      order: [[safeStaffSortBy, safeStaffSortOrder]],
       limit: pageSize,
       offset,
       distinct: true,
@@ -1183,6 +1187,10 @@ const getClients = async (req, res) => {
       ];
     }
 
+    const ALLOWED_CLIENT_SORT = ['id', 'createdAt', 'updatedAt', 'city', 'clientId'];
+    const safeClientSortBy = ALLOWED_CLIENT_SORT.includes(sortBy) ? sortBy : 'createdAt';
+    const safeClientSortOrder = String(sortOrder).toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
+
     const { count, rows: clients } = await Client.findAndCountAll({
       where: clientWhere,
       include: [
@@ -1193,7 +1201,7 @@ const getClients = async (req, res) => {
           required: false,
         },
       ],
-      order: [[sortBy, sortOrder.toUpperCase() === "ASC" ? "ASC" : "DESC"]],
+      order: [[safeClientSortBy, safeClientSortOrder]],
       limit: pageSize,
       offset,
       distinct: true,
@@ -1351,7 +1359,10 @@ const getBookings = async (req, res) => {
           ],
         },
       ],
-      order: [[sortBy, sortOrder.toUpperCase() === "ASC" ? "ASC" : "DESC"]],
+      order: [[
+        ['id', 'createdAt', 'updatedAt', 'bookingId', 'status', 'startDate', 'endDate', 'totalAmount', 'date'].includes(sortBy) ? sortBy : 'createdAt',
+        String(sortOrder).toUpperCase() === 'ASC' ? 'ASC' : 'DESC'
+      ]],
       limit: pageSize,
       offset,
       distinct: true,

@@ -25,6 +25,20 @@ const getAivenSslOptions = () => {
   } catch (err) {
     console.warn('⚠️ Could not load Aiven CA certificate:', err.message);
   }
+
+  // Enforce secure TLS encryption when running with remote database in production (SEC-14)
+  if (process.env.NODE_ENV === 'production' && (process.env.DB_ENV === 'server' || process.env.DB_ENV === 'aiven')) {
+    throw new Error('FATAL SECURITY ERROR: Aiven CA certificate (aiven-ca.pem) is required in production for encrypted database connections.');
+  }
+
+  if (process.env.AIVEN_DB_SSL === 'true') {
+    return {
+      ssl: {
+        rejectUnauthorized: false,
+      },
+    };
+  }
+
   return {};
 };
 

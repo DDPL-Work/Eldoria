@@ -5,6 +5,7 @@ const { Op } = require("sequelize");
 const { Admin, Otp } = require("../database/models");
 const { successResponse, errorResponse } = require("../utills/responseHandler");
 const { logOtpToTerminal } = require("../helpers/otpLogger");
+const { getJwtSecret, JWT_EXPIRES_IN } = require("../configs/jwt.config");
 
 /**
  * Standardize phone number format (digits only, e.g. 10 digits)
@@ -51,10 +52,18 @@ const adminLogin = async (req, res) => {
       );
     }
 
-    // 5. Verify password (supports bcrypt hash or plain text fallback for initial seeds)
-    const isPasswordValid = adminUser.password.startsWith("$2")
-      ? await bcrypt.compare(password, adminUser.password)
-      : adminUser.password === password;
+    // 5. Verify password (bcrypt verification with automatic hash upgrade for legacy plain text passwords)
+    let isPasswordValid = false;
+    if (adminUser.password.startsWith("$2")) {
+      isPasswordValid = await bcrypt.compare(password, adminUser.password);
+    } else if (adminUser.password === password) {
+      isPasswordValid = true;
+      // Upgrade legacy plain text password to secure bcrypt hash
+      try {
+        const upgradedHash = await bcrypt.hash(password, 10);
+        await adminUser.update({ password: upgradedHash });
+      } catch (_) {}
+    }
 
     if (!isPasswordValid) {
       return errorResponse(res, "Invalid credentials", 401);
@@ -67,9 +76,8 @@ const adminLogin = async (req, res) => {
       .update(`${adminUser.id}:${adminUser.email}:${salt}:${Date.now()}`)
       .digest("hex");
 
-    const jwtSecret =
-      process.env.JWT_SECRET || "eldoria_super_secret_jwt_key_2026";
-    const jwtExpiresIn = process.env.JWT_EXPIRES_IN || "7d";
+    const jwtSecret = getJwtSecret();
+    const jwtExpiresIn = JWT_EXPIRES_IN;
 
     const token = jwt.sign(
       {
@@ -147,9 +155,9 @@ const adminForgotPassword = async (req, res) => {
       );
     }
 
-    // Generate 6-digit OTP code
-    const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
-    const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes expiry
+    // Generate cryptographically secure 6-digit OTP code (SEC-05)
+    const otpCode = crypto.randomInt(100000, 1000000).toString();
+    const expiresAt = new Date(Date.now() + 3 * 60 * 1000); // 3 minutes expiry
 
     // Invalidate previous unverified forgot_password OTPs for this email
     await Otp.update(
@@ -178,7 +186,7 @@ const adminForgotPassword = async (req, res) => {
       otp: otpCode,
       purpose: "forgot_password",
       role: "admin",
-      expiresInMinutes: 10,
+      expiresInMinutes: 3,
     });
 
     return successResponse(
@@ -186,7 +194,7 @@ const adminForgotPassword = async (req, res) => {
       {
         email: cleanEmail,
         purpose: "forgot_password",
-        expiresInSeconds: 600,
+        expiresInSeconds: 180,
         // Provided for testing while real external SMTP/email service is pending
         otp: otpCode,
       },
@@ -466,9 +474,8 @@ const adminChangePhone = async (req, res) => {
       .update(`${adminUser.id}:${adminUser.email}:${salt}:${Date.now()}`)
       .digest("hex");
 
-    const jwtSecret =
-      process.env.JWT_SECRET || "eldoria_super_secret_jwt_key_2026";
-    const jwtExpiresIn = process.env.JWT_EXPIRES_IN || "7d";
+    const jwtSecret = getJwtSecret();
+    const jwtExpiresIn = JWT_EXPIRES_IN;
 
     const token = jwt.sign(
       {
@@ -620,9 +627,8 @@ const updateAdminProfile = async (req, res) => {
       .update(`${adminUser.id}:${adminUser.email}:${salt}:${Date.now()}`)
       .digest("hex");
 
-    const jwtSecret =
-      process.env.JWT_SECRET || "eldoria_super_secret_jwt_key_2026";
-    const jwtExpiresIn = process.env.JWT_EXPIRES_IN || "7d";
+    const jwtSecret = getJwtSecret();
+    const jwtExpiresIn = JWT_EXPIRES_IN;
 
     const token = jwt.sign(
       {

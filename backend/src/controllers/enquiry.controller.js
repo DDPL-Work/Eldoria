@@ -421,8 +421,16 @@ const createClientEnquiry = async (req, res) => {
  */
 const getClientEnquiries = async (req, res) => {
   try {
-    const clientPhone = normalizePhone(req.user?.phone || req.query.phone || "");
-    const clientId = req.user?.id || req.query.clientId || null;
+    let clientPhone = "";
+    let clientId = null;
+
+    if (req.user && req.user.role !== "admin") {
+      clientPhone = normalizePhone(req.user.phone || "");
+      clientId = req.user.id || null;
+    } else {
+      clientPhone = normalizePhone(req.user?.phone || req.query.phone || "");
+      clientId = req.user?.id || req.query.clientId || null;
+    }
 
     if (!clientPhone && !clientId) {
       return errorResponse(
@@ -574,6 +582,16 @@ const bookEnquiryRecommendation = async (req, res) => {
     if (!enquiry) {
       await transaction.rollback();
       return errorResponse(res, `Help request '${id}' not found`, 404);
+    }
+
+    // Verify client authorization if caller is authenticated (SEC-18)
+    if (req.user && req.user.role !== 'admin' && enquiry.clientPhone) {
+      const userPhoneDigits = String(req.user.phone || '').replace(/\D/g, '').slice(-10);
+      const enquiryPhoneDigits = String(enquiry.clientPhone).replace(/\D/g, '').slice(-10);
+      if (userPhoneDigits && enquiryPhoneDigits && userPhoneDigits !== enquiryPhoneDigits) {
+        await transaction.rollback();
+        return errorResponse(res, "You are not authorized to convert this help request", 403);
+      }
     }
 
     // Check if already converted and has an active booking
@@ -831,9 +849,13 @@ const getAdminEnquiries = async (req, res) => {
       closed: allEnquiriesInCity.filter((e) => e.status === "closed").length,
     };
 
+    const ALLOWED_ENQUIRY_SORT = ['id', 'createdAt', 'updatedAt', 'code', 'clientName', 'clientPhone', 'status', 'city', 'patientType', 'urgent', 'submittedAt'];
+    const safeSortBy = ALLOWED_ENQUIRY_SORT.includes(sortBy) ? sortBy : 'createdAt';
+    const safeSortOrder = String(sortOrder).toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
+
     const { count, rows: enquiries } = await Enquiry.findAndCountAll({
       where: enquiryWhere,
-      order: [[sortBy, sortOrder.toUpperCase() === "ASC" ? "ASC" : "DESC"]],
+      order: [[safeSortBy, safeSortOrder]],
       limit: pageSize,
       offset,
       distinct: true,

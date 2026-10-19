@@ -357,8 +357,16 @@ const createClientBooking = async (req, res) => {
  */
 const getClientBookings = async (req, res) => {
   try {
-    const clientPhone = req.user?.phone || req.query.phone || "";
-    const clientId = req.user?.id || req.query.clientId || null;
+    let clientPhone = "";
+    let clientId = null;
+
+    if (req.user && req.user.role !== "admin") {
+      clientPhone = req.user.phone || "";
+      clientId = req.user.id || null;
+    } else {
+      clientPhone = req.user?.phone || req.query.phone || "";
+      clientId = req.user?.id || req.query.clientId || null;
+    }
 
     if (!clientPhone && !clientId) {
       return errorResponse(res, "Authentication or client phone is required to view bookings", 400);
@@ -433,6 +441,15 @@ const getClientBookingById = async (req, res) => {
 
     if (!booking) {
       return errorResponse(res, `Booking '${id}' not found`, 404);
+    }
+
+    // Ownership authorization check (SEC-03)
+    if (req.user && req.user.role !== 'admin' && booking.clientPhone) {
+      const userPhoneDigits = String(req.user.phone || '').replace(/\D/g, '').slice(-10);
+      const bookingPhoneDigits = String(booking.clientPhone).replace(/\D/g, '').slice(-10);
+      if (userPhoneDigits && bookingPhoneDigits && userPhoneDigits !== bookingPhoneDigits) {
+        return errorResponse(res, "You are not authorized to view this booking", 403);
+      }
     }
 
     // Prepare staff assignment info for client display
@@ -2221,6 +2238,22 @@ const getStaffVisitReports = async (req, res) => {
 
     if (!booking) {
       return errorResponse(res, `Booking '${id}' not found`, 404);
+    }
+
+    // Authorization check if user is authenticated (SEC-16)
+    if (req.user && req.user.role !== 'admin') {
+      if (req.user.role === 'client' && booking.clientPhone) {
+        const userPhoneDigits = String(req.user.phone || '').replace(/\D/g, '').slice(-10);
+        const bookingPhoneDigits = String(booking.clientPhone).replace(/\D/g, '').slice(-10);
+        if (userPhoneDigits && bookingPhoneDigits && userPhoneDigits !== bookingPhoneDigits) {
+          return errorResponse(res, "You are not authorized to view this visit report", 403);
+        }
+      }
+      if (req.user.role === 'staff' && booking.staffId && req.user.staffId) {
+        if (String(req.user.staffId).trim() !== String(booking.staffId).trim()) {
+          return errorResponse(res, "You are not assigned to this booking", 403);
+        }
+      }
     }
 
     const reportsList = Array.isArray(booking.reports) ? booking.reports : [];

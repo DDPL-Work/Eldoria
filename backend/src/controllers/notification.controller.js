@@ -306,9 +306,17 @@ const getNotifyMeStatus = async (req, res) => {
  */
 const getClientNotifications = async (req, res) => {
   try {
-    const rawPhone = req.user?.phone || req.query.phone || "";
-    const cleanPhone = cleanPhoneNumber(rawPhone);
-    const userId = req.user?.id || req.query.userId || null;
+    let cleanPhone = "";
+    let userId = null;
+
+    if (req.user && req.user.role !== 'admin') {
+      cleanPhone = cleanPhoneNumber(req.user.phone || "");
+      userId = req.user.id || null;
+    } else {
+      const rawPhone = req.user?.phone || req.query.phone || "";
+      cleanPhone = cleanPhoneNumber(rawPhone);
+      userId = req.user?.id || req.query.userId || null;
+    }
 
     if (!cleanPhone && !userId) {
       return errorResponse(
@@ -407,9 +415,17 @@ const markNotificationAsRead = async (req, res) => {
  */
 const markAllNotificationsAsRead = async (req, res) => {
   try {
-    const rawPhone = req.user?.phone || req.body?.phone || req.query?.phone;
-    const cleanPhone = cleanPhoneNumber(rawPhone);
-    const userId = req.user?.id || null;
+    let cleanPhone = "";
+    let userId = null;
+
+    if (req.user && req.user.role !== 'admin') {
+      cleanPhone = cleanPhoneNumber(req.user.phone || "");
+      userId = req.user.id || null;
+    } else {
+      const rawPhone = req.user?.phone || req.body?.phone || req.query?.phone;
+      cleanPhone = cleanPhoneNumber(rawPhone);
+      userId = req.user?.id || null;
+    }
 
     if (!cleanPhone && !userId) {
       return errorResponse(res, "User authentication or phone is required", 400);
