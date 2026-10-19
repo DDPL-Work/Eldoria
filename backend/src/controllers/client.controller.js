@@ -4,12 +4,15 @@ const { Op } = require("sequelize");
 const { sequelize, User, Client, Otp } = require("../database/models");
 const { successResponse, errorResponse } = require("../utills/responseHandler");
 const { generateClientId } = require("../helpers/generateClientID");
+const { logOtpToTerminal } = require("../helpers/otpLogger");
 
 /**
  * Standardize phone number format (digits only, e.g. 10 digits)
  */
 const normalizePhone = (phone = "") => {
-  return String(phone).replace(/[^\d+]/g, "").trim();
+  return String(phone)
+    .replace(/[^\d+]/g, "")
+    .trim();
 };
 
 /**
@@ -27,7 +30,11 @@ const clientSendOtp = async (req, res) => {
 
     const cleanPhone = normalizePhone(phone);
     if (cleanPhone.length < 10) {
-      return errorResponse(res, "Please provide a valid 10-digit phone number", 400);
+      return errorResponse(
+        res,
+        "Please provide a valid 10-digit phone number",
+        400,
+      );
     }
 
     // Check if phone belongs to an admin or staff (security check)
@@ -73,7 +80,16 @@ const clientSendOtp = async (req, res) => {
       isVerified: false,
     });
 
-    console.log(`📱 [CLIENT OTP] Sent OTP for ${cleanPhone}: ${otpCode}`);
+    // console.log(`📱 [CLIENT OTP] Sent OTP for ${cleanPhone}: ${otpCode}`);
+
+    logOtpToTerminal({
+      channel: "SMS",
+      recipient: cleanPhone,
+      otp: otpCode,
+      purpose: "login",
+      role: "client",
+      expiresInMinutes: 10,
+    });
 
     return successResponse(
       res,
@@ -86,7 +102,12 @@ const clientSendOtp = async (req, res) => {
       `OTP sent successfully to ${cleanPhone}`,
     );
   } catch (error) {
-    return errorResponse(res, error.message || "Failed to send OTP", 500, error);
+    return errorResponse(
+      res,
+      error.message || "Failed to send OTP",
+      500,
+      error,
+    );
   }
 };
 
@@ -160,7 +181,9 @@ const clientVerifyOtp = async (req, res) => {
       const salt = crypto.randomBytes(16).toString("hex");
       const hash = crypto
         .createHash("sha256")
-        .update(`${existingUser.id}:${existingUser.phone}:${salt}:${Date.now()}`)
+        .update(
+          `${existingUser.id}:${existingUser.phone}:${salt}:${Date.now()}`,
+        )
         .digest("hex");
 
       const jwtSecret =
@@ -224,7 +247,12 @@ const clientVerifyOtp = async (req, res) => {
       "Phone verified successfully. Please complete registration by entering your city and area.",
     );
   } catch (error) {
-    return errorResponse(res, error.message || "OTP verification failed", 500, error);
+    return errorResponse(
+      res,
+      error.message || "OTP verification failed",
+      500,
+      error,
+    );
   }
 };
 
@@ -277,12 +305,20 @@ const clientRegistration = async (req, res) => {
   }
 
   if (!city || !area) {
-    return errorResponse(res, "City and area are required to complete registration", 400);
+    return errorResponse(
+      res,
+      "City and area are required to complete registration",
+      400,
+    );
   }
 
   const cleanPhone = normalizePhone(phone);
   if (cleanPhone.length < 10) {
-    return errorResponse(res, "Please provide a valid 10-digit phone number", 400);
+    return errorResponse(
+      res,
+      "Please provide a valid 10-digit phone number",
+      400,
+    );
   }
 
   // 3. Verify OTP verification token
@@ -327,7 +363,12 @@ const clientRegistration = async (req, res) => {
       }
     }
   } catch (err) {
-    return errorResponse(res, err.message || "Database validation failed", 500, err);
+    return errorResponse(
+      res,
+      err.message || "Database validation failed",
+      500,
+      err,
+    );
   }
 
   // 5. Begin transaction for atomic User + Client creation
@@ -339,7 +380,8 @@ const clientRegistration = async (req, res) => {
     const clientId = await generateClientId(city, transaction);
 
     // Create User record (role: 'client')
-    const displayName = (name && name.trim()) || `Client ${cleanPhone.slice(-4)}`;
+    const displayName =
+      (name && name.trim()) || `Client ${cleanPhone.slice(-4)}`;
     const userEmail = (email && email.trim().toLowerCase()) || null;
 
     const newUser = await User.create(
@@ -374,7 +416,9 @@ const clientRegistration = async (req, res) => {
         preferredPlan: preferredPlan || null,
         preferredTiming: preferredTiming || null,
         expectedDuration: expectedDuration || null,
-        specialInstructions: specialInstructions ? specialInstructions.trim() : null,
+        specialInstructions: specialInstructions
+          ? specialInstructions.trim()
+          : null,
         emergencyName: emergencyName ? emergencyName.trim() : null,
         emergencyPhone: emergencyPhone ? normalizePhone(emergencyPhone) : null,
         emergencyRelation: emergencyRelation ? emergencyRelation.trim() : null,
@@ -446,7 +490,12 @@ const clientRegistration = async (req, res) => {
     if (transaction && !transaction.finished) {
       await transaction.rollback();
     }
-    return errorResponse(res, error.message || "Failed to register client", 500, error);
+    return errorResponse(
+      res,
+      error.message || "Failed to register client",
+      500,
+      error,
+    );
   }
 };
 
@@ -459,7 +508,15 @@ const getClientProfile = async (req, res) => {
     const userId = req.user.id;
 
     const user = await User.findByPk(userId, {
-      attributes: ["id", "name", "email", "phone", "role", "isActive", "createdAt"],
+      attributes: [
+        "id",
+        "name",
+        "email",
+        "phone",
+        "role",
+        "isActive",
+        "createdAt",
+      ],
       include: [
         {
           model: Client,
@@ -474,7 +531,12 @@ const getClientProfile = async (req, res) => {
 
     return successResponse(res, user, "Client profile fetched successfully");
   } catch (error) {
-    return errorResponse(res, error.message || "Failed to fetch profile", 500, error);
+    return errorResponse(
+      res,
+      error.message || "Failed to fetch profile",
+      500,
+      error,
+    );
   }
 };
 
@@ -506,13 +568,26 @@ const updateClientProfile = async (req, res) => {
     }
 
     const updated = await User.findByPk(userId, {
-      attributes: ["id", "name", "email", "phone", "role", "isActive", "createdAt"],
+      attributes: [
+        "id",
+        "name",
+        "email",
+        "phone",
+        "role",
+        "isActive",
+        "createdAt",
+      ],
       include: [{ model: Client, as: "clientProfile" }],
     });
 
     return successResponse(res, updated, "Client profile updated successfully");
   } catch (error) {
-    return errorResponse(res, error.message || "Failed to update profile", 500, error);
+    return errorResponse(
+      res,
+      error.message || "Failed to update profile",
+      500,
+      error,
+    );
   }
 };
 

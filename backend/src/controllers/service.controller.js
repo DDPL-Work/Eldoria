@@ -1,5 +1,15 @@
 const { Op } = require('sequelize');
 const { Service, Booking, Category, City, sequelize } = require('../database/models');
+const {
+  Service,
+  Category,
+  Booking,
+  City,
+  Setting,
+  Staff,
+  Client,
+  sequelize,
+} = require('../database/models');
 const { successResponse, errorResponse } = require('../utills/responseHandler');
 const { generateServiceCode } = require('../helpers/generateServiceID');
 
@@ -103,12 +113,31 @@ const formatService = (s) => {
     unit: unitStr,
     options: Array.isArray(s.options) ? s.options : [],
     tasks: Array.isArray(s.tasks) ? s.tasks : [],
+    cityId: s.cityId || null,
+    cities: Array.isArray(s.cities) ? s.cities : (s.cities ? [s.cities] : null),
+    city: Array.isArray(s.cities) && s.cities.length > 0 ? s.cities[0] : (typeof s.cities === 'string' ? s.cities : null),
     enabled: Boolean(s.enabled),
     comingSoon: Boolean(s.comingSoon),
     order: s.order || 0,
     createdAt: s.createdAt,
     updatedAt: s.updatedAt,
   };
+};
+
+/**
+ * Helper to check if a service is available in a given operational city
+ */
+const isServiceAvailableInCity = (service, citySlug, cityName) => {
+  if (!service) return false;
+  // If cities array is not set, null, or empty, service is available across all live admin cities
+  if (!service.cities || !Array.isArray(service.cities) || service.cities.length === 0) {
+    return true;
+  }
+  const normalized = service.cities.map((c) => String(c).trim().toLowerCase());
+  if (normalized.includes('all')) return true;
+  const slug = String(citySlug || '').trim().toLowerCase();
+  const name = String(cityName || '').trim().toLowerCase();
+  return (slug && normalized.includes(slug)) || (name && normalized.includes(name));
 };
 
 /**
@@ -163,6 +192,7 @@ const getAdminServices = async (req, res) => {
       category,
       type,
       status = 'all', // 'all' | 'live' | 'hidden'
+      city, // 'all' or city slug e.g. 'mumbai'
       search,
       sortBy = 'order',
       sortOrder = 'ASC',
@@ -257,6 +287,21 @@ const getAdminServices = async (req, res) => {
     } catch (catErr) {
       console.warn('Standalone Category fetch skipped:', catErr.message);
     }
+    // Also fetch all explicitly created categories from Category table
+    const allDbCategories = await Category.findAll({
+      order: [
+        ['order', 'ASC'],
+        ['name', 'ASC'],
+      ],
+    }).catch(() => []);
+
+    let filteredRaw = rawServices;
+    if (city && city !== 'all') {
+      filteredRaw = filteredRaw.filter((s) => isServiceAvailableInCity(s, city, city));
+    }
+
+    const formattedServices = filteredRaw.map(formatService);
+    const categoriesGrouped = groupServicesByCategory(formattedServices, allDbCategories);
 
     // Catalog summary counters
     const totalServices = await Service.count();
@@ -359,6 +404,9 @@ const createService = async (req, res) => {
       unit = 'per visit',
       options = [],
       tasks = [],
+      city, // Accepts "city" in payload e.g. "mumbai" or ["mumbai", "pune"]
+      cities, // Accepts "cities" in payload e.g. ["mumbai", "pune"]
+      cityId, // Accepts "cityId" in payload
       enabled = true,
       comingSoon = false,
       order,
@@ -391,6 +439,50 @@ const createService = async (req, res) => {
     if (cleanPriceMode === 'fixed' && cleanPrice <= 0) {
       await transaction.rollback();
       return errorResponse(res, 'Please enter a valid price or choose "Contact for price"', 400);
+    }
+
+    // Parse operational cities from payload: accepts city, cities, or cityId
+    const rawCitiesInput = cities !== undefined ? cities : (city !== undefined ? city : cityId);
+    let cleanCities = null;
+    if (Array.isArray(rawCitiesInput)) {
+      cleanCities = rawCitiesInput.map((c) => String(c).trim().toLowerCase()).filter(Boolean);
+      if (cleanCities.length === 0) cleanCities = null;
+    } else if (typeof rawCitiesInput === 'string' && rawCitiesInput.trim()) {
+      const trimmed = rawCitiesInput.trim();
+      let list = [];
+      if (trimmed.startsWith('[') && trimmed.endsWith(']')) {
+        try {
+          const parsed = JSON.parse(trimmed);
+          if (Array.isArray(parsed)) list = parsed;
+        } catch {
+          list = trimmed.slice(1, -1).split(',');
+        }
+      } else {
+        list = trimmed.split(',');
+      }
+      cleanCities = list.map((c) => String(c).trim().toLowerCase()).filter(Boolean);
+      if (cleanCities.length === 0) cleanCities = null;
+    }
+
+    // Resolve cityId foreign key reference if city is provided
+    let resolvedCityId = cityId ? (parseInt(cityId, 10) || null) : null;
+    if (!resolvedCityId && cleanCities && cleanCities.length > 0) {
+      try {
+        const matchedCity = await City.findOne({
+          where: {
+            [Op.or]: [
+              sequelize.where(sequelize.fn('LOWER', sequelize.col('cityId')), cleanCities[0]),
+              sequelize.where(sequelize.fn('LOWER', sequelize.col('name')), cleanCities[0]),
+            ],
+          },
+          transaction,
+        });
+        if (matchedCity) {
+          resolvedCityId = matchedCity.id;
+        }
+      } catch {
+        // Fallback gracefully
+      }
     }
 
     // Check for duplicate service name within the same category
@@ -474,6 +566,8 @@ const createService = async (req, res) => {
         unit: unit ? unit.trim() : 'per visit',
         options: normalizeStringList(options),
         tasks: normalizeStringList(tasks),
+        cityId: resolvedCityId,
+        cities: cleanCities,
         enabled: enabled !== false,
         comingSoon: Boolean(comingSoon),
         order: serviceOrder,
@@ -569,6 +663,59 @@ const updateService = async (req, res) => {
     // Options & Tasks
     if (updates.options !== undefined) service.options = normalizeStringList(updates.options);
     if (updates.tasks !== undefined) service.tasks = normalizeStringList(updates.tasks);
+
+    // Operational Cities: accepts updates.cities, updates.city, or updates.cityId
+    const rawCitiesUpdate =
+      updates.cities !== undefined
+        ? updates.cities
+        : updates.city !== undefined
+        ? updates.city
+        : updates.cityId;
+
+    if (rawCitiesUpdate !== undefined) {
+      if (Array.isArray(rawCitiesUpdate)) {
+        const list = rawCitiesUpdate.map((c) => String(c).trim().toLowerCase()).filter(Boolean);
+        service.cities = list.length > 0 ? list : null;
+      } else if (typeof rawCitiesUpdate === 'string' && rawCitiesUpdate.trim()) {
+        const trimmed = rawCitiesUpdate.trim();
+        let list = [];
+        if (trimmed.startsWith('[') && trimmed.endsWith(']')) {
+          try {
+            const parsed = JSON.parse(trimmed);
+            if (Array.isArray(parsed)) list = parsed;
+          } catch {
+            list = trimmed.slice(1, -1).split(',');
+          }
+        } else {
+          list = trimmed.split(',');
+        }
+        const cleaned = list.map((c) => String(c).trim().toLowerCase()).filter(Boolean);
+        service.cities = cleaned.length > 0 ? cleaned : null;
+
+        if (cleaned.length > 0) {
+          try {
+            const matchedCity = await City.findOne({
+              where: {
+                [Op.or]: [
+                  sequelize.where(sequelize.fn('LOWER', sequelize.col('cityId')), cleaned[0]),
+                  sequelize.where(sequelize.fn('LOWER', sequelize.col('name')), cleaned[0]),
+                ],
+              },
+            });
+            service.cityId = matchedCity ? matchedCity.id : null;
+          } catch {
+            service.cityId = null;
+          }
+        } else {
+          service.cityId = null;
+        }
+      } else {
+        service.cities = null;
+        service.cityId = null;
+      }
+    } else if (updates.cityId !== undefined) {
+      service.cityId = updates.cityId ? parseInt(updates.cityId, 10) || null : null;
+    }
 
     // Enabled & Coming soon
     if (updates.enabled !== undefined) service.enabled = Boolean(updates.enabled);
@@ -1077,16 +1224,473 @@ const deleteCategory = async (req, res) => {
 // =========================================================================
 
 /**
- * 11. GET /api/v1/services (Public / Client catalog)
- * Returns live operational services.
- * Supports:
- * - category: filter by category
- * - type: filter by type ('care', 'equipment', 'doctor')
- * - search: search term
- * - bookable: if true, only services where comingSoon is false
- * - grouped: if true, returns catalog grouped by category (for client UI)
+ * Helper to determine client location and operational details:
+ * Checks (in order of priority):
+ * 1. Query parameters (?city=..., ?location=..., ?cityId=...)
+ * 2. HTTP headers (x-client-city, x-client-location)
+ * 3. Authenticated user profile (req.user -> Client profile city)
+ * 4. Default operational city (first live city or 'mumbai')
+ */
+const resolveClientLocation = async (req) => {
+  let rawParam =
+    req.query.city ||
+    req.query.location ||
+    req.query.cityId ||
+    req.headers['x-client-city'] ||
+    req.headers['x-client-location'] ||
+    null;
+
+  let userArea = req.query.area || null;
+
+  // If unprovided in query/headers, check authenticated user's client profile
+  if (!rawParam && req.user) {
+    if (req.user.city) {
+      rawParam = req.user.city;
+    } else if (req.user.id) {
+      try {
+        const clientProfile = await Client.findOne({ where: { userId: req.user.id } });
+        if (clientProfile && clientProfile.city) {
+          rawParam = clientProfile.city;
+          userArea = userArea || clientProfile.area;
+        }
+      } catch {
+        // Fallback gracefully
+      }
+    }
+  }
+
+  // Fetch care desk contact fallbacks from Setting
+  let defaultPhone = '9820012345';
+  let defaultWhatsapp = '9820012345';
+  try {
+    const appSetting = await Setting.findByPk('app');
+    if (appSetting) {
+      defaultPhone = appSetting.phone || defaultPhone;
+      defaultWhatsapp = appSetting.whatsapp || defaultWhatsapp;
+    }
+  } catch {
+    // Keep defaults
+  }
+
+  // If client asked for 'all' cities explicitly
+  if (rawParam && String(rawParam).trim().toLowerCase() === 'all') {
+    return {
+      isAll: true,
+      cityRecord: null,
+      citySlug: 'all',
+      cityName: 'All Cities',
+      isLive: true,
+      isServiceable: true,
+      phone: defaultPhone,
+      whatsapp: defaultWhatsapp,
+      area: userArea,
+      notice: 'Viewing services across all operational locations',
+    };
+  }
+
+  const hasExplicitCity = Boolean(rawParam && String(rawParam).trim());
+
+  if (hasExplicitCity) {
+    const cleanCity = String(rawParam).trim().toLowerCase();
+
+    // Lookup in City model for an exact admin-registered city
+    let cityRecord = null;
+    try {
+      cityRecord = await City.findOne({
+        where: {
+          [Op.or]: [
+            sequelize.where(sequelize.fn('LOWER', sequelize.col('cityId')), cleanCity),
+            sequelize.where(sequelize.fn('LOWER', sequelize.col('name')), cleanCity),
+          ],
+        },
+      });
+    } catch {
+      cityRecord = null;
+    }
+
+    if (cityRecord) {
+      const isLive = Boolean(cityRecord.isLive && !cityRecord.hidden);
+      return {
+        isAll: false,
+        cityRecord,
+        cityId: cityRecord.id,
+        citySlug: cityRecord.cityId,
+        cityName: cityRecord.name,
+        isLive,
+        isServiceable: isLive,
+        phone: cityRecord.phone || defaultPhone,
+        whatsapp: cityRecord.whatsapp || defaultWhatsapp,
+        area: userArea,
+        notice: isLive
+          ? `Care services available in ${cityRecord.name}`
+          : `Eldoria Care services in ${cityRecord.name} are currently paused or launching soon. Services are not active at this time.`,
+      };
+    }
+
+    // City was searched, but NOT added by admin in database
+    const formattedName = cleanCity.charAt(0).toUpperCase() + cleanCity.slice(1);
+    return {
+      isAll: false,
+      cityRecord: null,
+      cityId: null,
+      citySlug: cleanCity,
+      cityName: formattedName,
+      isLive: false,
+      isServiceable: false,
+      phone: defaultPhone,
+      whatsapp: defaultWhatsapp,
+      area: userArea,
+      notice: `Eldoria Care is not currently operational in ${formattedName}. We do not currently serve in this location.`,
+    };
+  }
+
+  // No explicit city provided: fallback to the primary operational live city added by admin
+  let primaryCity = null;
+  try {
+    primaryCity = await City.findOne({
+      where: { isLive: true, hidden: false },
+      order: [
+        ['order', 'ASC'],
+        ['id', 'ASC'],
+      ],
+    });
+  } catch {
+    primaryCity = null;
+  }
+
+  if (primaryCity) {
+    return {
+      isAll: false,
+      cityRecord: primaryCity,
+      cityId: primaryCity.id,
+      citySlug: primaryCity.cityId,
+      cityName: primaryCity.name,
+      isLive: true,
+      isServiceable: true,
+      phone: primaryCity.phone || defaultPhone,
+      whatsapp: primaryCity.whatsapp || defaultWhatsapp,
+      area: userArea,
+      notice: `Care services available in ${primaryCity.name}`,
+    };
+  }
+
+  return {
+    isAll: false,
+    cityRecord: null,
+    cityId: null,
+    citySlug: 'none',
+    cityName: 'No Active City',
+    isLive: false,
+    isServiceable: false,
+    phone: defaultPhone,
+    whatsapp: defaultWhatsapp,
+    area: userArea,
+    notice: 'No operational cities are currently active.',
+  };
+};
+
+/**
+ * 11. GET /api/v1/client/services
+ * Location-aware client services catalog:
+ * - Automatically detects client location from query (?city=...), headers, or auth token
+ * - Verifies whether Eldoria is operational/live in that city (must be added by admin)
+ * - Returns services available strictly for the client location
+ * - If city is not served or inactive, returns NO services and an empty catalog
+ */
+const getClientServices = async (req, res) => {
+  try {
+    const location = await resolveClientLocation(req);
+    const {
+      category,
+      type,
+      search,
+      bookable = 'false',
+      grouped = 'false',
+      flat = 'false',
+      format,
+    } = req.query;
+
+    const locationMeta = {
+      city: location.citySlug,
+      cityName: location.cityName,
+      isAddedByAdmin: Boolean(location.cityRecord),
+      isLive: location.isLive,
+      isServiceable: location.isServiceable,
+      area: location.area || null,
+      careDesk: {
+        phone: location.phone,
+        whatsapp: location.whatsapp,
+      },
+      staff: null,
+      notice: location.notice,
+    };
+
+    // If city is NOT operational / NOT serviceable (e.g. Sultanpur or paused city):
+    // Stricly return NO services and NO categories in the response
+    if (!location.isLive || !location.isServiceable) {
+      if (flat === 'true' || format === 'array') {
+        return successResponse(res, [], `No services available in ${location.cityName}`);
+      }
+
+      if (grouped === 'true') {
+        return successResponse(
+          res,
+          {
+            location: locationMeta,
+            categories: [],
+            totalServices: 0,
+          },
+          `Eldoria Care is not currently operational in ${location.cityName}. No services available.`
+        );
+      }
+
+      return successResponse(
+        res,
+        {
+          location: locationMeta,
+          services: [],
+          categories: [],
+          totalServices: 0,
+        },
+        `Eldoria Care is not currently operational in ${location.cityName}. No services available.`
+      );
+    }
+
+    const where = {
+      enabled: true, // Only enabled services for clients
+    };
+
+    if (category && category !== 'all') {
+      where.category = category;
+    }
+
+    if (type && type !== 'all') {
+      where.type = type;
+    }
+
+    if (bookable === 'true') {
+      where.comingSoon = false;
+    }
+
+    if (search && search.trim()) {
+      const q = `%${search.trim().toLowerCase()}%`;
+      where[Op.or] = [
+        sequelize.where(sequelize.fn('LOWER', sequelize.col('name')), { [Op.like]: q }),
+        sequelize.where(sequelize.fn('LOWER', sequelize.col('desc')), { [Op.like]: q }),
+        sequelize.where(sequelize.fn('LOWER', sequelize.col('category')), { [Op.like]: q }),
+      ];
+    }
+
+    const rawServices = await Service.findAll({
+      where,
+      order: [
+        ['categoryOrder', 'ASC'],
+        ['order', 'ASC'],
+        ['name', 'ASC'],
+      ],
+    });
+
+    // Filter services strictly available in this client location
+    const availableServices = rawServices.filter((s) =>
+      location.isAll || isServiceAvailableInCity(s, location.citySlug, location.cityName)
+    );
+
+    // Check active approved staff in this live city
+    let staffSummary = null;
+    if (location.isLive && !location.isAll) {
+      try {
+        const staffList = await Staff.findAll({
+          where: {
+            [Op.or]: [
+              sequelize.where(sequelize.fn('LOWER', sequelize.col('city')), location.citySlug),
+              sequelize.where(sequelize.fn('LOWER', sequelize.col('city')), location.cityName.toLowerCase()),
+            ],
+            approval: 'approved',
+          },
+          attributes: ['id', 'qualification', 'onDuty'],
+        });
+
+        staffSummary = {
+          registeredCaregivers: staffList.length,
+          availableNow: staffList.filter((s) => s.onDuty).length,
+        };
+      } catch {
+        staffSummary = null;
+      }
+    }
+    locationMeta.staff = staffSummary;
+
+    // Format services with verified location tagging
+    const formatted = availableServices.map((s) => {
+      const base = formatService(s);
+      return {
+        ...base,
+        availableInLocation: !base.comingSoon,
+        serviceableCity: location.cityName,
+        careDeskPhone: location.phone,
+        careDeskWhatsapp: location.whatsapp,
+      };
+    });
+
+    const groupedCats = groupServicesByCategory(formatted);
+
+    // If grouped format requested
+    if (grouped === 'true') {
+      if (flat === 'true' || format === 'array') {
+        return successResponse(res, groupedCats, `Catalog for ${location.cityName} retrieved`);
+      }
+      return successResponse(
+        res,
+        {
+          location: locationMeta,
+          categories: groupedCats,
+          totalServices: formatted.length,
+        },
+        `Operational catalog for ${location.cityName} retrieved`
+      );
+    }
+
+    // If flat array format requested
+    if (flat === 'true' || format === 'array') {
+      return successResponse(res, formatted, `Services for ${location.cityName} retrieved`);
+    }
+
+    // Default response: location metadata + services list + categories
+    return successResponse(
+      res,
+      {
+        location: locationMeta,
+        services: formatted,
+        categories: groupedCats,
+        totalServices: formatted.length,
+      },
+      `Operational services for ${location.cityName} retrieved successfully`
+    );
+  } catch (error) {
+    return errorResponse(res, error.message || 'Failed to fetch services for client location', 500, error);
+  }
+};
+
+/**
+ * 12. GET /api/v1/client/services/categories
+ * Location-aware client service categories:
+ * - Returns categories with counts and availability for the client's city
+ * - If city is unserved or paused, returns empty categories array
+ */
+const getClientCategories = async (req, res) => {
+  try {
+    const location = await resolveClientLocation(req);
+    const { flat = 'false', format } = req.query;
+
+    const locationMeta = {
+      city: location.citySlug,
+      cityName: location.cityName,
+      isAddedByAdmin: Boolean(location.cityRecord),
+      isLive: location.isLive,
+      isServiceable: location.isServiceable,
+      area: location.area || null,
+      careDesk: {
+        phone: location.phone,
+        whatsapp: location.whatsapp,
+      },
+      notice: location.notice,
+    };
+
+    // If location is not live / not serviceable, return empty categories
+    if (!location.isLive || !location.isServiceable) {
+      if (flat === 'true' || format === 'array') {
+        return successResponse(res, [], `No categories available in ${location.cityName}`);
+      }
+
+      return successResponse(
+        res,
+        {
+          location: locationMeta,
+          categories: [],
+          totalCategories: 0,
+        },
+        `Eldoria Care is not currently operational in ${location.cityName}. No categories available.`
+      );
+    }
+
+    const liveServices = await Service.findAll({
+      where: { enabled: true },
+      order: [
+        ['categoryOrder', 'ASC'],
+        ['order', 'ASC'],
+      ],
+    });
+
+    const liveDbCategories = await Category.findAll({
+      where: { enabled: true },
+      order: [
+        ['order', 'ASC'],
+        ['name', 'ASC'],
+      ],
+    }).catch(() => []);
+
+    const availableServices = liveServices.filter((s) =>
+      location.isAll || isServiceAvailableInCity(s, location.citySlug, location.cityName)
+    );
+
+    const formattedServices = availableServices.map((s) => {
+      const base = formatService(s);
+      return {
+        ...base,
+        availableInLocation: !base.comingSoon,
+        serviceableCity: location.cityName,
+        careDeskPhone: location.phone,
+        careDeskWhatsapp: location.whatsapp,
+      };
+    });
+
+    const grouped = groupServicesByCategory(formattedServices, liveDbCategories);
+
+    // Only return categories that actually have available services in this location
+    const categoriesWithServices = grouped
+      .filter((c) => c.servicesCount > 0)
+      .map((c) => ({
+        id: c.id,
+        categoryId: c.categoryId || c.id,
+        name: c.name,
+        desc: c.desc,
+        icon: c.icon,
+        kind: c.kind,
+        type: c.type,
+        order: c.order,
+        comingSoon: c.comingSoon,
+        availableInLocation: !c.comingSoon,
+        servicesCount: c.servicesCount,
+        totalServices: c.servicesCount,
+      }));
+
+    if (flat === 'true' || format === 'array') {
+      return successResponse(res, categoriesWithServices, `Service categories for ${location.cityName} retrieved`);
+    }
+
+    return successResponse(
+      res,
+      {
+        location: locationMeta,
+        categories: categoriesWithServices,
+        totalCategories: categoriesWithServices.length,
+      },
+      `Service categories for ${location.cityName} retrieved successfully`
+    );
+  } catch (error) {
+    return errorResponse(res, error.message || 'Failed to fetch service categories for client location', 500, error);
+  }
+};
+
+/**
+ * 13. GET /api/v1/services (Public generic alias)
  */
 const getPublicServices = async (req, res) => {
+  // If city or location is passed, route through location-aware handler seamlessly
+  if (req.query.city || req.query.location || req.headers['x-client-city']) {
+    return getClientServices(req, res);
+  }
+
   try {
     const {
       category,
@@ -1097,11 +1701,11 @@ const getPublicServices = async (req, res) => {
     } = req.query;
 
     const where = {
-      enabled: true, // Only live services
+      enabled: true,
     };
 
     if (bookable === 'true') {
-      where.comingSoon = false; // Only bookable services
+      where.comingSoon = false;
     }
 
     if (category && category !== 'all') {
@@ -1144,10 +1748,14 @@ const getPublicServices = async (req, res) => {
 };
 
 /**
- * 12. GET /api/v1/services/categories
- * Public list of service categories for client browsing
+ * 14. GET /api/v1/services/categories (Public generic alias)
  */
 const getPublicCategories = async (req, res) => {
+  // If city or location is passed, route through location-aware handler seamlessly
+  if (req.query.city || req.query.location || req.headers['x-client-city']) {
+    return getClientCategories(req, res);
+  }
+
   try {
     const liveServices = await Service.findAll({
       where: { enabled: true },
@@ -1159,7 +1767,6 @@ const getPublicCategories = async (req, res) => {
 
     const grouped = groupServicesByCategory(liveServices.map(formatService));
 
-    // Map to clean category summary objects
     const categories = grouped.map((c) => ({
       id: c.id,
       name: c.name,
@@ -1179,8 +1786,8 @@ const getPublicCategories = async (req, res) => {
 };
 
 /**
- * 13. GET /api/v1/services/:id
- * Retrieve single service details for client booking
+ * 15. GET /api/v1/services/:id
+ * Retrieve single service details with optional location availability check
  */
 const getPublicServiceById = async (req, res) => {
   try {
@@ -1201,7 +1808,33 @@ const getPublicServiceById = async (req, res) => {
       return errorResponse(res, `Service '${id}' not found or is currently unavailable`, 404);
     }
 
-    return successResponse(res, formatService(service), 'Service details retrieved');
+    const formatted = formatService(service);
+
+    // If city or location is specified or available
+    const location = await resolveClientLocation(req);
+    const isAvailableInCity =
+      location.isLive &&
+      (location.isAll || isServiceAvailableInCity(service, location.citySlug, location.cityName));
+
+    formatted.availableInLocation = isAvailableInCity && !formatted.comingSoon;
+    formatted.serviceableCity = location.isLive ? location.cityName : null;
+    formatted.careDeskPhone = location.phone;
+    formatted.careDeskWhatsapp = location.whatsapp;
+    formatted.location = {
+      city: location.citySlug,
+      cityName: location.cityName,
+      isAddedByAdmin: Boolean(location.cityRecord),
+      isLive: location.isLive,
+      isServiceable: location.isServiceable,
+      area: location.area || null,
+      careDesk: {
+        phone: location.phone,
+        whatsapp: location.whatsapp,
+      },
+      notice: location.notice,
+    };
+
+    return successResponse(res, formatted, 'Service details retrieved');
   } catch (error) {
     return errorResponse(res, error.message || 'Failed to fetch service details', 500, error);
   }
@@ -1221,8 +1854,11 @@ module.exports = {
   toggleCategoryStatus,
   deleteCategory,
 
-  // Public / Client Controllers
+  // Public / Location-Aware Client Controllers
   getPublicServices,
   getPublicCategories,
   getPublicServiceById,
+  getClientServices,
+  getClientCategories,
+  resolveClientLocation,
 };

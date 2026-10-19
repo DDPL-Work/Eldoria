@@ -17,6 +17,10 @@ const {
   getStaffBookings,
   getStaffBookingById,
   updateStaffAssignedBookingStatus,
+  submitStaffVisitReport,
+  getStaffVisitReports,
+  staffAssignColleagueToBooking,
+  staffConfirmBooking,
 } = require("../controllers/booking.controller");
 
 // Document viewing & streaming (bypasses Cloudinary PDF/ACL restrictions)
@@ -46,8 +50,20 @@ router.post("/login", staffVerifyOtp);
 router.get("/bookings", optionalToken, getStaffBookings);
 router.get("/booking/:id", optionalToken, getStaffBookingById);
 
-// Staff updates status of visits assigned to them
-router.patch("/booking/:id/status", optionalToken, updateStaffAssignedBookingStatus);
+// Staff updates status of visits assigned to them (supports status updates + visit reports & photos)
+router.patch("/booking/:id/status", optionalToken, uploadStaffFiles, updateStaffAssignedBookingStatus);
 
+// Staff Daily Visit Report: vitals (BP, pulse, SpO2, temp, sugar), tasks done, notes, photos, documents
+router.post("/booking/:id/daily-report", optionalToken, uploadStaffFiles, submitStaffVisitReport);
+
+// Staff view visit reports
+router.get("/booking/:id/daily-report", optionalToken, getStaffVisitReports);
+
+// Staff confirms or rejects a visit assigned to them (and assigns self or colleague if permitted)
+router.patch("/booking/:id/confirm", optionalToken, staffConfirmBooking);
+
+// Staff assigns or reassigns their assigned visit to a colleague
+// (Requires staff.canTransferBooking: true)
+router.patch("/booking/:id/reassign", optionalToken, staffAssignColleagueToBooking);
 
 module.exports = router;

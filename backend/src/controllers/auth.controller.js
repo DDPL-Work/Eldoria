@@ -3,12 +3,15 @@ const jwt = require("jsonwebtoken");
 const { Op } = require("sequelize");
 const { sequelize, User, Staff, Otp, Client } = require("../database/models");
 const { successResponse, errorResponse } = require("../utills/responseHandler");
+const { logOtpToTerminal } = require("../helpers/otpLogger");
 
 /**
  * Standardize phone number format (digits only, e.g. 10 digits)
  */
 const normalizePhone = (phone = "") => {
-  return String(phone).replace(/[^\d+]/g, "").trim();
+  return String(phone)
+    .replace(/[^\d+]/g, "")
+    .trim();
 };
 
 /**
@@ -25,7 +28,11 @@ const sendOtp = async (req, res) => {
 
     const cleanPhone = normalizePhone(phone);
     if (cleanPhone.length < 10) {
-      return errorResponse(res, "Please provide a valid phone number (at least 10 digits)", 400);
+      return errorResponse(
+        res,
+        "Please provide a valid phone number (at least 10 digits)",
+        400,
+      );
     }
 
     const validPurposes = ["registration", "login"];
@@ -101,7 +108,18 @@ const sendOtp = async (req, res) => {
       isVerified: false,
     });
 
-    console.log(`📱 [OTP SERVICE] Sent OTP for ${cleanPhone} (${otpPurpose}): ${otpCode}`);
+    // console.log(
+    //   `📱 [OTP SERVICE] Sent OTP for ${cleanPhone} (${otpPurpose}): ${otpCode}`,
+    // );
+
+     logOtpToTerminal({
+      channel: "SMS",
+      recipient: cleanPhone,
+      otp: otpCode,
+      purpose: otpPurpose,
+      role: role || "user",
+      expiresInMinutes: 10,
+    });
 
     return successResponse(
       res,
@@ -115,7 +133,12 @@ const sendOtp = async (req, res) => {
       `OTP sent successfully to ${cleanPhone}`,
     );
   } catch (error) {
-    return errorResponse(res, error.message || "Failed to send OTP", 500, error);
+    return errorResponse(
+      res,
+      error.message || "Failed to send OTP",
+      500,
+      error,
+    );
   }
 };
 
@@ -296,7 +319,12 @@ const verifyOtp = async (req, res) => {
       `${roleName} logged in successfully via OTP verification`,
     );
   } catch (error) {
-    return errorResponse(res, error.message || "OTP verification failed", 500, error);
+    return errorResponse(
+      res,
+      error.message || "OTP verification failed",
+      500,
+      error,
+    );
   }
 };
 
@@ -375,10 +403,19 @@ const getProfile = async (req, res) => {
   try {
     const authUser = req.user;
     if (!authUser || !authUser.id) {
-      return errorResponse(res, "Unauthorized: User ID not found in token", 401);
+      return errorResponse(
+        res,
+        "Unauthorized: User ID not found in token",
+        401,
+      );
     }
 
-    const identifier = req.params?.id || req.query?.id || req.query?.staffId || req.query?.clientId || authUser.id;
+    const identifier =
+      req.params?.id ||
+      req.query?.id ||
+      req.query?.staffId ||
+      req.query?.clientId ||
+      authUser.id;
     let user = await resolveUserByIdentifier(identifier);
 
     if (!user && (identifier === authUser.id || !req.params?.id)) {
@@ -409,7 +446,17 @@ const getProfile = async (req, res) => {
     }
 
     const fullUser = await User.findByPk(user.id, {
-      attributes: ["id", "staffId", "name", "email", "phone", "role", "isActive", "createdAt", "updatedAt"],
+      attributes: [
+        "id",
+        "staffId",
+        "name",
+        "email",
+        "phone",
+        "role",
+        "isActive",
+        "createdAt",
+        "updatedAt",
+      ],
       include: [
         {
           model: Staff,
@@ -450,7 +497,8 @@ const getProfile = async (req, res) => {
       updatedAt: fullUser.updatedAt,
     };
 
-    const currentProfile = fullUser.role === "staff" ? staffProfile : clientProfile;
+    const currentProfile =
+      fullUser.role === "staff" ? staffProfile : clientProfile;
 
     const responseData = {
       user: sanitizedUser,
@@ -460,9 +508,18 @@ const getProfile = async (req, res) => {
       clientProfile: fullUser.role === "client" ? clientProfile : null,
     };
 
-    return successResponse(res, responseData, "Profile data fetched successfully");
+    return successResponse(
+      res,
+      responseData,
+      "Profile data fetched successfully",
+    );
   } catch (error) {
-    return errorResponse(res, error.message || "Failed to fetch profile data", 500, error);
+    return errorResponse(
+      res,
+      error.message || "Failed to fetch profile data",
+      500,
+      error,
+    );
   }
 };
 
@@ -476,10 +533,18 @@ const updateProfile = async (req, res) => {
   try {
     const authUser = req.user;
     if (!authUser || !authUser.id) {
-      return errorResponse(res, "Unauthorized: User ID not found in token", 401);
+      return errorResponse(
+        res,
+        "Unauthorized: User ID not found in token",
+        401,
+      );
     }
 
-    if (!req.body || typeof req.body !== "object" || Object.keys(req.body).length === 0) {
+    if (
+      !req.body ||
+      typeof req.body !== "object" ||
+      Object.keys(req.body).length === 0
+    ) {
       return errorResponse(
         res,
         "Request body cannot be empty. Please provide fields to update.",
@@ -488,7 +553,8 @@ const updateProfile = async (req, res) => {
     }
 
     // Resolve target user by identifier in URL param (:id) or fallback to auth user
-    const identifier = req.params?.id || req.body?.staffId || req.body?.clientId || authUser.id;
+    const identifier =
+      req.params?.id || req.body?.staffId || req.body?.clientId || authUser.id;
     let user = await resolveUserByIdentifier(identifier);
 
     if (!user && (identifier === authUser.id || !req.params?.id)) {
@@ -585,8 +651,13 @@ const updateProfile = async (req, res) => {
       if (cleanEmail) {
         const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
         if (!emailRegex.test(cleanEmail)) {
-          if (transaction && !transaction.finished) await transaction.rollback();
-          return errorResponse(res, "Please provide a valid email address", 400);
+          if (transaction && !transaction.finished)
+            await transaction.rollback();
+          return errorResponse(
+            res,
+            "Please provide a valid email address",
+            400,
+          );
         }
 
         if (cleanEmail !== user.email) {
@@ -599,7 +670,8 @@ const updateProfile = async (req, res) => {
           });
 
           if (emailExists) {
-            if (transaction && !transaction.finished) await transaction.rollback();
+            if (transaction && !transaction.finished)
+              await transaction.rollback();
             return errorResponse(
               res,
               "An account with this email address already exists. Please choose another email.",
@@ -626,19 +698,33 @@ const updateProfile = async (req, res) => {
       if (city !== undefined) staffUpdateData.city = city;
       if (area !== undefined) staffUpdateData.area = area;
       if (address !== undefined) staffUpdateData.address = address;
-      if (qualification !== undefined) staffUpdateData.qualification = qualification;
+      if (qualification !== undefined)
+        staffUpdateData.qualification = qualification;
       if (experience !== undefined) staffUpdateData.experience = experience;
-      if (skills !== undefined) staffUpdateData.skills = Array.isArray(skills) ? skills : [];
-      if (language !== undefined) staffUpdateData.language = Array.isArray(language) ? language : [];
-      if (availability !== undefined) staffUpdateData.availability = Array.isArray(availability) ? availability : [];
-      if (emergencyName !== undefined) staffUpdateData.emergencyName = emergencyName;
-      if (emergencyPhone !== undefined) staffUpdateData.emergencyPhone = emergencyPhone;
-      if (emergencyRelation !== undefined) staffUpdateData.emergencyRelation = emergencyRelation;
+      if (skills !== undefined)
+        staffUpdateData.skills = Array.isArray(skills) ? skills : [];
+      if (language !== undefined)
+        staffUpdateData.language = Array.isArray(language) ? language : [];
+      if (availability !== undefined)
+        staffUpdateData.availability = Array.isArray(availability)
+          ? availability
+          : [];
+      if (emergencyName !== undefined)
+        staffUpdateData.emergencyName = emergencyName;
+      if (emergencyPhone !== undefined)
+        staffUpdateData.emergencyPhone = emergencyPhone;
+      if (emergencyRelation !== undefined)
+        staffUpdateData.emergencyRelation = emergencyRelation;
       if (files !== undefined) staffUpdateData.files = files;
       if (onDuty !== undefined) staffUpdateData.onDuty = Boolean(onDuty);
       if (notes !== undefined) staffUpdateData.notes = notes;
 
-      if (regNo !== undefined && regNo !== null && staff && regNo !== staff.regNo) {
+      if (
+        regNo !== undefined &&
+        regNo !== null &&
+        staff &&
+        regNo !== staff.regNo
+      ) {
         const regExists = await Staff.findOne({
           where: {
             regNo,
@@ -648,7 +734,8 @@ const updateProfile = async (req, res) => {
         });
 
         if (regExists) {
-          if (transaction && !transaction.finished) await transaction.rollback();
+          if (transaction && !transaction.finished)
+            await transaction.rollback();
           return errorResponse(
             res,
             "A staff member with this registration number (regNo) already exists",
@@ -680,21 +767,33 @@ const updateProfile = async (req, res) => {
       if (landmark !== undefined) clientUpdateData.landmark = landmark;
       if (patientName !== undefined) clientUpdateData.patientName = patientName;
       if (patientAge !== undefined) clientUpdateData.patientAge = patientAge;
-      if (patientGender !== undefined) clientUpdateData.patientGender = patientGender;
+      if (patientGender !== undefined)
+        clientUpdateData.patientGender = patientGender;
       if (relation !== undefined) clientUpdateData.relation = relation;
       if (patientType !== undefined) clientUpdateData.patientType = patientType;
-      if (medicalConditions !== undefined) clientUpdateData.medicalConditions = medicalConditions;
-      if (mobilityStatus !== undefined) clientUpdateData.mobilityStatus = mobilityStatus;
-      if (requiredService !== undefined) clientUpdateData.requiredService = requiredService;
-      if (preferredPlan !== undefined) clientUpdateData.preferredPlan = preferredPlan;
-      if (preferredTiming !== undefined) clientUpdateData.preferredTiming = preferredTiming;
-      if (expectedDuration !== undefined) clientUpdateData.expectedDuration = expectedDuration;
-      if (specialInstructions !== undefined) clientUpdateData.specialInstructions = specialInstructions;
-      if (emergencyName !== undefined) clientUpdateData.emergencyName = emergencyName;
-      if (emergencyPhone !== undefined) clientUpdateData.emergencyPhone = emergencyPhone;
-      if (emergencyRelation !== undefined) clientUpdateData.emergencyRelation = emergencyRelation;
+      if (medicalConditions !== undefined)
+        clientUpdateData.medicalConditions = medicalConditions;
+      if (mobilityStatus !== undefined)
+        clientUpdateData.mobilityStatus = mobilityStatus;
+      if (requiredService !== undefined)
+        clientUpdateData.requiredService = requiredService;
+      if (preferredPlan !== undefined)
+        clientUpdateData.preferredPlan = preferredPlan;
+      if (preferredTiming !== undefined)
+        clientUpdateData.preferredTiming = preferredTiming;
+      if (expectedDuration !== undefined)
+        clientUpdateData.expectedDuration = expectedDuration;
+      if (specialInstructions !== undefined)
+        clientUpdateData.specialInstructions = specialInstructions;
+      if (emergencyName !== undefined)
+        clientUpdateData.emergencyName = emergencyName;
+      if (emergencyPhone !== undefined)
+        clientUpdateData.emergencyPhone = emergencyPhone;
+      if (emergencyRelation !== undefined)
+        clientUpdateData.emergencyRelation = emergencyRelation;
       if (files !== undefined) clientUpdateData.files = files;
-      if (preferredLanguage !== undefined) clientUpdateData.preferredLanguage = preferredLanguage;
+      if (preferredLanguage !== undefined)
+        clientUpdateData.preferredLanguage = preferredLanguage;
       if (source !== undefined) clientUpdateData.source = source;
       if (status !== undefined) clientUpdateData.status = status;
       if (notes !== undefined) clientUpdateData.notes = notes;
@@ -713,7 +812,17 @@ const updateProfile = async (req, res) => {
 
     // Refetch the complete updated user
     const updatedUser = await User.findByPk(user.id, {
-      attributes: ["id", "staffId", "name", "email", "phone", "role", "isActive", "createdAt", "updatedAt"],
+      attributes: [
+        "id",
+        "staffId",
+        "name",
+        "email",
+        "phone",
+        "role",
+        "isActive",
+        "createdAt",
+        "updatedAt",
+      ],
       include: [
         {
           model: Staff,
@@ -742,7 +851,8 @@ const updateProfile = async (req, res) => {
       });
     }
 
-    const currentProfile = updatedUser.role === "staff" ? staffProfile : clientProfile;
+    const currentProfile =
+      updatedUser.role === "staff" ? staffProfile : clientProfile;
 
     const responseData = {
       user: {
@@ -767,7 +877,12 @@ const updateProfile = async (req, res) => {
     if (transaction && !transaction.finished) {
       await transaction.rollback();
     }
-    return errorResponse(res, error.message || "Failed to update profile", 500, error);
+    return errorResponse(
+      res,
+      error.message || "Failed to update profile",
+      500,
+      error,
+    );
   }
 };
 
@@ -779,12 +894,18 @@ const sendChangePhoneOtp = async (req, res) => {
   try {
     const userId = req.user?.id;
     if (!userId) {
-      return errorResponse(res, "Unauthorized: User ID not found in token", 401);
+      return errorResponse(
+        res,
+        "Unauthorized: User ID not found in token",
+        401,
+      );
     }
 
     const { currentPhone, oldPhone, newPhone, phone } = req.body;
-    const providedCurrentPhone = currentPhone || oldPhone || (newPhone ? phone : null);
-    const targetNewPhone = newPhone || (currentPhone || oldPhone ? phone : null);
+    const providedCurrentPhone =
+      currentPhone || oldPhone || (newPhone ? phone : null);
+    const targetNewPhone =
+      newPhone || (currentPhone || oldPhone ? phone : null);
 
     const currentUser = await User.findByPk(userId);
     if (!currentUser) {
@@ -825,7 +946,10 @@ const sendChangePhoneOtp = async (req, res) => {
       );
     }
 
-    if (currentUser.phone && normalizePhone(currentUser.phone) === cleanNewPhone) {
+    if (
+      currentUser.phone &&
+      normalizePhone(currentUser.phone) === cleanNewPhone
+    ) {
       return errorResponse(
         res,
         "The new phone number is identical to your current phone number",
@@ -874,7 +998,14 @@ const sendChangePhoneOtp = async (req, res) => {
       isVerified: false,
     });
 
-    console.log(`📱 [PHONE UPDATE OTP] Sent OTP for ${cleanNewPhone}: ${otpCode}`);
+    logOtpToTerminal({
+      channel: "SMS",
+      recipient: cleanNewPhone,
+      otp: otpCode,
+      purpose: "phone_update",
+      role: req.user?.role || "user",
+      expiresInMinutes: 10,
+    });
 
     return successResponse(
       res,
@@ -908,12 +1039,25 @@ const updateMobileNumber = async (req, res) => {
   try {
     const userId = req.user?.id;
     if (!userId) {
-      return errorResponse(res, "Unauthorized: User ID not found in token", 401);
+      return errorResponse(
+        res,
+        "Unauthorized: User ID not found in token",
+        401,
+      );
     }
 
-    const { currentPhone, oldPhone: bodyOldPhone, newPhone, phone, otp, verificationToken } = req.body;
-    const providedCurrentPhone = currentPhone || bodyOldPhone || (newPhone ? phone : null);
-    const targetNewPhone = newPhone || (currentPhone || bodyOldPhone ? phone : null);
+    const {
+      currentPhone,
+      oldPhone: bodyOldPhone,
+      newPhone,
+      phone,
+      otp,
+      verificationToken,
+    } = req.body;
+    const providedCurrentPhone =
+      currentPhone || bodyOldPhone || (newPhone ? phone : null);
+    const targetNewPhone =
+      newPhone || (currentPhone || bodyOldPhone ? phone : null);
 
     const user = await User.findByPk(userId);
     if (!user) {
@@ -1076,7 +1220,17 @@ const updateMobileNumber = async (req, res) => {
 
     // Fetch refreshed user record with profile
     const updatedUser = await User.findByPk(userId, {
-      attributes: ["id", "staffId", "name", "email", "phone", "role", "isActive", "createdAt", "updatedAt"],
+      attributes: [
+        "id",
+        "staffId",
+        "name",
+        "email",
+        "phone",
+        "role",
+        "isActive",
+        "createdAt",
+        "updatedAt",
+      ],
       include: [
         { model: Staff, as: "staffProfile", required: false },
         { model: Client, as: "clientProfile", required: false },

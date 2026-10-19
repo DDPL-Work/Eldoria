@@ -533,7 +533,10 @@ const deleteCity = async (req, res) => {
 const getPublicLiveCities = async (req, res) => {
   try {
     const liveCities = await City.findAll({
-      where: { isLive: true },
+      where: {
+        isLive: true,
+        hidden: false,
+      },
       order: [
         ['order', 'ASC'],
         ['name', 'ASC']

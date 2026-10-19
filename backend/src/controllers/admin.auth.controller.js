@@ -4,6 +4,7 @@ const bcrypt = require("bcryptjs");
 const { Op } = require("sequelize");
 const { Admin, Otp } = require("../database/models");
 const { successResponse, errorResponse } = require("../utills/responseHandler");
+const { logOtpToTerminal } = require("../helpers/otpLogger");
 
 /**
  * Standardize phone number format (digits only, e.g. 10 digits)
@@ -171,9 +172,14 @@ const adminForgotPassword = async (req, res) => {
       isVerified: false,
     });
 
-    console.log(
-      `📧 [EMAIL OTP GENERATOR] Admin Password Reset OTP for ${cleanEmail}: ${otpCode}`,
-    );
+    logOtpToTerminal({
+      channel: "EMAIL",
+      recipient: cleanEmail,
+      otp: otpCode,
+      purpose: "forgot_password",
+      role: "admin",
+      expiresInMinutes: 10,
+    });
 
     return successResponse(
       res,
