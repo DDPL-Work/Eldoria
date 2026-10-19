@@ -49,6 +49,12 @@ const {
   toggleCategoryStatus,
   deleteCategory,
 } = require("../controllers/service.controller");
+const {
+  getAdminEnquiries,
+  getAdminEnquiryById,
+  updateAdminEnquiry,
+  bookEnquiryRecommendation,
+} = require("../controllers/enquiry.controller");
 
 // Dashboard care-desk metrics & data
 router.get("/dashboard", verifyToken, requireAdmin, getDashboardData);
@@ -227,12 +233,7 @@ router.get(
 );
 router.get("/client/:clientId", verifyToken, requireAdmin, getClientByClientId);
 
-// Help requests (Enquiries) management routes
-const {
-  getAdminEnquiries,
-  getAdminEnquiryById,
-  updateAdminEnquiry,
-} = require("../controllers/enquiry.controller");
+// Help requests (Enquiries) management routes ("Not sure what care you need?")
 
 router.get("/enquiries/all", verifyToken, requireAdmin, getAdminEnquiries);
 router.get("/enquiry/:id", verifyToken, requireAdmin, getAdminEnquiryById);
@@ -242,6 +243,27 @@ router.patch(
   requireAdmin,
   updateAdminEnquiry,
 );
+router.patch(
+  "/enquiry/:id/recommend",
+  verifyToken,
+  requireAdmin,
+  updateAdminEnquiry,
+);
+
+// Admin converts enquiry directly into a booking
+router.post(
+  "/enquiry/:id/convert-to-booking",
+  verifyToken,
+  requireAdmin,
+  bookEnquiryRecommendation,
+);
+router.post(
+  "/enquiry/:id/book",
+  verifyToken,
+  requireAdmin,
+  bookEnquiryRecommendation,
+);
+
 
 // Coming Soon "Notify Me" Subscribers & Broadcast Notification management routes
 const {

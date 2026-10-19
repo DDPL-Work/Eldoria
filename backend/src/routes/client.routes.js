@@ -21,6 +21,7 @@ const {
   createClientEnquiry,
   getClientEnquiries,
   getClientEnquiryById,
+  bookEnquiryRecommendation,
 } = require("../controllers/enquiry.controller");
 const { uploadStaffFiles } = require("../middlewares/upload.middleware");
 
@@ -80,10 +81,13 @@ router.get("/bookings/:id", optionalToken, getClientBookingById);
 // Client View Visit Reports (vitals, tasks, notes, photos)
 router.get("/booking/:id/daily-report", optionalToken, getStaffVisitReports);
 
-// Client Help request (Enquiry) flow routes
+// Client Help request (Enquiry) flow routes ("Not sure what care you need?")
 router.post("/enquiry/create", optionalToken, uploadStaffFiles, createClientEnquiry);
 router.get("/enquiries", optionalToken, getClientEnquiries);
 router.get("/enquiry/:id", optionalToken, getClientEnquiryById);
+
+// One-tap booking: Convert admin recommendation directly into an active booking
+router.post("/enquiry/:id/book", optionalToken, bookEnquiryRecommendation);
 
 // Client Coming Soon "Notify Me" & In-App Notification routes
 const {

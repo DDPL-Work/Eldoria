@@ -111,6 +111,20 @@ db.City.hasMany(db.Service, {
   constraints: false
 });
 
+// Associations: Enquiry (1) <-> Booking (1) via bookingId
+db.Enquiry.belongsTo(db.Booking, {
+  foreignKey: "bookingId",
+  as: "booking",
+  constraints: false,
+});
+
+db.Booking.hasOne(db.Enquiry, {
+  foreignKey: "bookingId",
+  as: "enquiry",
+  constraints: false,
+});
+
+
 const { migrateUp, migrateDown } = require("../migrations/runner");
 const { attachAivenSyncHooks } = require("../../services/dbSync.service");
 
