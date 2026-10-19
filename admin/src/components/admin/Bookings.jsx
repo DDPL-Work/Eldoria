@@ -63,6 +63,7 @@ export function Bookings({ onOpenBooking, onNewBooking }) {
     fetchBookings(params);
   }, [fetchBookings, selectedCity, filter, query, currentPage]);
 
+  
   useEffect(() => {
     loadBookings();
   }, [loadBookings]);
@@ -81,12 +82,21 @@ export function Bookings({ onOpenBooking, onNewBooking }) {
   }[filter] || (() => true);
 
   // Strictly real backend bookings from API — unassigned newly created bookings default to 'requested'
-  const rawList = (Array.isArray(backendBookings) ? backendBookings : []).map((b) => {
-    if (b && !b.staffId && !b.assignedStaff && b.status === 'confirmed' && (!b.history || b.history.length <= 2)) {
-      return { ...b, status: 'requested' };
-    }
-    return b;
-  });
+  const seenCodes = new Set();
+  const rawList = (Array.isArray(backendBookings) ? backendBookings : [])
+    .map((b) => {
+      if (b && !b.staffId && !b.assignedStaff && b.status === 'confirmed' && (!b.history || b.history.length <= 2)) {
+        return { ...b, status: 'requested' };
+      }
+      return b;
+    })
+    .filter((b) => {
+      if (!b) return false;
+      const key = b.code || b.id;
+      if (key && seenCodes.has(key)) return false;
+      if (key) seenCodes.add(key);
+      return true;
+    });
 
   const list = inCity(rawList)
     .filter(filterFn)
@@ -323,7 +333,7 @@ export function Bookings({ onOpenBooking, onNewBooking }) {
                   return (
                     <tr
                       key={b.id || b.code}
-                      onClick={() => onOpenBooking(b.id || b.code)}
+                      onClick={() => onOpenBooking(b.code)}
                       className="hover:bg-slate-50/60 transition cursor-pointer group align-middle"
                     >
                       {/* BOOKING Column */}

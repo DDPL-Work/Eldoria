@@ -644,12 +644,21 @@ const rejectStaffRequest = async (req, res) => {
       reason ||
       reviewNote ||
       note ||
-      "Application rejected by care desk"
+      ""
     ).trim();
 
     if (!id) {
       await transaction.rollback();
       return errorResponse(res, "Staff ID or request ID is required", 400);
+    }
+
+    if (!rejectionReason) {
+      await transaction.rollback();
+      return errorResponse(
+        res,
+        "Please provide a reason for rejecting the staff application. Reason cannot be blank.",
+        400,
+      );
     }
 
     const staff = await Staff.findOne({

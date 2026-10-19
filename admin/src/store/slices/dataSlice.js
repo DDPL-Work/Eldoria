@@ -321,17 +321,6 @@ export const createBookingThunk = createAsyncThunk(
         status: 'requested',
       });
       const booking = res?.data?.booking || res?.booking || res?.data || res;
-      const bid = booking?.id || booking?.code;
-      if (bid) {
-        try {
-          await bookingAPI.updateBookingStatus(bid, {
-            status: 'requested',
-            note: 'Booking request created by care desk',
-          });
-        } catch (statusErr) {
-          console.warn('Backend status update to requested notice:', statusErr);
-        }
-      }
       return { ...booking, status: 'requested' };
     } catch (err) {
       return rejectWithValue(err.message || 'Failed to create booking');
@@ -498,6 +487,18 @@ export const deleteServiceThunk = createAsyncThunk(
       return { id, data: res.data || res };
     } catch (err) {
       return rejectWithValue(err.message || 'Failed to delete service');
+    }
+  }
+);
+
+export const createCategoryThunk = createAsyncThunk(
+  'data/createCategory',
+  async (payload, { rejectWithValue }) => {
+    try {
+      const res = await serviceAPI.createCategory(payload);
+      return res.data || res;
+    } catch (err) {
+      return rejectWithValue(err.message || 'Failed to create category');
     }
   }
 );
@@ -1215,13 +1216,25 @@ const dataSlice = createSlice({
           : Array.isArray(payload?.data?.bookings)
           ? payload.data.bookings
           : [];
-        state.backendBookings = list;
+
+        // Deduplicate incoming list by unique code and id
+        const seenKeys = new Set();
+        const uniqueList = [];
+        for (const b of list) {
+          if (!b) continue;
+          const key = b.code || b.id;
+          if (key && seenKeys.has(key)) continue;
+          if (key) seenKeys.add(key);
+          uniqueList.push(b);
+        }
+
+        state.backendBookings = uniqueList;
         state.bookingsPagination =
           payload?.pagination || payload?.data?.pagination || null;
 
         // Cache into state.data.bookings for universal access
         if (!state.data.bookings) state.data.bookings = {};
-        list.forEach((b) => {
+        uniqueList.forEach((b) => {
           if (b && (b.id || b.code)) {
             const key = b.id || b.code;
             state.data.bookings[key] = {
@@ -1394,13 +1407,18 @@ const dataSlice = createSlice({
         state.bookingActionLoading = false;
         const booking = action.payload?.booking || action.payload?.data || action.payload;
         if (booking && (booking.id || booking.code)) {
-          const key = booking.id || booking.code;
+          const key = String(booking.id || booking.code);
           const cleanBooking = { ...booking, status: 'requested' };
           if (!state.data.bookings) state.data.bookings = {};
           state.data.bookings[key] = cleanBooking;
+          if (booking.code) {
+            state.data.bookings[booking.code] = cleanBooking;
+          }
           if (Array.isArray(state.backendBookings)) {
             state.backendBookings = state.backendBookings.filter(
-              (b) => b.id !== key && b.code !== key && b.code !== cleanBooking.code
+              (b) =>
+                String(b.id) !== String(booking.id) &&
+                String(b.code) !== String(booking.code)
             );
             state.backendBookings.unshift(cleanBooking);
           }
@@ -1790,6 +1808,29 @@ const dataSlice = createSlice({
         }
       })
       .addCase(deleteServiceThunk.rejected, (state, action) => {
+        state.serviceActionError = action.payload;
+      })
+      // createCategory
+      .addCase(createCategoryThunk.fulfilled, (state, action) => {
+        const cat = action.payload?.data || action.payload || {};
+        const catKey = cat.categoryId || cat.name || cat.id;
+        if (catKey) {
+          if (!state.data.categories) state.data.categories = {};
+          state.data.categories[catKey] = {
+            id: catKey,
+            categoryId: cat.categoryId || catKey,
+            name: cat.name || catKey,
+            desc: cat.desc || '',
+            icon: cat.icon || 'cross',
+            kind: cat.kind || cat.type || 'care',
+            type: cat.type || cat.kind || 'care',
+            order: cat.order || (Object.keys(state.data.categories).length + 1),
+            enabled: cat.enabled !== undefined ? Boolean(cat.enabled) : true,
+            comingSoon: Boolean(cat.comingSoon),
+          };
+        }
+      })
+      .addCase(createCategoryThunk.rejected, (state, action) => {
         state.serviceActionError = action.payload;
       })
       // updateCategory

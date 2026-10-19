@@ -161,7 +161,12 @@ export function Onboarding({ onOpenApplication }) {
             const verifiedReq = req.filter((x) => (a.docChecks || {})[x.k]).length;
             const filesObj = a.files || {};
             const uploadedCount = OB_DOCS.filter((x) => {
-              const f = filesObj[x.k];
+              const f =
+                filesObj[x.k] ||
+                (x.k === 'experience' ? filesObj.experienceLetter || filesObj.experience_letter : null) ||
+                (x.k === 'police' ? filesObj.policeVerification || filesObj.police_verification : null) ||
+                (x.k === 'idProof' ? filesObj.id_proof || filesObj.photo_id || filesObj.aadhar : null) ||
+                (x.k === 'qualification' ? filesObj.qualification_certificate : null);
               return Boolean(f && (f.data || f.url || f.id || typeof f === 'string'));
             }).length;
             const photoData = filesObj.photo;
@@ -190,19 +195,23 @@ export function Onboarding({ onOpenApplication }) {
                 {/* Top Row: Avatar + Name / Role / City + Status Badge */}
                 <div className="flex items-start justify-between gap-2.5 w-full">
                   <div className="flex items-center gap-3 min-w-0">
-                    <div className="w-[52px] h-[52px] rounded-full overflow-hidden bg-[#EBF2FA] shrink-0 border border-slate-100 flex items-center justify-center">
-                      {photoUrl ? (
+                    <div className="w-[52px] h-[52px] rounded-full overflow-hidden bg-[#EBF2FA] shrink-0 border border-slate-200/80 flex items-center justify-center relative select-none">
+                      {photoUrl && (
                         <img
                           src={photoUrl}
                           alt={a.name}
-                          className="w-full h-full object-cover"
+                          className="w-full h-full object-cover absolute inset-0"
+                          onLoad={(e) => {
+                            if (e.currentTarget.naturalWidth <= 2 && e.currentTarget.naturalHeight <= 2) {
+                              e.currentTarget.style.display = 'none';
+                            }
+                          }}
                           onError={(e) => {
                             e.currentTarget.style.display = 'none';
                           }}
                         />
-                      ) : (
-                        <span className="font-extrabold text-[#0A2342] text-sm">{initials}</span>
                       )}
+                      <span className="font-extrabold text-[#0A2342] text-sm select-none">{initials}</span>
                     </div>
 
                     <div className="min-w-0">

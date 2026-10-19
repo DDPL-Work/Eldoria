@@ -58,6 +58,7 @@ import {
   toggleServiceStatusThunk,
   reorderServicesThunk,
   deleteServiceThunk,
+  createCategoryThunk,
   updateCategoryThunk,
   toggleCategoryStatusThunk,
   deleteCategoryThunk,
@@ -304,21 +305,34 @@ export const normalizeStaffRequest = (req) => {
     id_proof: 'idProof',
     idproof: 'idProof',
     photo_id: 'idProof',
+    photoId: 'idProof',
+    aadhar: 'idProof',
+    aadhar_card: 'idProof',
+    aadharCard: 'idProof',
     qualification_certificate: 'qualification',
     qualificationcert: 'qualification',
+    qualificationCertificate: 'qualification',
+    certificate: 'qualification',
     experience_letter: 'experience',
     experienceletter: 'experience',
+    experienceLetter: 'experience',
     police_verification: 'police',
     policeverification: 'police',
+    policeVerification: 'police',
+    profile_photo: 'photo',
+    profilePhoto: 'photo',
   };
 
   Object.entries(keyAliases).forEach(([alias, target]) => {
     if (normalizedFiles[alias] && !normalizedFiles[target]) {
       normalizedFiles[target] = normalizedFiles[alias];
     }
+    if (normalizedFiles[target] && !normalizedFiles[alias]) {
+      normalizedFiles[alias] = normalizedFiles[target];
+    }
   });
 
-  // Ensure each entry has url, data, isImage, type, name
+  // Ensure each entry has url, data, isImage, isPdf, type, name
   Object.keys(normalizedFiles).forEach((k) => {
     let f = normalizedFiles[k];
     if (!f) return;
@@ -326,45 +340,74 @@ export const normalizeStaffRequest = (req) => {
       f = { id: `doc_${k}`, data: f, url: f, name: `${k}.jpg` };
     }
     const fileUrl = f.data || f.url || '';
+    const fileName = f.name || f.filename || '';
+
+    const isPdf = Boolean(
+      f.type === 'application/pdf' ||
+      /\.pdf($|\?|#)/i.test(fileUrl) ||
+      /\.pdf($|\?|#)/i.test(fileName) ||
+      fileUrl.startsWith('data:application/pdf')
+    );
+
     const isImg =
-      (f.type && f.type.startsWith('image/')) ||
-      /cloudinary\.com/i.test(fileUrl) ||
-      /\.(jpeg|jpg|gif|png|webp|avif|svg)($|\?|#)/i.test(fileUrl) ||
-      /\.(jpeg|jpg|gif|png|webp|avif|svg)($|\?|#)/i.test(f.name || '') ||
-      fileUrl.startsWith('data:image/');
+      !isPdf &&
+      Boolean(
+        (f.type && f.type.startsWith('image/')) ||
+        /\.(jpeg|jpg|gif|png|webp|avif|svg)($|\?|#)/i.test(fileUrl) ||
+        /\.(jpeg|jpg|gif|png|webp|avif|svg)($|\?|#)/i.test(fileName) ||
+        fileUrl.startsWith('data:image/') ||
+        k === 'photo' ||
+        (/cloudinary\.com/i.test(fileUrl) && !/(\.pdf|\/raw\/)/i.test(fileUrl))
+      );
 
     normalizedFiles[k] = {
       ...f,
       id: f.id || `doc_${k}`,
       data: fileUrl,
       url: fileUrl,
-      name: f.name || f.filename || `${k}.jpg`,
-      type: f.type || (isImg ? 'image/jpeg' : 'application/pdf'),
+      name: fileName || `${k}.${isPdf ? 'pdf' : 'jpg'}`,
+      filename: fileName || `${k}.${isPdf ? 'pdf' : 'jpg'}`,
+      type: isPdf ? 'application/pdf' : (f.type && f.type.startsWith('image/') ? f.type : 'image/jpeg'),
+      isPdf,
       isImage: isImg,
+      staffId: req.staffId || req.id,
+      fileKey: k,
     };
   });
 
-  let docChecks = req.docChecks || {};
-  while (typeof docChecks === 'string') {
+  let rawDocChecks = req.docChecks || {};
+  while (typeof rawDocChecks === 'string') {
     try {
-      const parsed = JSON.parse(docChecks);
-      if (parsed === docChecks) break;
-      docChecks = parsed;
+      const parsed = JSON.parse(rawDocChecks);
+      if (parsed === rawDocChecks) break;
+      rawDocChecks = parsed;
     } catch {
       break;
     }
   }
+  const docChecks = rawDocChecks && typeof rawDocChecks === 'object' ? { ...rawDocChecks } : {};
 
-  let appHistory = req.appHistory || [];
-  while (typeof appHistory === 'string') {
+  // Sync docChecks aliases
+  Object.entries(keyAliases).forEach(([alias, target]) => {
+    if (docChecks[alias] !== undefined && docChecks[target] === undefined) {
+      docChecks[target] = docChecks[alias];
+    }
+    if (docChecks[target] !== undefined && docChecks[alias] === undefined) {
+      docChecks[alias] = docChecks[target];
+    }
+  });
+
+  let rawAppHistory = req.appHistory || [];
+  while (typeof rawAppHistory === 'string') {
     try {
-      const parsed = JSON.parse(appHistory);
-      if (parsed === appHistory) break;
-      appHistory = parsed;
+      const parsed = JSON.parse(rawAppHistory);
+      if (parsed === rawAppHistory) break;
+      rawAppHistory = parsed;
     } catch {
       break;
     }
   }
+  const appHistory = Array.isArray(rawAppHistory) ? [...rawAppHistory] : [];
 
   const submittedAt = req.submittedAt
     ? new Date(req.submittedAt).getTime()
@@ -919,6 +962,11 @@ export function useStore() {
     [dispatch]
   );
 
+  const createCategory = useCallback(
+    (data) => dispatch(createCategoryThunk(data)),
+    [dispatch]
+  );
+
   const updateCategory = useCallback(
     (category, data) => dispatch(updateCategoryThunk({ category, data })),
     [dispatch]
@@ -1052,6 +1100,7 @@ export function useStore() {
     toggleServiceStatus,
     reorderServices,
     deleteService,
+    createCategory,
     updateCategory,
     toggleCategoryStatus,
     deleteCategory,

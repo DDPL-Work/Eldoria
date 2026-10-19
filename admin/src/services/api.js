@@ -213,6 +213,7 @@ export const adminAPI = {
   getAvailableStaffForBooking: (id, params = '') => api.get(`/admin/booking/${id}/available-staff${buildQuery(params)}`),
   // PATCH /api/v1/admin/booking/:id/confirm
   confirmBooking: (id, payload = {}) => api.patch(`/admin/booking/${id}/confirm`, payload),
+
   // PATCH /api/v1/admin/booking/:id/assign
   assignStaff: (id, payload) => api.patch(`/admin/booking/${id}/assign`, payload),
   assignStaffToBooking: (id, payload) => api.patch(`/admin/booking/${id}/assign`, payload),
@@ -223,6 +224,9 @@ export const adminAPI = {
   updateBookingStatus: (id, payload) => api.patch(`/admin/booking/${id}/status`, payload),
 
 
+
+
+  
 
   // ----------------------------------City Management CRUD ---------------------------------------
   // GET /api/v1/admin/cities
@@ -243,7 +247,11 @@ export const adminAPI = {
   // DELETE /api/v1/admin/cities/:id
   deleteCity: (id) => api.delete(`/admin/cities/${id}`),
 
-  // --- Staff Registration Requests ---
+  // --- Staff Registration Requests & Document Streaming ---
+  // GET /api/v1/staff/document/view (streams inline document or download, bypassing Cloudinary ACL restrictions)
+  viewStaffDocument: (params = {}) => api.get(`/staff/document/view${buildQuery(params)}`),
+  getStaffDocumentViewUrl: (params = {}) => getStaffDocumentViewUrl(params),
+
   // GET /api/v1/admin/staff-requests
   getStaffRequests: (params = '') => api.get(`/admin/staff-requests${buildQuery(params)}`),
   // GET /api/v1/admin/staff-requests/:id
@@ -301,8 +309,8 @@ export const adminAPI = {
   // DELETE /api/v1/admin/service/:id/delete
   deleteService: (id) => api.delete(`/admin/service/${id}/delete`),
 
-  // POST /api/v1/admin/services/categories
-  createCategory: (data) => api.post('/admin/services/categories', data),
+  // POST /api/v1/admin/services/categories/create
+  createCategory: (data) => api.post('/admin/services/categories/create', data),
 
   // PATCH /api/v1/admin/services/categories/:category
   updateCategory: (category, data) => api.patch(`/admin/services/categories/${encodeURIComponent(category)}`, data),
@@ -355,7 +363,27 @@ export const cityAPI = {
   deleteCity: (id) => api.delete(`/admin/cities/${id}`),
 };
 
+/**
+ * Helper to build authenticated signed URL for viewing or streaming staff documents.
+ * GET /api/v1/staff/document/view (bypasses Cloudinary ACL restrictions)
+ * Supports query params: url, publicId, staffId, fileKey, format, filename, download
+ */
+export const getStaffDocumentViewUrl = (params = {}) => {
+  if (!params) return '';
+  if (typeof params === 'string') {
+    if (params.startsWith('http')) {
+      return `${API_BASE_URL}/staff/document/view?url=${encodeURIComponent(params)}`;
+    }
+    return `${API_BASE_URL}/staff/document/view?publicId=${encodeURIComponent(params)}`;
+  }
+  const qs = buildQuery(params);
+  return `${API_BASE_URL}/staff/document/view${qs}`;
+};
+
 export const staffAPI = {
+  // GET /api/v1/staff/document/view
+  viewStaffDocumentUrl: (params = {}) => getStaffDocumentViewUrl(params),
+  viewStaffDocument: (params = {}) => api.get(`/staff/document/view${buildQuery(params)}`),
   getStaffRequests: (params = '') => api.get(`/admin/staff-requests${buildQuery(params)}`),
   getStaffRequestById: (id) => api.get(`/admin/staff-requests/${id}`),
   verifyStaffDocument: (id, payload) => api.patch(`/admin/staff-requests/${id}/verify-document`, payload),
@@ -379,7 +407,7 @@ export const serviceAPI = {
   toggleServiceStatus: (id, payload = {}) => api.patch(`/admin/service/${id}/status`, payload),
   reorderServices: (data) => api.patch('/admin/services/reorder', data),
   deleteService: (id) => api.delete(`/admin/service/${id}/delete`),
-  createCategory: (data) => api.post('/admin/services/categories', data),
+  createCategory: (data) => api.post('/admin/services/categories/create', data),
   updateCategory: (category, data) => api.patch(`/admin/services/categories/${encodeURIComponent(category)}`, data),
   toggleCategoryStatus: (category, payload = {}) =>
     api.patch(`/admin/services/categories/${encodeURIComponent(category)}/status`, payload),

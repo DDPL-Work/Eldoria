@@ -48,6 +48,18 @@ module.exports = (sequelize) => {
       defaultValue: 'care',
       allowNull: false,
     },
+    city: {
+      type: DataTypes.STRING(100),
+      allowNull: true,
+      defaultValue: null,
+      comment: "Operating city id e.g. 'mumbai', 'thane', 'lucknow'",
+    },
+    cityName: {
+      type: DataTypes.STRING(100),
+      allowNull: true,
+      defaultValue: null,
+      comment: "Display name e.g. 'Mumbai', 'Thane'",
+    },
     desc: {
       type: DataTypes.TEXT,
       allowNull: true,

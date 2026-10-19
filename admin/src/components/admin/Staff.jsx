@@ -530,19 +530,23 @@ export function Staff({ onShowToast }) {
                           onClick={() => handleOpenEdit(s)}
                           className="flex items-center gap-3 text-left group cursor-pointer w-full min-w-0"
                         >
-                          <div className="w-9 h-9 rounded-full bg-[#FDE8CD] text-[#7A4100] font-bold text-xs flex items-center justify-center shrink-0 overflow-hidden">
-                            {photoUrl ? (
+                          <div className="w-9 h-9 rounded-full bg-[#FDE8CD] text-[#7A4100] font-bold text-xs flex items-center justify-center shrink-0 overflow-hidden relative select-none">
+                            {photoUrl && (
                               <img
                                 src={photoUrl}
                                 alt={s.name}
-                                className="w-full h-full object-cover"
+                                className="w-full h-full object-cover absolute inset-0"
+                                onLoad={(e) => {
+                                  if (e.currentTarget.naturalWidth <= 2 && e.currentTarget.naturalHeight <= 2) {
+                                    e.currentTarget.style.display = 'none';
+                                  }
+                                }}
                                 onError={(e) => {
                                   e.currentTarget.style.display = 'none';
                                 }}
                               />
-                            ) : (
-                              initials
                             )}
+                            <span className="font-extrabold text-[#7A4100] text-xs select-none">{initials}</span>
                           </div>
                           <div className="min-w-0">
                             <div className="font-bold text-slate-900 group-hover:text-[#0E2F5A] text-xs sm:text-[13px] truncate">

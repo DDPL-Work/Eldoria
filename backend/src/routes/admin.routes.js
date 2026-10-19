@@ -89,9 +89,9 @@ router.delete("/service/:id/delete", verifyToken, requireAdmin, deleteService);
 
 
 //===================== Category operations (dedicated & embedded categories) =========================
-router.post("/services/categories", verifyToken, requireAdmin, createCategory);
-router.post("/category/create", verifyToken, requireAdmin, createCategory);
+
 router.post("/services/categories/create", verifyToken, requireAdmin, createCategory);
+router.post("/services/categories", verifyToken, requireAdmin, createCategory);
 router.patch("/services/categories/:category/status", verifyToken, requireAdmin, toggleCategoryStatus);
 router.patch("/services/categories/:category", verifyToken, requireAdmin, updateCategory);
 router.delete("/services/categories/:category/delete", verifyToken, requireAdmin, deleteCategory);
@@ -109,6 +109,9 @@ router.patch("/staff-requests/:id/approve", verifyToken, requireAdmin, verifySta
 router.patch("/staff-requests/:id/request-changes", verifyToken, requireAdmin, requestStaffChanges);
 // Reject staff registration request
 router.patch("/staff-requests/:id/reject", verifyToken, requireAdmin, rejectStaffRequest);
+
+
+
 // Move back to review ('pending') / revoke decision
 router.patch("/staff-requests/:id/revoke", verifyToken, requireAdmin, revokeStaffRequestDecision);
 router.patch("/staff-requests/:id/pending", verifyToken, requireAdmin, revokeStaffRequestDecision);

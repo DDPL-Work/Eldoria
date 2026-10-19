@@ -2,7 +2,6 @@ import React, { useState } from 'react';
 import { Icon } from '../../constants/icons';
 import { FormCityDropdown } from '../common/FormCityDropdown';
 import { useStore } from '../../context/StoreContext';
-import { bookingAPI } from '../../services/api';
 import {
   RELATIONS,
   SLOTS,
@@ -36,6 +35,7 @@ export function NewBooking({ onBack, onBookingCreated, fromEnqId }) {
   const [customRelation, setCustomRelation] = useState(false);
   const [customTime, setCustomTime] = useState(false);
   const [customPlan, setCustomPlan] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const [form, setForm] = useState(() => {
     const defaultCity =
@@ -121,13 +121,14 @@ export function NewBooking({ onBack, onBookingCreated, fromEnqId }) {
       return;
     }
 
-    const id = 'b' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
-    const code = 'ELD-' + String(Date.now()).slice(-5);
+    if (isSubmitting) return;
+    setIsSubmitting(true);
+    setForm((prev) => ({ ...prev, err: '' }));
+
     const now = Date.now();
     const sObj = form.service ? svc(form.service) : { name: 'Service' };
 
-    const newBookingData = {
-      code,
+    const bookingPayload = {
       city: form.city.trim().toLowerCase(),
       area: form.area.trim(),
       serviceName: sObj.name,
@@ -145,83 +146,83 @@ export function NewBooking({ onBack, onBookingCreated, fromEnqId }) {
       notes: form.notes.trim(),
       source: form.source.trim() || 'Call',
       status: 'requested',
-      staffId: '',
-      confirmedBy: '',
-      confirmedAt: null,
-      history: [
-        { status: 'requested', at: now, by: 'admin', note: 'Booking request created by care desk' }
-      ],
-      createdAt: now
     };
 
-    put('bookings', id, newBookingData);
-
-    // Call backend API POST /api/v1/admin/booking/create and enforce status 'requested'
     try {
-      const res = await bookingAPI.createBooking(newBookingData);
-      const created = res?.data?.booking || res?.booking || res?.data || res;
-      const bid = created?.id || created?.code;
-      if (bid) {
-        try {
-          await bookingAPI.updateBookingStatus(bid, {
-            status: 'requested',
-            note: 'Booking request created by care desk',
-          });
-        } catch (statusErr) {
-          console.warn('Backend update status to requested notice:', statusErr);
-        }
-      }
-      await createBooking?.({
-        ...newBookingData,
-        ...(created && typeof created === 'object' ? created : {}),
-        id: created?.id || id,
-        code: created?.code || code,
-        status: 'requested',
-      });
-    } catch (e) {
-      console.warn('Backend create booking notice:', e);
-      try {
-        await createBooking?.(newBookingData);
-      } catch (storeErr) {
-        console.warn('Store create booking fallback notice:', storeErr);
-      }
-    }
+      // Single backend dispatch via createBooking (backed by Redux createBookingThunk)
+      const resultAction = await createBooking(bookingPayload);
 
-    if (fromEnqId && data.enquiries[fromEnqId]) {
-      const eDoc = data.enquiries[fromEnqId];
-      patch('enquiries', eDoc.id, {
-        status: 'converted',
-        bookingId: id,
-        recommended: form.service,
-        history: (eDoc.history || []).concat([
-          { status: 'converted', at: now, by: 'admin', note: `Booking ${code} created` }
-        ])
-      });
-    }
-
-    if (staffCanConfirm()) {
-      staffList()
-        .filter((st) => (st.city || DEFAULT_CITIES[0].id) === form.city)
-        .forEach((st) =>
-          notify(
-            'staff:' + st.id,
-            'New visit request ' + code,
-            `${sObj.name} for ${form.patientName.trim()} · ${fmtDate(form.date)}, ${
-              form.time
-            } · request received`,
-            id
-          )
+      if (resultAction?.error || resultAction?.type?.endsWith('rejected')) {
+        throw new Error(
+          resultAction?.payload || resultAction?.error?.message || 'Failed to create booking request.'
         );
+      }
+
+      const created =
+        resultAction?.payload?.booking ||
+        resultAction?.payload?.data ||
+        resultAction?.payload ||
+        resultAction;
+
+      const finalId = created?.id || created?.code || ('b' + Date.now().toString(36));
+      const finalCode = created?.code || ('ELD-' + String(Date.now()).slice(-5));
+
+      // Put real created booking into local store cache
+      put('bookings', String(finalId), {
+        ...bookingPayload,
+        ...(created && typeof created === 'object' ? created : {}),
+        id: finalId,
+        code: finalCode,
+        status: 'requested',
+        createdAt: now,
+        history: [
+          { status: 'requested', at: now, by: 'admin', note: 'Booking request created by care desk' }
+        ],
+      });
+
+      if (fromEnqId && data.enquiries[fromEnqId]) {
+        const eDoc = data.enquiries[fromEnqId];
+        patch('enquiries', eDoc.id, {
+          status: 'converted',
+          bookingId: finalId,
+          recommended: form.service,
+          history: (eDoc.history || []).concat([
+            { status: 'converted', at: now, by: 'admin', note: `Booking ${finalCode} created` }
+          ])
+        });
+      }
+
+      if (staffCanConfirm()) {
+        staffList()
+          .filter((st) => (st.city || DEFAULT_CITIES[0].id) === form.city)
+          .forEach((st) =>
+            notify(
+              'staff:' + st.id,
+              'New visit request ' + finalCode,
+              `${sObj.name} for ${form.patientName.trim()} · ${fmtDate(form.date)}, ${
+                form.time
+              } · request received`,
+              finalId
+            )
+          );
+      }
+
+      notify(
+        'client:' + p,
+        'Booking request received',
+        `Your ${sObj.name} booking request ${finalCode} for ${form.patientName.trim()} has been received for ${fmtDate(form.date)}, ${form.time}.`,
+        finalId
+      );
+
+      onBookingCreated(finalId, finalCode);
+    } catch (err) {
+      console.error('Create booking failed:', err);
+      setForm((prev) => ({
+        ...prev,
+        err: err?.message || 'Failed to create booking request. Please try again.',
+      }));
+      setIsSubmitting(false);
     }
-
-    notify(
-      'client:' + p,
-      'Booking request received',
-      `Your ${sObj.name} booking request ${code} for ${form.patientName.trim()} has been received for ${fmtDate(form.date)}, ${form.time}.`,
-      id
-    );
-
-    onBookingCreated(id, code);
   };
 
   const inputCls =
@@ -623,14 +624,23 @@ export function NewBooking({ onBack, onBookingCreated, fromEnqId }) {
         <div className="flex items-center gap-3 pt-1">
           <button
             type="submit"
-            className="px-5 py-2.5 rounded-lg bg-[#F2A01F] hover:bg-[#e09115] text-[#0A2342] font-bold text-xs sm:text-sm shadow-xs transition cursor-pointer"
+            disabled={isSubmitting}
+            className="px-5 py-2.5 rounded-lg bg-[#F2A01F] hover:bg-[#e09115] disabled:opacity-60 disabled:cursor-not-allowed text-[#0A2342] font-bold text-xs sm:text-sm shadow-xs transition cursor-pointer flex items-center gap-2"
           >
-            Create booking request
+            {isSubmitting ? (
+              <>
+                <span className="w-3.5 h-3.5 border-2 border-[#0A2342] border-t-transparent rounded-full animate-spin" />
+                <span>Creating booking...</span>
+              </>
+            ) : (
+              'Create booking request'
+            )}
           </button>
           <button
             type="button"
             onClick={onBack}
-            className="px-4.5 py-2.5 rounded-lg bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 font-semibold text-xs sm:text-sm transition cursor-pointer shadow-2xs"
+            disabled={isSubmitting}
+            className="px-4.5 py-2.5 rounded-lg bg-white hover:bg-slate-50 disabled:opacity-60 disabled:cursor-not-allowed border border-slate-200 text-slate-700 font-semibold text-xs sm:text-sm transition cursor-pointer shadow-2xs"
           >
             Cancel
           </button>

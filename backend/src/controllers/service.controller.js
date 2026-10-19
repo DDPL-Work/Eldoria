@@ -1,5 +1,5 @@
 const { Op } = require('sequelize');
-const { Service, Booking, sequelize } = require('../database/models');
+const { Service, Booking, Category, City, sequelize } = require('../database/models');
 const { successResponse, errorResponse } = require('../utills/responseHandler');
 const { generateServiceCode } = require('../helpers/generateServiceID');
 
@@ -92,6 +92,8 @@ const formatService = (s) => {
     categoryOrder: s.categoryOrder || 0,
     type: s.type || 'care',
     kind: s.type || 'care', // alias matching frontend KINDS constant ('care', 'equipment', 'doctor')
+    city: s.city || null,
+    cityName: s.cityName || null,
     desc: s.desc || '',
     icon: s.icon || 'cross',
     image: s.image || null,
@@ -180,6 +182,14 @@ const getAdminServices = async (req, res) => {
       where.category = category;
     }
 
+    // Filter by city
+    if (req.query.city && req.query.city !== 'all') {
+      where[Op.or] = [
+        { city: req.query.city },
+        { cityName: req.query.city },
+      ];
+    }
+
     // Filter by type / kind
     if (type && type !== 'all') {
       where.type = type;
@@ -211,6 +221,42 @@ const getAdminServices = async (req, res) => {
 
     const formattedServices = rawServices.map(formatService);
     const categoriesGrouped = groupServicesByCategory(formattedServices);
+
+    // Enrich categories with standalone Category records from Category table
+    try {
+      if (Category) {
+        const dbCategories = await Category.findAll({
+          order: [['order', 'ASC'], ['name', 'ASC']],
+        });
+        const groupedMap = new Map(categoriesGrouped.map((c) => [String(c.id || c.name).toLowerCase(), c]));
+        dbCategories.forEach((dbCat) => {
+          const key = String(dbCat.categoryId || dbCat.name).toLowerCase();
+          if (!groupedMap.has(key)) {
+            categoriesGrouped.push({
+              id: dbCat.categoryId || dbCat.name,
+              categoryId: dbCat.categoryId,
+              name: dbCat.name,
+              desc: dbCat.desc || '',
+              icon: dbCat.icon || 'cross',
+              kind: dbCat.kind || dbCat.type || 'care',
+              type: dbCat.type || dbCat.kind || 'care',
+              order: dbCat.order || 0,
+              enabled: dbCat.enabled !== false,
+              comingSoon: Boolean(dbCat.comingSoon),
+              servicesCount: 0,
+              liveCount: 0,
+              services: [],
+            });
+          } else {
+            const existing = groupedMap.get(key);
+            if (dbCat.desc && !existing.desc) existing.desc = dbCat.desc;
+            if (dbCat.icon && existing.icon === 'cross') existing.icon = dbCat.icon;
+          }
+        });
+      }
+    } catch (catErr) {
+      console.warn('Standalone Category fetch skipped:', catErr.message);
+    }
 
     // Catalog summary counters
     const totalServices = await Service.count();
@@ -302,6 +348,8 @@ const createService = async (req, res) => {
       categoryIcon,
       categoryDesc,
       categoryOrder,
+      city,
+      cityName,
       type = 'care',
       desc,
       icon = 'cross',
@@ -326,6 +374,12 @@ const createService = async (req, res) => {
     if (!category || !category.trim()) {
       await transaction.rollback();
       return errorResponse(res, 'Category is required', 400);
+    }
+
+    // Validation: City is required
+    if (!city || !String(city).trim()) {
+      await transaction.rollback();
+      return errorResponse(res, 'City is mandatory for creating a service', 400);
     }
 
     const cleanName = name.trim();
@@ -381,6 +435,24 @@ const createService = async (req, res) => {
     const slugBase = slugify(cleanName);
     const serviceSlug = `${slugBase}-${Date.now().toString(36).slice(-4)}`;
 
+    const cleanCity = String(city).trim();
+    let resolvedCityName = cityName ? String(cityName).trim() : null;
+    if (!resolvedCityName && City) {
+      const cityRec = await City.findOne({
+        where: {
+          [Op.or]: [
+            { cityId: cleanCity.toLowerCase() },
+            { name: cleanCity },
+          ],
+        },
+        transaction,
+      });
+      if (cityRec) resolvedCityName = cityRec.name;
+    }
+    if (!resolvedCityName) {
+      resolvedCityName = cleanCity.charAt(0).toUpperCase() + cleanCity.slice(1);
+    }
+
     const newService = await Service.create(
       {
         code,
@@ -392,6 +464,8 @@ const createService = async (req, res) => {
         categoryDesc: categoryDesc?.trim() || null,
         categoryOrder: parseInt(categoryOrder, 10) || 0,
         type: ['care', 'equipment', 'doctor', 'other'].includes(type) ? type : 'care',
+        city: cleanCity,
+        cityName: resolvedCityName,
         desc: desc ? desc.trim() : null,
         icon: icon ? icon.trim() : 'cross',
         image: image || null,
@@ -499,6 +573,25 @@ const updateService = async (req, res) => {
     // Enabled & Coming soon
     if (updates.enabled !== undefined) service.enabled = Boolean(updates.enabled);
     if (updates.comingSoon !== undefined) service.comingSoon = Boolean(updates.comingSoon);
+
+    // City & CityName
+    if (updates.city !== undefined) {
+      const cleanCity = String(updates.city || '').trim();
+      service.city = cleanCity || null;
+      let resolvedCityName = updates.cityName ? String(updates.cityName).trim() : null;
+      if (!resolvedCityName && cleanCity && City) {
+        const cityRec = await City.findOne({
+          where: {
+            [Op.or]: [
+              { cityId: cleanCity.toLowerCase() },
+              { name: cleanCity },
+            ],
+          },
+        });
+        if (cityRec) resolvedCityName = cityRec.name;
+      }
+      service.cityName = resolvedCityName || (cleanCity ? cleanCity.charAt(0).toUpperCase() + cleanCity.slice(1) : null);
+    }
 
     // Order
     if (updates.order !== undefined) {
@@ -672,8 +765,97 @@ const deleteService = async (req, res) => {
 };
 
 // =========================================================================
-// CATEGORY BULK OPERATIONS (Managing Embedded Categories)
+// CATEGORY BULK OPERATIONS (Managing Embedded & Dedicated Categories)
 // =========================================================================
+
+/**
+ * 7.5 POST /api/v1/admin/services/categories/create
+ * Create a new service category
+ */
+const createCategory = async (req, res) => {
+  try {
+    const {
+      name,
+      categoryId,
+      id,
+      desc,
+      icon,
+      kind,
+      type,
+      order,
+      enabled = true,
+      comingSoon = false,
+    } = req.body;
+
+    if (!name || !name.trim()) {
+      return errorResponse(res, 'Category name is required', 400);
+    }
+
+    const cleanName = name.trim();
+    const cleanId = String(categoryId || id || slugify(cleanName)).trim().toLowerCase();
+    const cleanKind = kind || type || 'care';
+    const cleanIcon = icon ? icon.trim() : 'cross';
+
+    // Check if category already exists in Category table
+    const existingCategory = await Category.findOne({
+      where: {
+        [Op.or]: [
+          { categoryId: cleanId },
+          { name: cleanName },
+          sequelize.where(sequelize.fn('LOWER', sequelize.col('name')), cleanName.toLowerCase()),
+        ],
+      },
+    });
+
+    if (existingCategory) {
+      return errorResponse(res, `Category '${cleanName}' already exists`, 409);
+    }
+
+    // Calculate order
+    let catOrder = order !== undefined ? parseInt(order, 10) : null;
+    if (catOrder === null || isNaN(catOrder)) {
+      const maxOrder = await Category.max('order');
+      catOrder = (Number(maxOrder) || 0) + 1;
+    }
+
+    const newCategory = await Category.create({
+      categoryId: cleanId,
+      name: cleanName,
+      desc: desc ? desc.trim() : '',
+      icon: cleanIcon,
+      kind: cleanKind,
+      type: cleanKind,
+      order: catOrder,
+      enabled: Boolean(enabled),
+      comingSoon: Boolean(comingSoon),
+    });
+
+    const formattedCat = {
+      id: newCategory.categoryId,
+      categoryId: newCategory.categoryId,
+      name: newCategory.name,
+      desc: newCategory.desc || '',
+      icon: newCategory.icon || 'cross',
+      kind: newCategory.kind || 'care',
+      type: newCategory.type || 'care',
+      order: newCategory.order || 0,
+      enabled: newCategory.enabled !== false,
+      comingSoon: Boolean(newCategory.comingSoon),
+      servicesCount: 0,
+      liveCount: 0,
+      services: [],
+    };
+
+    return successResponse(
+      res,
+      formattedCat,
+      `Category '${cleanName}' created successfully`,
+      201
+    );
+  } catch (error) {
+    return errorResponse(res, error.message || 'Failed to create category', 500, error);
+  }
+};
 
 /**
  * 8. PATCH /api/v1/admin/services/categories/:category
@@ -1035,6 +1217,7 @@ module.exports = {
   reorderServices,
   deleteService,
   updateCategory,
+  createCategory,
   toggleCategoryStatus,
   deleteCategory,
 

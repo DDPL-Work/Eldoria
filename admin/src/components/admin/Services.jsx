@@ -37,9 +37,16 @@ export function Services({ onShowToast }) {
     toggleServiceStatus,
     reorderServices,
     deleteService,
+    createCategory,
     updateCategory,
     toggleCategoryStatus,
     deleteCategory,
+    citiesAll,
+    cities,
+    cityName,
+    backendCities,
+    fetchCities,
+    selectedCity,
   } = useStore();
   const { uploadFile, fileGet } = useFiles();
 
@@ -60,16 +67,37 @@ export function Services({ onShowToast }) {
 
   useEffect(() => {
     loadServicesData();
-  }, [loadServicesData]);
+    fetchCities?.();
+  }, [loadServicesData, fetchCities]);
 
   const handleRefresh = () => {
     loadServicesData();
+    fetchCities?.();
     onShowToast?.('Refreshed services catalog');
   };
 
   const categories = catsAll();
   const allServices = svcAll();
   const liveCount = allServices.filter(svcLive).length;
+
+  // Operational cities from store & backend
+  const availableCities = React.useMemo(() => {
+    const storeCities = typeof citiesAll === 'function' ? citiesAll() : (typeof cities === 'function' ? cities() : []);
+    const map = new Map();
+    if (Array.isArray(backendCities) && backendCities.length > 0) {
+      backendCities.forEach((c) => {
+        const id = c.cityId || c.id;
+        if (id) map.set(String(id).toLowerCase(), { id, name: c.name || id });
+      });
+    }
+    storeCities.forEach((c) => {
+      const id = c.id || c.cityId;
+      if (id && !map.has(String(id).toLowerCase())) {
+        map.set(String(id).toLowerCase(), { id, name: c.name || id });
+      }
+    });
+    return Array.from(map.values());
+  }, [citiesAll, cities, backendCities]);
 
   const handleCloseModal = () => {
     setModalOpen(false);
@@ -105,10 +133,12 @@ export function Services({ onShowToast }) {
   // Open Unified Modal for Adding (Service or Category)
   const handleOpenAddModal = (tab = 'service', defaultCatId = '') => {
     const firstCat = defaultCatId || categories[0]?.id || '';
+    const defaultCityId = selectedCity !== 'all' ? selectedCity : (availableCities[0]?.id || '');
     setSvcForm({
       id: null,
       name: '',
       categoryId: firstCat,
+      city: defaultCityId,
       desc: '',
       icon: 'cross',
       image: null,
@@ -163,6 +193,7 @@ export function Services({ onShowToast }) {
       backendId: s.backendId || s.id,
       name: s.name,
       categoryId: s.categoryId || s.category,
+      city: s.city || s.cityId || '',
       desc: s.desc || '',
       icon: s.icon || 'cross',
       image: s.image || null,
@@ -209,6 +240,10 @@ export function Services({ onShowToast }) {
       setSvcForm((prev) => ({ ...prev, err: 'Please choose a category.' }));
       return;
     }
+    if (!svcForm.city || !svcForm.city.trim()) {
+      setSvcForm((prev) => ({ ...prev, err: 'Please select a city. City is mandatory.' }));
+      return;
+    }
 
     const price = parseInt(digits(svcForm.price) || '0', 10);
     if (svcForm.priceMode === 'fixed' && price <= 0) {
@@ -227,6 +262,8 @@ export function Services({ onShowToast }) {
 
     const isEdit = Boolean(svcForm.id);
     const selectedCat = categories.find((c) => c.id === svcForm.categoryId) || {};
+    const cleanCity = svcForm.city.trim();
+    const resolvedCityName = cityName(cleanCity) || cleanCity;
 
     const servicePayload = {
       name: svcForm.name.trim(),
@@ -235,6 +272,8 @@ export function Services({ onShowToast }) {
       categoryIcon: selectedCat.icon || 'cross',
       categoryDesc: selectedCat.desc || '',
       categoryOrder: selectedCat.order || 0,
+      city: cleanCity,
+      cityName: resolvedCityName,
       type: selectedCat.kind || 'care',
       desc: svcForm.desc ? svcForm.desc.trim() : '',
       icon: svcForm.icon || 'cross',
@@ -436,27 +475,52 @@ export function Services({ onShowToast }) {
         });
         onShowToast?.(`Saved ${cleanName}`);
       } else {
-        const id =
+        const generatedSlug =
           cleanName
             .toLowerCase()
             .replace(/[^a-z0-9]+/g, '-')
             .replace(/^-|-$/g, '')
-            .slice(0, 30) +
-          '-' +
-          Date.now().toString(36).slice(-4);
+            .slice(0, 30);
 
         const order = categories.length + 1;
-        put('categories', id, {
-          id,
+        const createPayload = {
+          name: cleanName,
+          categoryId: generatedSlug,
+          desc: catForm.desc.trim(),
+          icon: catForm.icon,
+          kind: catForm.kind,
+          type: catForm.kind,
+          enabled: !!catForm.enabled,
+          comingSoon: !!catForm.comingSoon,
+          order,
+        };
+
+        let createdCat = null;
+        if (createCategory) {
+          const res = await createCategory(createPayload);
+          if (res?.error) {
+            throw new Error(res.error.message || res.error || 'Failed to create category');
+          }
+          createdCat = res?.payload?.data || res?.data;
+        }
+
+        const catId = createdCat?.categoryId || createdCat?.id || generatedSlug;
+
+        put('categories', catId, {
+          id: catId,
+          categoryId: catId,
           name: cleanName,
           desc: catForm.desc.trim(),
           icon: catForm.icon,
           kind: catForm.kind,
+          type: catForm.kind,
           enabled: !!catForm.enabled,
           comingSoon: !!catForm.comingSoon,
           order,
         });
-        onShowToast?.(`Added ${cleanName}`);
+
+        fetchServices?.();
+        onShowToast?.(`Added category ${cleanName}`);
       }
       handleCloseModal();
     } catch (err) {
@@ -699,7 +763,7 @@ export function Services({ onShowToast }) {
             {modalTab === 'service' && svcForm && (
               <form onSubmit={handleSvcSubmit} className="flex flex-col flex-1 overflow-hidden">
                 <div className="p-5 sm:p-6 space-y-4 overflow-y-auto flex-1">
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                     <div>
                       <label className="block text-xs font-bold text-slate-700 mb-1.5">
                         Service name <span className="text-red-500 font-bold">*</span>
@@ -719,6 +783,7 @@ export function Services({ onShowToast }) {
                         Category <span className="text-red-500 font-bold">*</span>
                       </label>
                       <select
+                        required
                         value={svcForm.categoryId}
                         onChange={(e) => setSvcForm({ ...svcForm, categoryId: e.target.value })}
                         className="w-full rounded-lg border border-slate-300 px-3.5 py-2.5 text-sm text-slate-900 bg-white focus:outline-none focus:ring-1 focus:ring-[#0A2342] focus:border-[#0A2342] cursor-pointer"
@@ -726,6 +791,25 @@ export function Services({ onShowToast }) {
                         {categories.map((c) => (
                           <option key={c.id} value={c.id}>
                             {c.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                        City <span className="text-red-500 font-bold">*</span>
+                      </label>
+                      <select
+                        required
+                        value={svcForm.city || ''}
+                        onChange={(e) => setSvcForm({ ...svcForm, city: e.target.value })}
+                        className="w-full rounded-lg border border-slate-300 px-3.5 py-2.5 text-sm text-slate-900 bg-white focus:outline-none focus:ring-1 focus:ring-[#0A2342] focus:border-[#0A2342] cursor-pointer"
+                      >
+                        <option value="">Select operational city...</option>
+                        {availableCities.map((ct) => (
+                          <option key={ct.id} value={ct.id}>
+                            {ct.name}
                           </option>
                         ))}
                       </select>
@@ -1301,15 +1385,27 @@ export function Services({ onShowToast }) {
                           )}
                         </div>
                         <div className="min-w-0">
-                          <div className="font-bold text-slate-900 text-xs sm:text-sm truncate">
-                            {s.name}
+                          <div className="font-bold text-slate-900 text-xs sm:text-sm truncate flex items-center gap-2 flex-wrap">
+                            <span className="truncate">{s.name}</span>
+
+                            {/* Operational City Badge */}
+                            {(s.city || s.cityName) && (
+                              <span
+                                className="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-md bg-[#EEF5FC] text-[#0A2342] border border-[#DCE8F6] whitespace-nowrap shrink-0"
+                                title={`Operational City: ${cityName(s.city) || s.cityName || s.city}`}
+                              >
+                                <Icon name="pin" size={11} strokeWidth={2.4} />
+                                <span>{cityName(s.city) || s.cityName || s.city}</span>
+                              </span>
+                            )}
+
                             {s.comingSoon && (
-                              <span className="ml-2 text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-[#FDF0D9] text-[#8A5000] whitespace-nowrap">
+                              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-[#FDF0D9] text-[#8A5000] whitespace-nowrap shrink-0">
                                 Coming soon
                               </span>
                             )}
                             {s.enabled === false && (
-                              <span className="ml-2 text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-slate-200 text-slate-700 whitespace-nowrap">
+                              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-slate-200 text-slate-700 whitespace-nowrap shrink-0">
                                 Hidden
                               </span>
                             )}
