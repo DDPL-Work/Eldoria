@@ -108,44 +108,179 @@ const updateSettings = async (req, res) => {
 };
 
 /**
- * 3. PATCH /api/v1/admin/settings/staff-confirm
- * Toggle or set caregiver booking confirmation permission
+ * 3. GET /api/v1/admin/settings/staff-confirm/:staffId?
+ * Retrieve booking confirmation & transfer permissions per staff member or all staff
+ */
+const getStaffPermissions = async (req, res) => {
+  try {
+    const staffIdentifier = req.params?.staffId || req.query?.staffId;
+
+    if (staffIdentifier) {
+      const staff = await Staff.findOne({
+        where: {
+          [Op.or]: [
+            { staffId: String(staffIdentifier).trim() },
+            ...(isNaN(staffIdentifier) ? [] : [{ id: Number(staffIdentifier) }]),
+          ],
+        },
+        include: [
+          {
+            model: User,
+            as: 'user',
+            attributes: ['id', 'name', 'email', 'phone'],
+          },
+        ],
+      });
+
+      if (!staff) {
+        return errorResponse(res, `Staff member '${staffIdentifier}' not found`, 404);
+      }
+
+      return successResponse(
+        res,
+        {
+          id: staff.id,
+          staffId: staff.staffId,
+          name: staff.user?.name || staff.staffId,
+          phone: staff.user?.phone || null,
+          role: staff.qualification || 'Caregiver',
+          approval: staff.approval,
+          canConfirmBooking: Boolean(staff.canConfirmBooking),
+          canTransferBooking: Boolean(staff.canTransferBooking),
+        },
+        `Permissions retrieved for ${staff.user?.name || staff.staffId}`
+      );
+    }
+
+    const staffList = await Staff.findAll({
+      attributes: ['id', 'staffId', 'qualification', 'approval', 'canConfirmBooking', 'canTransferBooking'],
+      include: [
+        {
+          model: User,
+          as: 'user',
+          attributes: ['id', 'name', 'email', 'phone'],
+        },
+      ],
+      order: [['staffId', 'ASC']],
+    });
+
+    const data = staffList.map((s) => ({
+      id: s.id,
+      staffId: s.staffId,
+      name: s.user?.name || s.staffId,
+      phone: s.user?.phone || null,
+      role: s.qualification || 'Caregiver',
+      approval: s.approval,
+      canConfirmBooking: Boolean(s.canConfirmBooking),
+      canTransferBooking: Boolean(s.canTransferBooking),
+    }));
+
+    return successResponse(res, data, 'Staff permissions list retrieved successfully');
+  } catch (error) {
+    console.error('❌ Error retrieving staff permissions:', error);
+    return errorResponse(res, error.message || 'Failed to retrieve staff permissions', 500, error);
+  }
+};
+
+/**
+ * 4. PATCH /api/v1/admin/settings/staff-confirm/:staffId?
+ * Configure caregiver booking confirmation & transfer permissions per staff using staffId
  */
 const toggleStaffCanConfirm = async (req, res) => {
   try {
-    const setting = await ensureAppSettings();
+    const staffIdentifier =
+      req.params?.staffId ||
+      req.body?.staffId ||
+      req.query?.staffId ||
+      req.body?.id;
 
-    let nextValue;
-    if (req.body && req.body.staffCanConfirm !== undefined) {
-      nextValue = Boolean(req.body.staffCanConfirm);
-    } else {
-      nextValue = !setting.staffCanConfirm;
+    if (!staffIdentifier) {
+      return errorResponse(
+        res,
+        "Staff identifier ('staffId') is required to configure staff permissions.",
+        400
+      );
     }
 
-    setting.staffCanConfirm = nextValue;
-    await setting.save();
+    const staff = await Staff.findOne({
+      where: {
+        [Op.or]: [
+          { staffId: String(staffIdentifier).trim() },
+          ...(isNaN(staffIdentifier) ? [] : [{ id: Number(staffIdentifier) }]),
+        ],
+      },
+      include: [
+        {
+          model: User,
+          as: 'user',
+          attributes: ['id', 'name', 'email', 'phone'],
+        },
+      ],
+    });
 
-    const message = nextValue
-      ? 'Staff can now confirm and assign bookings'
-      : 'Staff can no longer confirm bookings';
+    if (!staff) {
+      return errorResponse(res, `Staff member '${staffIdentifier}' not found`, 404);
+    }
+
+    let hasExplicitUpdate = false;
+
+    // 1. canConfirmBooking permission (supports canConfirmBooking, staffCanConfirm, canConfirm)
+    if (req.body?.canConfirmBooking !== undefined) {
+      staff.canConfirmBooking = Boolean(req.body.canConfirmBooking);
+      hasExplicitUpdate = true;
+    } else if (req.body?.staffCanConfirm !== undefined) {
+      staff.canConfirmBooking = Boolean(req.body.staffCanConfirm);
+      hasExplicitUpdate = true;
+    } else if (req.body?.canConfirm !== undefined) {
+      staff.canConfirmBooking = Boolean(req.body.canConfirm);
+      hasExplicitUpdate = true;
+    }
+
+    // 2. canTransferBooking permission (supports canTransferBooking, staffCanTransfer, canTransfer)
+    if (req.body?.canTransferBooking !== undefined) {
+      staff.canTransferBooking = Boolean(req.body.canTransferBooking);
+      hasExplicitUpdate = true;
+    } else if (req.body?.staffCanTransfer !== undefined) {
+      staff.canTransferBooking = Boolean(req.body.staffCanTransfer);
+      hasExplicitUpdate = true;
+    } else if (req.body?.canTransfer !== undefined) {
+      staff.canTransferBooking = Boolean(req.body.canTransfer);
+      hasExplicitUpdate = true;
+    }
+
+    // If no specific boolean was passed in body, toggle canConfirmBooking (quick toggle behavior)
+    if (!hasExplicitUpdate) {
+      staff.canConfirmBooking = !staff.canConfirmBooking;
+    }
+
+    await staff.save();
+
+    const staffName = staff.user?.name || staff.staffId;
+    const message = `Permissions updated for ${staffName}: canConfirmBooking=${staff.canConfirmBooking}, canTransferBooking=${staff.canTransferBooking}`;
 
     return successResponse(
       res,
       {
-        id: setting.id,
-        staffCanConfirm: setting.staffCanConfirm,
+        id: staff.id,
+        staffId: staff.staffId,
+        name: staffName,
+        phone: staff.user?.phone || null,
+        approval: staff.approval,
+        canConfirmBooking: staff.canConfirmBooking,
+        canTransferBooking: staff.canTransferBooking,
       },
       message
     );
   } catch (error) {
-    console.error('❌ Error toggling staff confirm permission:', error);
-    return errorResponse(res, error.message || 'Failed to update staff confirm permission', 500, error);
+    console.error('❌ Error configuring staff permissions:', error);
+    return errorResponse(res, error.message || 'Failed to update staff permissions', 500, error);
   }
 };
-
 
 module.exports = {
   getSettings,
   updateSettings,
+  getStaffPermissions,
   toggleStaffCanConfirm,
 };
+

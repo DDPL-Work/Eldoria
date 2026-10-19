@@ -18,6 +18,8 @@ db.City = require("./city.model")(sequelize);
 db.Service = require("./service.model")(sequelize);
 db.Category = require("./category.model")(sequelize);
 db.Setting = require("./setting.model")(sequelize);
+db.NotifyMe = require("./notifyMe.model")(sequelize);
+db.InAppNotification = require("./inAppNotification.model")(sequelize);
 
 // Associations: User (1) <-> Staff Profile (1) via staffId
 db.User.hasOne(db.Staff, {
@@ -49,6 +51,36 @@ db.Client.belongsTo(db.User, {
   as: "user",
   onDelete: "CASCADE",
   onUpdate: "CASCADE"
+});
+
+// Associations: User (1) <-> NotifyMe (*)
+db.User.hasMany(db.NotifyMe, {
+  foreignKey: "userId",
+  as: "notifyRequests",
+  onDelete: "SET NULL",
+  onUpdate: "CASCADE",
+});
+
+db.NotifyMe.belongsTo(db.User, {
+  foreignKey: "userId",
+  as: "user",
+  onDelete: "SET NULL",
+  onUpdate: "CASCADE",
+});
+
+// Associations: User (1) <-> InAppNotification (*)
+db.User.hasMany(db.InAppNotification, {
+  foreignKey: "userId",
+  as: "inAppNotifications",
+  onDelete: "SET NULL",
+  onUpdate: "CASCADE",
+});
+
+db.InAppNotification.belongsTo(db.User, {
+  foreignKey: "userId",
+  as: "user",
+  onDelete: "SET NULL",
+  onUpdate: "CASCADE",
 });
 
 // Associations: Staff (1) <-> Booking (*)

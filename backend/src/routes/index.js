@@ -26,6 +26,18 @@ router.get('/services', getPublicServices);
 router.get('/services/categories', getPublicCategories);
 router.get('/services/:id', getPublicServiceById);
 
+// Public Coming Soon Notify Me & In-App Notification convenience aliases
+const { optionalToken } = require('../middlewares/auth.middleware');
+const {
+  subscribeNotifyMe,
+  getClientNotifications,
+  getNotifyMeStatus,
+} = require('../controllers/notification.controller');
+
+router.post('/notify-me', optionalToken, subscribeNotifyMe);
+router.get('/notify-me/status', optionalToken, getNotifyMeStatus);
+router.get('/notifications', optionalToken, getClientNotifications);
+
 // General auth routes (client & staff login)
 router.use('/auth', authRoutes);
 

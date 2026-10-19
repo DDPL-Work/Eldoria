@@ -23,6 +23,8 @@ const getAivenDb = () => {
     Service: require('../database/models/service.model')(aivenSequelize),
     Category: require('../database/models/category.model')(aivenSequelize),
     Setting: require('../database/models/setting.model')(aivenSequelize),
+    NotifyMe: require('../database/models/notifyMe.model')(aivenSequelize),
+    InAppNotification: require('../database/models/inAppNotification.model')(aivenSequelize),
   };
 
   // Associations
@@ -30,6 +32,10 @@ const getAivenDb = () => {
   db.Staff.belongsTo(db.User, { foreignKey: 'staffId', targetKey: 'staffId', as: 'user', constraints: false });
   db.User.hasOne(db.Client, { foreignKey: 'userId', as: 'clientProfile', constraints: false });
   db.Client.belongsTo(db.User, { foreignKey: 'userId', as: 'user', constraints: false });
+  db.User.hasMany(db.NotifyMe, { foreignKey: 'userId', as: 'notifyRequests', constraints: false });
+  db.NotifyMe.belongsTo(db.User, { foreignKey: 'userId', as: 'user', constraints: false });
+  db.User.hasMany(db.InAppNotification, { foreignKey: 'userId', as: 'inAppNotifications', constraints: false });
+  db.InAppNotification.belongsTo(db.User, { foreignKey: 'userId', as: 'user', constraints: false });
   db.Booking.belongsTo(db.Staff, { foreignKey: 'staffId', targetKey: 'staffId', as: 'assignedStaff', constraints: false });
   db.Staff.hasMany(db.Booking, { foreignKey: 'staffId', sourceKey: 'staffId', as: 'bookings', constraints: false });
   db.Service.belongsTo(db.City, { foreignKey: 'cityId', as: 'primaryCity', constraints: false });

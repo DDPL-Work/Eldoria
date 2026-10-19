@@ -114,11 +114,14 @@ const enrichStaffFilesForResponse = (files = {}, req) => {
     if (item.publicId) {
       const streamUrl = `${baseUrl}/api/v1/staff/documents/view?publicId=${encodeURIComponent(item.publicId)}&filename=${encodeURIComponent(item.name || `${key}.${isPdf ? "pdf" : "jpg"}`)}`;
       item.viewUrl = streamUrl;
-      if (isPdf) {
-        item.cloudinaryUrl = item.cloudinaryUrl || item.data || item.url;
-        item.data = streamUrl;
-        item.url = streamUrl;
+
+      // Always ensure cloudinaryUrl, data, and url contain the direct Cloudinary URL
+      if (!item.cloudinaryUrl || !item.cloudinaryUrl.startsWith("http") || item.cloudinaryUrl.includes("/api/v1/staff/documents/view")) {
+        const cloudName = process.env.CLOUDINARY_CLOUD_NAME || "do2ikuzji";
+        item.cloudinaryUrl = `https://res.cloudinary.com/${cloudName}/image/upload/${item.publicId}.${isPdf ? "pdf" : "jpg"}`;
       }
+      item.data = item.cloudinaryUrl;
+      item.url = item.cloudinaryUrl;
     }
 
     if (isPdf) {
@@ -225,19 +228,20 @@ const staffRegistration = async (req, res) => {
   }
 
   // 4. Validate required staff profile details
-  if (
-    !dob ||
-    !gender ||
-    !city ||
-    !area ||
-    !address ||
-    !qualification ||
-    !regNo ||
-    !experience
-  ) {
+  const missingStaffFields = [];
+  if (!dob) missingStaffFields.push("dob");
+  if (!gender) missingStaffFields.push("gender");
+  if (!city) missingStaffFields.push("city");
+  if (!area) missingStaffFields.push("area");
+  if (!address) missingStaffFields.push("address");
+  if (!qualification) missingStaffFields.push("qualification");
+  if (!regNo) missingStaffFields.push("regNo");
+  if (!experience) missingStaffFields.push("experience");
+
+  if (missingStaffFields.length > 0) {
     return errorResponse(
       res,
-      "Missing required staff fields: dob, gender, city, area, address, qualification, regNo, and experience are required",
+      `Missing required staff field(s): ${missingStaffFields.join(", ")}`,
       400,
     );
   }
