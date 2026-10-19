@@ -1283,7 +1283,7 @@ const getBookings = async (req, res) => {
       staffId,
       search,
       page = 1,
-      limit = 10,
+      limit = 1000,
       sortBy = "createdAt",
       sortOrder = "DESC",
     } = req.query;

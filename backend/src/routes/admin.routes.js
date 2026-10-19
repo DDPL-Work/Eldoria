@@ -1,6 +1,7 @@
 const express = require("express");
 const router = express.Router();
 const { verifyToken, requireAdmin } = require("../middlewares/auth.middleware");
+const { uploadStaffFiles } = require("../middlewares/upload.middleware");
 const {
   createAdminStaff,
   getStaffRequests,
@@ -23,6 +24,7 @@ const {
   unassignStaffFromBooking,
   updateBookingStatus,
   getAvailableStaffForBooking,
+  getStaffVisitReports,
 } = require("../controllers/booking.controller");
 
 const {
@@ -54,9 +56,21 @@ router.get("/dashboard", verifyToken, requireAdmin, getDashboardData);
 // Bookings management routes
 router.get("/bookings/all", verifyToken, requireAdmin, getBookings);
 
-router.post("/booking/create", verifyToken, requireAdmin, createAdminBooking);
+router.post(
+  "/booking/create",
+  verifyToken,
+  requireAdmin,
+  uploadStaffFiles,
+  createAdminBooking,
+);
 
 router.get("/booking/:id", verifyToken, requireAdmin, getBookingById);
+router.get(
+  "/booking/:id/report",
+  verifyToken,
+  requireAdmin,
+  getStaffVisitReports,
+);
 
 router.get(
   "/booking/:id/available-staff",
@@ -120,8 +134,6 @@ router.put("/services/:id", verifyToken, requireAdmin, updateService);
 router.delete("/service/:id/delete", verifyToken, requireAdmin, deleteService);
 
 // Category operations (dedicated & embedded categories)
-router.post("/services/categories", verifyToken, requireAdmin, createCategory);
-router.post("/category/create", verifyToken, requireAdmin, createCategory);
 router.post(
   "/services/categories/create",
   verifyToken,
@@ -229,6 +241,27 @@ router.patch(
   verifyToken,
   requireAdmin,
   updateAdminEnquiry,
+);
+
+// Coming Soon "Notify Me" Subscribers & Broadcast Notification management routes
+const {
+  getAdminNotifyRequests,
+  broadcastComingSoonLaunch,
+  deleteAdminNotifyRequest,
+} = require("../controllers/notification.controller");
+
+router.get("/notify-me", verifyToken, requireAdmin, getAdminNotifyRequests);
+router.post(
+  "/notify-me/broadcast",
+  verifyToken,
+  requireAdmin,
+  broadcastComingSoonLaunch,
+);
+router.delete(
+  "/notify-me/:id",
+  verifyToken,
+  requireAdmin,
+  deleteAdminNotifyRequest,
 );
 
 module.exports = router;

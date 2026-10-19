@@ -4,6 +4,7 @@ const { verifyToken, requireAdmin } = require('../middlewares/auth.middleware');
 const {
   getSettings,
   updateSettings,
+  getStaffPermissions,
   toggleStaffCanConfirm,
 } = require('../controllers/setting.controller');
 
@@ -12,6 +13,9 @@ router.get('/', getSettings);
 
 // Admin settings configuration routes
 router.patch('/update', verifyToken, requireAdmin, updateSettings);
-router.patch('/staff-confirm', verifyToken, requireAdmin, toggleStaffCanConfirm);
+
+// Staff booking confirmation & transfer permissions per staffId
+router.get('/staff-confirm/:staffId', verifyToken, requireAdmin, getStaffPermissions);
+router.patch('/staff-confirm/:staffId', verifyToken, requireAdmin, toggleStaffCanConfirm);
 
 module.exports = router;

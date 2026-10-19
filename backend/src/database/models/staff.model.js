@@ -134,6 +134,18 @@ module.exports = (sequelize) => {
         defaultValue: false,
         allowNull: false,
       },
+      canConfirmBooking: {
+        type: DataTypes.BOOLEAN,
+        defaultValue: false,
+        allowNull: false,
+        comment: "Whether staff can confirm or reject bookings assigned to them",
+      },
+      canTransferBooking: {
+        type: DataTypes.BOOLEAN,
+        defaultValue: false,
+        allowNull: false,
+        comment: "Whether staff can transfer or reassign bookings to colleagues",
+      },
       submittedAt: {
         type: DataTypes.DATE,
         allowNull: true,

@@ -15,6 +15,7 @@ const {
   getClientBookings,
   getClientBookingById,
   getClientBookingStatus,
+  getStaffVisitReports,
 } = require("../controllers/booking.controller");
 const {
   createClientEnquiry,
@@ -58,10 +59,8 @@ router.get("/services", optionalToken, getClientServices);
 router.get("/services/categories", optionalToken, getClientCategories);
 router.get("/services/:id", optionalToken, getPublicServiceById);
 
-// Client Booking flow routes
-router.post("/booking/create", optionalToken, createClientBooking);
-router.post("/bookings/create", optionalToken, createClientBooking);
-router.post("/bookings", optionalToken, createClientBooking);
+// Client Booking flow routes (supports multipart/form-data medical history files upload)
+router.post("/booking/create", optionalToken, uploadStaffFiles, createClientBooking);
 router.get("/bookings", optionalToken, getClientBookings);
 
 // Booking status & live tracking routes (with and without :id)
@@ -78,10 +77,31 @@ router.get("/bookings/:id/track", optionalToken, getClientBookingStatus);
 router.get("/booking/:id", optionalToken, getClientBookingById);
 router.get("/bookings/:id", optionalToken, getClientBookingById);
 
-// Client Help request (Enquiry) flow routes
+// Client View Visit Reports (vitals, tasks, notes, photos)
+router.get("/booking/:id/daily-report", optionalToken, getStaffVisitReports);
 
+// Client Help request (Enquiry) flow routes
 router.post("/enquiry/create", optionalToken, uploadStaffFiles, createClientEnquiry);
 router.get("/enquiries", optionalToken, getClientEnquiries);
 router.get("/enquiry/:id", optionalToken, getClientEnquiryById);
+
+// Client Coming Soon "Notify Me" & In-App Notification routes
+const {
+  subscribeNotifyMe,
+  getNotifyMeStatus,
+  getClientNotifications,
+  markNotificationAsRead,
+  markAllNotificationsAsRead,
+} = require("../controllers/notification.controller");
+
+// Step: Client registers interest / clicks "Notify Me" on a Coming Soon category or service
+router.post("/notify-me", optionalToken, subscribeNotifyMe);
+router.post("/coming-soon/notify-me", optionalToken, subscribeNotifyMe);
+router.get("/notify-me/status", optionalToken, getNotifyMeStatus);
+
+// In-App Notifications list & read state
+router.get("/notifications", optionalToken, getClientNotifications);
+router.patch("/notifications/mark-all-read", optionalToken, markAllNotificationsAsRead);
+router.patch("/notifications/:id/read", optionalToken, markNotificationAsRead);
 
 module.exports = router;
