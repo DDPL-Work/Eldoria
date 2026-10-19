@@ -78,6 +78,11 @@ module.exports = (sequelize) => {
       type: DataTypes.TEXT,
       allowNull: true
     },
+    bookingId: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+      comment: 'ID of booking converted from this enquiry'
+    },
     history: {
       type: DataTypes.JSON,
       defaultValue: []

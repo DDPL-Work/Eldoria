@@ -292,6 +292,37 @@ const createClientBooking = async (req, res) => {
       { transaction }
     );
 
+    // If booked from an existing enquiry, link and convert the enquiry
+    const fromEnqId = body.fromEnq || body.enquiryId || body.fromEnquiry || null;
+    if (fromEnqId && Enquiry && typeof Enquiry.findOne === "function") {
+      try {
+        const enq = await Enquiry.findOne({
+          where: buildEnquiryLookup(fromEnqId),
+          transaction,
+        });
+        if (enq) {
+          const enqHist = Array.isArray(enq.history) ? [...enq.history] : [];
+          enqHist.push({
+            status: "converted",
+            at: now.toISOString(),
+            by: "client",
+            note: `Converted to booking ${bookingCode}`,
+          });
+          await enq.update(
+            {
+              status: "converted",
+              bookingId: newBooking.id,
+              recommended: enq.recommended || finalServiceId,
+              history: enqHist,
+            },
+            { transaction }
+          );
+        }
+      } catch (enqErr) {
+        console.warn("⚠️ Could not link enquiry in createClientBooking:", enqErr.message);
+      }
+    }
+
     await transaction.commit();
 
     return successResponse(
@@ -1527,6 +1558,7 @@ const createAdminBooking = async (req, res) => {
         await enquiryRecord.update(
           {
             status: "converted",
+            bookingId: newBooking.id,
             recommended: finalServiceId,
             adminNote: enquiryRecord.adminNote
               ? `${enquiryRecord.adminNote}\n[Converted to booking ${bookingCode}]`
