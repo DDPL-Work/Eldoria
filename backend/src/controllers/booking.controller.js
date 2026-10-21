@@ -8,6 +8,7 @@ const {
   uploadMedicalFilesToCloudinary,
   uploadVisitReportFilesToCloudinary,
 } = require("../services/cloudinary.service");
+const { checkAndMarkDateExceededBookings } = require("../services/bookingExpiry.service");
 
 /**
  * Format date helper for human-readable notification text
@@ -378,6 +379,11 @@ const getClientBookings = async (req, res) => {
     } else if (clientId) {
       where.clientId = clientId;
     }
+
+    // Check and mark overdue bookings before returning to client
+    await checkAndMarkDateExceededBookings().catch((err) => {
+      console.warn("Date exceeded check in client bookings warning:", err.message);
+    });
 
     const bookings = await Booking.findAll({
       where,
@@ -1118,7 +1124,16 @@ const updateBookingStatus = async (req, res) => {
     const { id } = req.params;
     const { status: nextStatus, note, visit, tasks, cancelReason } = req.body;
 
-    const validStatuses = ["requested", "confirmed", "assigned", "on_the_way", "in_progress", "completed", "cancelled"];
+    const validStatuses = [
+      "requested",
+      "confirmed",
+      "assigned",
+      "on_the_way",
+      "in_progress",
+      "completed",
+      "cancelled",
+      "date_exceeded",
+    ];
     if (!nextStatus || !validStatuses.includes(nextStatus)) {
       await transaction.rollback();
       return errorResponse(

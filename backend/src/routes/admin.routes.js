@@ -15,6 +15,8 @@ const {
   getClientByClientId,
   getBookings,
   getBookingById,
+  markDateExceededBookings,
+  getDateExceededBookings,
 } = require("../controllers/admin.controller");
 const { getDashboardData } = require("../controllers/dashboard.controller");
 const {
@@ -61,6 +63,9 @@ router.get("/dashboard", verifyToken, requireAdmin, getDashboardData);
 
 // Bookings management routes
 router.get("/bookings/all", verifyToken, requireAdmin, getBookings);
+router.get("/bookings/date-exceeded", verifyToken, requireAdmin, getDateExceededBookings);
+router.post("/bookings/mark-date-exceeded", verifyToken, requireAdmin, markDateExceededBookings);
+router.post("/booking/mark-date-exceeded", verifyToken, requireAdmin, markDateExceededBookings);
 
 router.post(
   "/booking/create",

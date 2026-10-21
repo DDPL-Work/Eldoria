@@ -1,6 +1,7 @@
 const { Op } = require('sequelize');
 const { Booking, Enquiry, Staff, User, sequelize } = require('../database/models');
 const { successResponse, errorResponse } = require('../utills/responseHandler');
+const { checkAndMarkDateExceededBookings } = require('../services/bookingExpiry.service');
 
 /**
  * Standard city map for formatted display names
@@ -60,6 +61,11 @@ const getDashboardData = async (req, res) => {
     const selectedCity = String(city).trim().toLowerCase();
     const todayStr = getTodayISO();
 
+    // Automatically check and mark overdue unconfirmed bookings as 'date_exceeded'
+    await checkAndMarkDateExceededBookings({ city }).catch((err) => {
+      console.warn('Date exceeded check warning in dashboard:', err.message);
+    });
+
     // 1. Prepare City Filters
     const isCityFiltered = selectedCity !== 'all' && selectedCity !== '';
     const bookingCityWhere = isCityFiltered ? { city: selectedCity } : {};
@@ -102,6 +108,9 @@ const getDashboardData = async (req, res) => {
     // 5. Compute KPI Metrics
     const newReqBookings = bookings.filter((b) => b.status === 'requested');
     const countNewReq = newReqBookings.length;
+
+    const dateExceededBookings = bookings.filter((b) => b.status === 'date_exceeded');
+    const countDateExceeded = dateExceededBookings.length;
 
     const visitsToday = bookings.filter((b) => b.date === todayStr && b.status !== 'cancelled');
     const countTodayVisits = visitsToday.length;
@@ -208,6 +217,7 @@ const getDashboardData = async (req, res) => {
     const byCity = targetCityIds.map((cid) => {
       const cBookings = allCityBookings.filter((b) => (b.city || 'mumbai').toLowerCase() === cid);
       const cNewReq = cBookings.filter((b) => b.status === 'requested').length;
+      const cDateExceeded = cBookings.filter((b) => b.status === 'date_exceeded').length;
       const cOpen = cBookings.filter((b) => !['completed', 'cancelled'].includes(b.status)).length;
       const cVisitsToday = cBookings.filter((b) => b.date === todayStr && b.status !== 'cancelled').length;
       const cUnassigned = cBookings.filter(
@@ -224,6 +234,7 @@ const getDashboardData = async (req, res) => {
         id: cid,
         name: getCityDisplayName(cid),
         newReq: cNewReq,
+        dateExceeded: cDateExceeded,
         openBookings: cOpen,
         visitsToday: cVisitsToday,
         unassigned: cUnassigned,
@@ -246,7 +257,8 @@ const getDashboardData = async (req, res) => {
       dateString: `${dayName}, ${dateNum} ${monthName} ${year}`,
       title: `Care desk${selectedCity !== 'all' ? ` · ${getCityDisplayName(selectedCity)}` : ''}`,
       subtitle: `${countNewReq} new request${countNewReq === 1 ? '' : 's'} waiting for confirmation`,
-      newRequestsCount: countNewReq
+      newRequestsCount: countNewReq,
+      dateExceededCount: countDateExceeded
     };
 
     // Construct response payload
@@ -259,6 +271,11 @@ const getDashboardData = async (req, res) => {
           count: countNewReq,
           label: 'New requests',
           sublabel: 'Awaiting confirmation'
+        },
+        dateExceeded: {
+          count: countDateExceeded,
+          label: 'Date exceeded',
+          sublabel: 'Scheduled date passed with no action'
         },
         visitsToday: {
           count: countTodayVisits,

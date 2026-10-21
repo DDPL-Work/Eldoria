@@ -2,6 +2,10 @@ const { Op } = require("sequelize");
 const { sequelize, User, Staff, Client, Booking } = require("../database/models");
 const { errorResponse, successResponse } = require("../utills/responseHandler");
 const { generateStaffId } = require("../helpers/generateStaffID");
+const {
+  checkAndMarkDateExceededBookings,
+  getDateExceededBookings: fetchDateExceededBookings,
+} = require("../services/bookingExpiry.service");
 
 /**
  * Helper to build lookup condition by either primary key id or staffId string
@@ -1296,6 +1300,11 @@ const getBookings = async (req, res) => {
       sortOrder = "DESC",
     } = req.query;
 
+    // Automatically check and mark overdue unconfirmed bookings as 'date_exceeded'
+    await checkAndMarkDateExceededBookings({ city }).catch((err) => {
+      console.warn("Date exceeded check in getBookings warning:", err.message);
+    });
+
     const pageNumber = Math.max(1, parseInt(page, 10) || 1);
     const pageSize = Math.max(1, parseInt(limit, 10) || 10);
     const offset = (pageNumber - 1) * pageSize;
@@ -1446,6 +1455,54 @@ const getBookingById = async (req, res) => {
   }
 };
 
+/**
+ * 7.1 Process and mark all overdue unconfirmed bookings as 'date_exceeded'
+ * POST /api/v1/admin/bookings/mark-date-exceeded
+ */
+const markDateExceededBookings = async (req, res) => {
+  try {
+    const { city } = req.body || req.query || {};
+    const result = await checkAndMarkDateExceededBookings({ city });
+
+    return successResponse(
+      res,
+      result,
+      `Processed date-exceeded bookings successfully. ${result.updatedCount} booking(s) marked as date exceeded.`
+    );
+  } catch (error) {
+    return errorResponse(
+      res,
+      error.message || "Failed to mark date-exceeded bookings",
+      500,
+      error
+    );
+  }
+};
+
+/**
+ * 7.2 Fetch all bookings with status 'date_exceeded'
+ * GET /api/v1/admin/bookings/date-exceeded
+ */
+const getDateExceededBookings = async (req, res) => {
+  try {
+    const { city, search, page, limit } = req.query;
+    const result = await fetchDateExceededBookings({ city, search, page, limit });
+
+    return successResponse(
+      res,
+      result,
+      "Date-exceeded bookings retrieved successfully"
+    );
+  } catch (error) {
+    return errorResponse(
+      res,
+      error.message || "Failed to fetch date-exceeded bookings",
+      500,
+      error
+    );
+  }
+};
+
 const {
   getAdminEnquiries: getEnquiries,
   getAdminEnquiryById: getEnquiryById,
@@ -1464,6 +1521,8 @@ module.exports = {
   getClientByClientId,
   getBookings,
   getBookingById,
+  markDateExceededBookings,
+  getDateExceededBookings,
   getEnquiries,
   getEnquiryById,
 };
