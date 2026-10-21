@@ -1,10 +1,12 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { RiRefreshLine } from 'react-icons/ri';
 import { Icon } from '../../constants/icons';
 import { DatabaseLoader } from '../common/DatabaseLoader';
 import { CityDropdown } from '../common/CityDropdown';
 import { FormCityDropdown } from '../common/FormCityDropdown';
 import healthcareTeamImg from '../../assets/healthcare-team.png';
+import { staffAPI } from '../../services/api';
 import { useStore } from '../../context/StoreContext';
 import {
   OB_ROLES,
@@ -16,6 +18,7 @@ import {
 } from '../../constants/data';
 
 export function Staff({ onShowToast }) {
+  const navigate = useNavigate();
   const {
     inCity,
     staffList,
@@ -32,7 +35,8 @@ export function Staff({ onShowToast }) {
     staffRequestsError,
     dataLoading,
     dataError,
-    fetchStaffRequests
+    fetchStaffRequests,
+    setStaffDutyLocally
   } = useStore();
 
   const isLoading = Boolean(staffRequestsLoading || dataLoading);
@@ -119,6 +123,7 @@ export function Staff({ onShowToast }) {
 
   const [editingStaff, setEditingStaff] = useState(null);
   const [confirmDel, setConfirmDel] = useState(null);
+  const [dutyLoadingIds, setDutyLoadingIds] = useState({});
 
   useEffect(() => {
     const handleKeyDown = (e) => {
@@ -161,9 +166,40 @@ export function Staff({ onShowToast }) {
     setConfirmDel(null);
   };
 
-  const handleDutyToggle = (s) => {
-    patch('staff', s.id, { onDuty: !s.onDuty });
-    onShowToast?.(`${s.name.split(' ')[0]} is ${!s.onDuty ? 'on duty' : 'off duty'}`);
+  const handleDutyToggle = async (s) => {
+    const nextStatus = !s.onDuty;
+    const staffIdentifier = s.staffId || s.backendId || s.id;
+    const toggleKey = String(s.id || staffIdentifier);
+
+    if (dutyLoadingIds[toggleKey]) return;
+
+    // 1. Immediate optimistic update in UI and Redux store
+    setStaffDutyLocally?.({ id: s.id, staffId: s.staffId, onDuty: nextStatus });
+    patch('staff', s.id, { onDuty: nextStatus });
+    setDutyLoadingIds((prev) => ({ ...prev, [toggleKey]: true }));
+
+    try {
+      // 2. Integration with backend API: PATCH /api/v1/auth/profile/:id (or /profile/:id)
+      // Payload sends boolean value: { onDuty: true / false }
+      await staffAPI.toggleStaffDuty(staffIdentifier, nextStatus);
+
+      onShowToast?.(`${s.name.split(' ')[0]} is now ${nextStatus ? 'on duty' : 'off duty'}`);
+
+      // Refresh list to keep everything fully synced
+      loadStaffData();
+    } catch (err) {
+      console.error('Failed to update staff duty status via API:', err);
+      // Revert optimistic update on failure
+      setStaffDutyLocally?.({ id: s.id, staffId: s.staffId, onDuty: s.onDuty });
+      patch('staff', s.id, { onDuty: s.onDuty });
+      onShowToast?.(err.message || 'Failed to update duty status on server');
+    } finally {
+      setDutyLoadingIds((prev) => {
+        const next = { ...prev };
+        delete next[toggleKey];
+        return next;
+      });
+    }
   };
 
   const handleFormSubmit = (e) => {
@@ -497,7 +533,7 @@ export function Staff({ onShowToast }) {
                   <th scope="col" className="py-3.5 px-3 text-left min-w-[110px]">Documents</th>
                   <th scope="col" className="py-3.5 px-3 text-center min-w-[85px]">On duty</th>
                   <th scope="col" className="py-3.5 px-3 text-left min-w-[125px]">Visits</th>
-                  <th scope="col" className="py-3.5 pl-3 pr-4 text-right min-w-[95px]">Contact</th>
+                  <th scope="col" className="py-3.5 pl-3 pr-4 text-right min-w-[125px]">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -523,12 +559,16 @@ export function Staff({ onShowToast }) {
 
                   return (
                     <tr key={s.id} className="hover:bg-slate-50/70 transition">
-                      {/* Staff: Avatar + Name + Role */}
+                      {/* Staff: Avatar + Name + Role - Clicking navigates to Staff Details Page */}
                       <td className="py-3.5 pl-4 pr-3 min-w-[210px]">
                         <button
                           type="button"
-                          onClick={() => handleOpenEdit(s)}
+                          onClick={() => {
+                            const targetId = s.staffId || s.backendId || s.id;
+                            navigate(`/staff/${targetId}`);
+                          }}
                           className="flex items-center gap-3 text-left group cursor-pointer w-full min-w-0"
+                          title={`View details for ${s.name}`}
                         >
                           <div className="w-9 h-9 rounded-full bg-[#FDE8CD] text-[#7A4100] font-bold text-xs flex items-center justify-center shrink-0 overflow-hidden relative select-none">
                             {photoUrl && (
@@ -592,13 +632,19 @@ export function Staff({ onShowToast }) {
 
                       {/* On Duty Toggle Switch */}
                       <td className="py-3.5 px-3 text-center min-w-[85px]">
-                        <div className="flex justify-center">
+                        <div className="flex justify-center items-center">
                           <button
                             type="button"
                             role="switch"
-                            aria-checked={!!s.onDuty}
+                            aria-checked={Boolean(s.onDuty)}
+                            disabled={Boolean(dutyLoadingIds[String(s.id || s.staffId)])}
                             onClick={() => handleDutyToggle(s)}
+                            title={s.onDuty ? 'Click to mark off duty' : 'Click to mark on duty'}
                             className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full transition-colors duration-200 ease-in-out focus:outline-none p-0.5 ${
+                              dutyLoadingIds[String(s.id || s.staffId)]
+                                ? 'opacity-60 cursor-wait'
+                                : ''
+                            } ${
                               s.onDuty ? 'bg-[#1E5E41]' : 'bg-slate-200'
                             }`}
                           >
@@ -617,13 +663,23 @@ export function Staff({ onShowToast }) {
                         {mine.filter((b) => ACTIVE.includes(b.status)).length} open
                       </td>
 
-                      {/* Contact Buttons (Call & WhatsApp) */}
-                      <td className="py-3.5 pl-3 pr-4 text-right min-w-[95px]">
+                      {/* Actions Buttons (Edit Modal, Call & WhatsApp) */}
+                      <td className="py-3.5 pl-3 pr-4 text-right min-w-[125px]">
                         <div className="flex items-center justify-end gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => handleOpenEdit(s)}
+                            className="w-8 h-8 rounded-lg bg-white border border-slate-200 text-slate-700 hover:bg-[#0E2F5A] hover:text-white hover:border-[#0E2F5A] flex items-center justify-center transition shadow-2xs cursor-pointer"
+                            aria-label={`Edit ${s.name}`}
+                            title={`Edit ${s.name}`}
+                          >
+                            <Icon name="edit" size={14} />
+                          </button>
                           <a
                             href={telHref(s.phone)}
                             className="w-8 h-8 rounded-lg bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 flex items-center justify-center transition shadow-2xs"
                             aria-label={`Call ${s.name}`}
+                            title={`Call ${s.name}`}
                           >
                             <Icon name="phone" size={14} />
                           </a>
@@ -633,6 +689,7 @@ export function Staff({ onShowToast }) {
                             rel="noopener noreferrer"
                             className="w-8 h-8 rounded-lg bg-[#128C4A] hover:bg-[#0e703b] text-white flex items-center justify-center transition shadow-2xs"
                             aria-label={`WhatsApp ${s.name}`}
+                            title={`WhatsApp ${s.name}`}
                           >
                             <Icon name="wa" size={15} />
                           </a>

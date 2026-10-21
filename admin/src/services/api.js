@@ -3,11 +3,17 @@
  * Base URL: https://eldoria-lopd.onrender.com
  */
 
+const isLocalhost =
+  typeof window !== 'undefined' &&
+  (window.location.hostname === 'localhost' ||
+    window.location.hostname === '127.0.0.1');
+
 export const SERVER_URL =
   import.meta.env.VITE_SERVER_URL || 'https://eldoria-lopd.onrender.com';
 
-export const API_BASE_URL =
-  import.meta.env.VITE_API_BASE_URL || `${SERVER_URL}/api/v1`;
+export const API_BASE_URL = isLocalhost
+  ? '/api/v1'
+  : (import.meta.env.VITE_API_BASE_URL || `${SERVER_URL}/api/v1`);
 
 export const TOKEN_KEY = 'eldoria:admin:token';
 
@@ -276,12 +282,34 @@ export const adminAPI = {
   revokeStaffRequest: (id, payload = {}) => api.patch(`/admin/staff-requests/${id}/revoke`, payload),
   moveStaffRequestToPending: (id, payload = {}) => api.patch(`/admin/staff-requests/${id}/pending`, payload),
 
+  // PATCH /api/v1/auth/profile/:id (updates staff/client profile, including onDuty boolean status)
+  updateStaffProfile: (id, payload) => api.patch(`/auth/profile/${id}`, payload),
+  toggleStaffDuty: async (id, onDuty) => {
+    const payload = { onDuty: Boolean(onDuty) };
+    try {
+      return await api.patch(`/auth/profile/${id}`, payload);
+    } catch (err) {
+      if (err.status === 404) {
+        return await api.patch(`/profile/${id}`, payload);
+      }
+      throw err;
+    }
+  },
+
   // --- Client Management ---
   // GET /api/v1/admin/clients
   getClients: (params = '') => api.get(`/admin/clients${buildQuery(params)}`),
 
   // GET /api/v1/admin/clients/:id
   getClientById: (clientId) => api.get(`/admin/clients/${clientId}`),
+
+  // --- Help requests (Enquiries) Management ---
+  // GET /api/v1/admin/enquiries/all
+  getEnquiries: (params = '') => enquiryAPI.getEnquiries(params),
+  // GET /api/v1/admin/enquiry/:id
+  getEnquiryById: (id) => enquiryAPI.getEnquiryById(id),
+  // PATCH /api/v1/admin/enquiry/:id/status
+  updateEnquiryStatus: (id, payload) => enquiryAPI.updateEnquiryStatus(id, payload),
 
 
 
@@ -352,6 +380,15 @@ export const bookingAPI = {
   unassignStaff: (id, payload = {}) => api.patch(`/admin/booking/${id}/unassign`, payload),
   unassignStaffFromBooking: (id, payload = {}) => api.patch(`/admin/booking/${id}/unassign`, payload),
   updateBookingStatus: (id, payload) => api.patch(`/admin/booking/${id}/status`, payload),
+  markDateExceededBookings: (payload = {}) => api.post('/admin/bookings/mark-date-exceeded', payload),
+  getDateExceededBookings: (params = '') => api.get(`/admin/bookings/date-exceeded${buildQuery(params)}`),
+  cancelAdminBooking: (id, payload) => api.patch(`/cancellation/admin/${id}`, payload),
+  cancelBooking: (id, payload) => api.patch(`/cancellation/admin/${id}`, payload),
+};
+
+export const cancellationAPI = {
+  cancelAdminBooking: (id, payload) => api.patch(`/cancellation/admin/${id}`, payload),
+  cancelClientBooking: (id, payload) => api.patch(`/cancellation/client/${id}`, payload),
 };
 
 export const cityAPI = {
@@ -392,6 +429,28 @@ export const staffAPI = {
   rejectStaffRequest: (id, payload = {}) => api.patch(`/admin/staff-requests/${id}/reject`, payload),
   revokeStaffRequest: (id, payload = {}) => api.patch(`/admin/staff-requests/${id}/revoke`, payload),
   moveStaffRequestToPending: (id, payload = {}) => api.patch(`/admin/staff-requests/${id}/pending`, payload),
+  toggleStaffCanConfirm: (staffId, payload = {}) => staffConfirmAPI.toggleStaffCanConfirm(staffId, payload),
+  getStaffPermissions: (staffId) => staffConfirmAPI.getStaffPermissions(staffId),
+  // PATCH /api/v1/auth/profile/:id (and alias /profile/:id) - updates profile, onDuty boolean status
+  updateProfile: (id, payload) => api.patch(`/auth/profile/${id}`, payload),
+  updateStaffProfile: (id, payload) => api.patch(`/auth/profile/${id}`, payload),
+  toggleStaffDuty: async (id, onDuty) => {
+    const payload = { onDuty: Boolean(onDuty) };
+    try {
+      return await api.patch(`/auth/profile/${id}`, payload);
+    } catch (err) {
+      if (err.status === 404) {
+        return await api.patch(`/profile/${id}`, payload);
+      }
+      throw err;
+    }
+  },
+};
+
+export const staffConfirmAPI = {
+  getStaffPermissions: (staffId) => api.get(`/setting/staff-confirm/${staffId}`),
+  toggleStaffCanConfirm: (staffId, payload = {}) =>
+    api.patch(`/setting/staff-confirm/${staffId}`, payload),
 };
 
 export const clientAPI = {
@@ -413,6 +472,56 @@ export const serviceAPI = {
     api.patch(`/admin/services/categories/${encodeURIComponent(category)}/status`, payload),
   deleteCategory: (category) =>
     api.delete(`/admin/services/categories/${encodeURIComponent(category)}/delete`),
+};
+
+export const enquiryAPI = {
+  // GET /api/v1/admin/enquiries/all (supports status/filter, city, search, page, limit)
+  getEnquiries: async (params = '') => {
+    const qs = buildQuery(params);
+    try {
+      return await api.get(`/admin/enquiries/all${qs}`);
+    } catch (err) {
+      if (err.status === 404) {
+        return await api.get(`/admin/enquiries${qs}`);
+      }
+      throw err;
+    }
+  },
+
+  // GET /api/v1/admin/enquiry/:id
+  getEnquiryById: async (id) => {
+    try {
+      return await api.get(`/admin/enquiry/${id}`);
+    } catch (err) {
+      if (err.status === 404) {
+        return await api.get(`/admin/enquiries/${id}`);
+      }
+      throw err;
+    }
+  },
+
+  // PATCH /api/v1/admin/enquiry/:id/status
+  updateEnquiryStatus: async (id, payload = {}) => {
+    try {
+      return await api.patch(`/admin/enquiry/${id}/status`, payload);
+    } catch (err) {
+      if (err.status === 404) {
+        return await api.patch(`/admin/enquiry/${id}`, payload);
+      }
+      throw err;
+    }
+  },
+
+  updateEnquiry: async (id, payload = {}) => {
+    try {
+      return await api.patch(`/admin/enquiry/${id}/status`, payload);
+    } catch (err) {
+      if (err.status === 404) {
+        return await api.patch(`/admin/enquiry/${id}`, payload);
+      }
+      throw err;
+    }
+  },
 };
 
 /** ===============================System Health Check Endpoint ============================== */

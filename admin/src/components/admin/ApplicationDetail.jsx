@@ -3,7 +3,7 @@ import { Icon } from '../../constants/icons';
 import { DatabaseLoader } from '../common/DatabaseLoader';
 import { useStore } from '../../context/StoreContext';
 import { useFiles } from '../../context/FileContext';
-import { getStaffDocumentViewUrl } from '../../services/api';
+import { getStaffDocumentViewUrl, staffConfirmAPI } from '../../services/api';
 import { normalizeStaffRequest } from '../../store/hooks';
 import {
   OB_DOCS,
@@ -42,6 +42,11 @@ export function ApplicationDetail({ appId, onBack, onPreviewFile, onShowToast })
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [docLoading, setDocLoading] = useState({});
 
+  // Staff booking confirmation & transfer permissions
+  const [canConfirm, setCanConfirm] = useState(false);
+  const [canTransfer, setCanTransfer] = useState(false);
+  const [permLoading, setPermLoading] = useState(false);
+
   // Fetch applicant details by id and load latest staff requests from backend
   useEffect(() => {
     if (appId) {
@@ -61,9 +66,84 @@ export function ApplicationDetail({ appId, onBack, onPreviewFile, onShowToast })
       ? normalizeStaffRequest(currentStaffRequest)
       : null;
 
-  const a = matchedFromCurrent || matchedFromList || data.staff?.[appId];
+  const aRaw = matchedFromCurrent || matchedFromList || data.staff?.[appId];
+  const a = aRaw
+    ? aRaw.applied
+      ? aRaw
+      : { ...aRaw, applied: true, approval: aRaw.approval || 'approved' }
+    : null;
 
-  if (dataLoading && (!a || !a.applied)) {
+  // Sync permissions state from normalized staff data
+  useEffect(() => {
+    if (a) {
+      if (a.canConfirmBooking !== undefined) {
+        setCanConfirm(Boolean(a.canConfirmBooking));
+      }
+      if (a.canTransferBooking !== undefined) {
+        setCanTransfer(Boolean(a.canTransferBooking));
+      }
+    }
+  }, [a?.canConfirmBooking, a?.canTransferBooking]);
+
+  // If approved, fetch live permissions from backend
+  useEffect(() => {
+    const targetStaffId = a?.staffId || a?.raw?.staffId || a?.id || a?.backendId || appId;
+    const approvalState = a?.approval || currentStaffRequest?.approval;
+    if (approvalState === 'approved' && targetStaffId) {
+      staffConfirmAPI
+        .getStaffPermissions(targetStaffId)
+        .then((res) => {
+          const d = res?.data || res;
+          if (d) {
+            if (d.canConfirmBooking !== undefined) {
+              setCanConfirm(Boolean(d.canConfirmBooking));
+            }
+            if (d.canTransferBooking !== undefined) {
+              setCanTransfer(Boolean(d.canTransferBooking));
+            }
+          }
+        })
+        .catch((err) => {
+          console.warn('Could not load staff booking permissions:', err);
+        });
+    }
+  }, [a?.approval, currentStaffRequest?.approval, a?.id, a?.staffId, a?.raw?.staffId, a?.backendId, appId]);
+
+  const handleTogglePermission = async (field, value) => {
+    const targetStaffId = a?.staffId || a?.raw?.staffId || a?.id || a?.backendId || appId;
+    if (!targetStaffId) {
+      onShowToast?.('Staff ID not found');
+      return;
+    }
+
+    setPermLoading(true);
+    if (field === 'canConfirmBooking') setCanConfirm(value);
+    if (field === 'canTransferBooking') setCanTransfer(value);
+
+    try {
+      const payload = { [field]: value };
+      const res = await staffConfirmAPI.toggleStaffCanConfirm(targetStaffId, payload);
+      const resData = res?.data || res;
+      if (resData) {
+        if (resData.canConfirmBooking !== undefined) setCanConfirm(Boolean(resData.canConfirmBooking));
+        if (resData.canTransferBooking !== undefined) setCanTransfer(Boolean(resData.canTransferBooking));
+      }
+      if (a?.id) {
+        patch?.('staff', a.id, { [field]: value });
+      }
+      const label = field === 'canConfirmBooking' ? 'Staff can confirm booking' : 'Staff can re-assign booking';
+      onShowToast?.(`${label}: ${value ? 'Enabled' : 'Disabled'}`);
+    } catch (err) {
+      console.error('Failed to update staff booking permission:', err);
+      if (field === 'canConfirmBooking') setCanConfirm(!value);
+      if (field === 'canTransferBooking') setCanTransfer(!value);
+      onShowToast?.(`Update failed: ${err?.message || 'Server error'}`);
+    } finally {
+      setPermLoading(false);
+    }
+  };
+
+  if (dataLoading && !a) {
     return (
       <div className="space-y-4">
         <button
@@ -76,7 +156,7 @@ export function ApplicationDetail({ appId, onBack, onPreviewFile, onShowToast })
         </button>
         <div className="bg-white rounded-2xl border border-slate-200/90 shadow-2xs overflow-hidden">
           <DatabaseLoader
-            title="Fetching Staff Application from Database..."
+            title="Fetching Staff Details from Database..."
             subtitle="Connecting to Eldoria backend server"
           />
         </div>
@@ -84,7 +164,7 @@ export function ApplicationDetail({ appId, onBack, onPreviewFile, onShowToast })
     );
   }
 
-  if (!a || !a.applied) {
+  if (!a) {
     return (
       <div className="space-y-4">
         <button
@@ -96,7 +176,7 @@ export function ApplicationDetail({ appId, onBack, onPreviewFile, onShowToast })
           <span>Back</span>
         </button>
         <div className="bg-white rounded-2xl p-8 border border-slate-200 text-center text-slate-500 font-bold">
-          Application not found
+          Staff member details not found
         </div>
       </div>
     );
@@ -344,6 +424,8 @@ export function ApplicationDetail({ appId, onBack, onPreviewFile, onShowToast })
         '',
         { appId: a.id }
       );
+      await fetchStaffRequestById?.(targetId);
+      fetchStaffRequests?.({ approval: 'all', limit: 100 });
       onShowToast?.('Application moved back under review');
     } catch (err) {
       console.error('Revoke decision API error:', err);
@@ -897,11 +979,11 @@ export function ApplicationDetail({ appId, onBack, onPreviewFile, onShowToast })
                 </div>
               </div>
             ) : (
-              <div className="grid grid-cols-2 gap-2">
+              <div className="space-y-2">
                 <button
                   type="button"
                   onClick={onBack}
-                  className="h-10 px-3 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-800 font-bold text-xs transition cursor-pointer flex items-center justify-center text-center whitespace-nowrap leading-none select-none"
+                  className="w-full h-10 px-3 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-800 font-bold text-xs transition cursor-pointer flex items-center justify-center text-center shadow-2xs select-none"
                 >
                   Open Staff list
                 </button>
@@ -909,13 +991,118 @@ export function ApplicationDetail({ appId, onBack, onPreviewFile, onShowToast })
                   type="button"
                   onClick={handleRevoke}
                   disabled={isSubmitting}
-                  className="h-10 px-3 rounded-lg border border-red-200 bg-white hover:bg-red-50 text-red-700 font-bold text-xs transition cursor-pointer flex items-center justify-center text-center whitespace-nowrap leading-none select-none disabled:opacity-50"
+                  className="w-full h-10 px-3 rounded-lg border border-red-200 bg-white hover:bg-red-50 text-red-700 font-bold text-xs transition cursor-pointer flex items-center justify-center text-center shadow-2xs select-none disabled:opacity-50"
+                  title="Move back to review"
                 >
                   {isSubmitting ? 'Moving...' : 'Move back to review'}
                 </button>
               </div>
             )}
           </section>
+
+          {/* Booking Permissions Section - ONLY for approved staff */}
+          {st === 'approved' && (
+            <section className="bg-white rounded-lg p-5 border border-slate-200/90 shadow-2xs space-y-3.5">
+              <div className="flex items-center justify-between gap-2">
+                <h2 className="text-sm font-extrabold text-[#0A2342] whitespace-nowrap">
+                  Booking Permissions
+                </h2>
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 whitespace-nowrap shrink-0">
+                  Approved
+                </span>
+              </div>
+              <p className="text-xs text-slate-500 font-medium">
+                Configure booking privileges for this caregiver in the staff mobile app.
+              </p>
+
+              <div className="space-y-2.5 pt-1">
+                {/* Radio Option 1: Staff can confirm booking */}
+                <div
+                  onClick={() => !permLoading && handleTogglePermission('canConfirmBooking', !canConfirm)}
+                  className={`p-3 rounded-xl border transition-all cursor-pointer select-none flex items-start gap-3 ${
+                    canConfirm
+                      ? 'border-[#0A2342] bg-[#0A2342]/5 ring-1 ring-[#0A2342]/20'
+                      : 'border-slate-200 hover:border-slate-300 bg-white'
+                  } ${permLoading ? 'opacity-60 cursor-not-allowed' : ''}`}
+                >
+                  <div className="pt-0.5">
+                    <input
+                      type="radio"
+                      name={`perm_can_confirm_${a?.id || appId}`}
+                      checked={canConfirm}
+                      onChange={() => {}}
+                      className="w-4 h-4 text-[#0A2342] border-slate-300 focus:ring-[#0A2342] cursor-pointer"
+                    />
+                  </div>
+                  <div className="space-y-0.5 grow min-w-0">
+                    <div className="flex items-center justify-between gap-1.5">
+                      <span className="text-xs font-bold text-slate-900 truncate">
+                        Staff can confirm booking
+                      </span>
+                      <span
+                        className={`text-[10px] font-bold px-1.5 py-0.5 rounded shrink-0 ${
+                          canConfirm
+                            ? 'text-emerald-700 bg-emerald-100/70 border border-emerald-200'
+                            : 'text-slate-400 bg-slate-100 border border-slate-200'
+                        }`}
+                      >
+                        {canConfirm ? 'Active' : 'Disabled'}
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-500 leading-snug">
+                      Caregiver can accept and confirm incoming visit bookings directly.
+                    </p>
+                  </div>
+                </div>
+
+                {/* Radio Option 2: Staff can re-assign booking */}
+                <div
+                  onClick={() => !permLoading && handleTogglePermission('canTransferBooking', !canTransfer)}
+                  className={`p-3 rounded-xl border transition-all cursor-pointer select-none flex items-start gap-3 ${
+                    canTransfer
+                      ? 'border-[#0A2342] bg-[#0A2342]/5 ring-1 ring-[#0A2342]/20'
+                      : 'border-slate-200 hover:border-slate-300 bg-white'
+                  } ${permLoading ? 'opacity-60 cursor-not-allowed' : ''}`}
+                >
+                  <div className="pt-0.5">
+                    <input
+                      type="radio"
+                      name={`perm_can_transfer_${a?.id || appId}`}
+                      checked={canTransfer}
+                      onChange={() => {}}
+                      className="w-4 h-4 text-[#0A2342] border-slate-300 focus:ring-[#0A2342] cursor-pointer"
+                    />
+                  </div>
+                  <div className="space-y-0.5 grow min-w-0">
+                    <div className="flex items-center justify-between gap-1.5">
+                      <span className="text-xs font-bold text-slate-900 truncate">
+                        Staff can re-assign booking
+                      </span>
+                      <span
+                        className={`text-[10px] font-bold px-1.5 py-0.5 rounded shrink-0 ${
+                          canTransfer
+                            ? 'text-emerald-700 bg-emerald-100/70 border border-emerald-200'
+                            : 'text-slate-400 bg-slate-100 border border-slate-200'
+                        }`}
+                      >
+                        {canTransfer ? 'Active' : 'Disabled'}
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-500 leading-snug">
+                      Caregiver can transfer or re-assign visits to qualified colleagues in the area.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {permLoading && (
+                <div className="flex items-center justify-center gap-1.5 text-xs text-[#0A2342] font-semibold pt-1">
+                  <span className="w-3 h-3 border-2 border-[#0A2342] border-t-transparent rounded-full animate-spin" />
+                  <span>Updating permission...</span>
+                </div>
+              )}
+            </section>
+          )}
 
           {/* History Card */}
           <section className="bg-white rounded-lg p-5 border border-slate-200/90 shadow-2xs space-y-3.5">

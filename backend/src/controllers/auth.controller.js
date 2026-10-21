@@ -408,7 +408,20 @@ const resolveUserByIdentifier = async (identifier, transaction = null) => {
   });
   if (user) return user;
 
-  // 2. Check if identifier matches clientId in clients table
+  // 2. Check if identifier matches staffId in staff table
+  const staffByCode = await Staff.findOne({
+    where: { staffId: cleanId },
+    transaction,
+  });
+  if (staffByCode && staffByCode.staffId) {
+    user = await User.findOne({
+      where: { staffId: staffByCode.staffId },
+      transaction,
+    });
+    if (user) return user;
+  }
+
+  // 3. Check if identifier matches clientId in clients table
   const client = await Client.findOne({
     where: { clientId: cleanId },
     transaction,
@@ -418,10 +431,19 @@ const resolveUserByIdentifier = async (identifier, transaction = null) => {
     if (user) return user;
   }
 
-  // 3. Check if identifier matches numeric id in users table
+  // 4. Check if identifier matches numeric id in users table or staff table
   if (/^\d+$/.test(cleanId)) {
     user = await User.findByPk(Number(cleanId), { transaction });
     if (user) return user;
+
+    const staffById = await Staff.findByPk(Number(cleanId), { transaction });
+    if (staffById && staffById.staffId) {
+      user = await User.findOne({
+        where: { staffId: staffById.staffId },
+        transaction,
+      });
+      if (user) return user;
+    }
   }
 
   return null;
@@ -721,10 +743,24 @@ const updateProfile = async (req, res) => {
 
     // 2. Role-specific profile updates
     if (user.role === "staff") {
-      let staff = await Staff.findOne({
-        where: { staffId: user.staffId },
-        transaction,
-      });
+      let staff = null;
+      if (user.staffId) {
+        staff = await Staff.findOne({
+          where: { staffId: user.staffId },
+          transaction,
+        });
+      }
+      if (!staff && identifier) {
+        staff = await Staff.findOne({
+          where: {
+            [Op.or]: [
+              { staffId: String(identifier) },
+              ...(isNaN(identifier) ? [] : [{ id: Number(identifier) }]),
+            ],
+          },
+          transaction,
+        });
+      }
 
       const staffUpdateData = {};
       if (dob !== undefined) staffUpdateData.dob = dob;
@@ -750,7 +786,11 @@ const updateProfile = async (req, res) => {
       if (emergencyRelation !== undefined)
         staffUpdateData.emergencyRelation = emergencyRelation;
       if (files !== undefined) staffUpdateData.files = files;
-      if (onDuty !== undefined) staffUpdateData.onDuty = Boolean(onDuty);
+      if (onDuty !== undefined) {
+        staffUpdateData.onDuty = Boolean(
+          onDuty === true || onDuty === "true" || onDuty === 1 || onDuty === "1"
+        );
+      }
       if (notes !== undefined) staffUpdateData.notes = notes;
 
       if (

@@ -373,7 +373,7 @@ const cancelAdminBooking = async (req, res) => {
     }
 
     // Attach cancelReason explicitly to result data
-    const bookingJson = refreshedBooking.toJSON();
+    const bookingJson = (refreshedBooking || booking).toJSON();
     bookingJson.cancelReason = cancelReason;
 
     return successResponse(

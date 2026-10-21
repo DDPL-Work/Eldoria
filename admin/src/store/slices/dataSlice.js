@@ -6,6 +6,7 @@ import {
   staffAPI,
   clientAPI,
   serviceAPI,
+  enquiryAPI,
 } from '../../services/api';
 import { demoData } from '../../constants/data';
 
@@ -160,6 +161,21 @@ export const revokeStaffDecisionThunk = createAsyncThunk(
 );
 
 /**
+ * Async Thunk: Update Staff Profile on Backend API (e.g. PATCH /api/v1/auth/profile/:id)
+ */
+export const updateStaffProfileThunk = createAsyncThunk(
+  'data/updateStaffProfile',
+  async ({ id, payload }, { rejectWithValue }) => {
+    try {
+      const res = await staffAPI.updateStaffProfile(id, payload);
+      return { id, payload, data: res.data || res };
+    } catch (err) {
+      return rejectWithValue(err.message || 'Failed to update staff profile');
+    }
+  }
+);
+
+/**
  * Async Thunk: Fetch Clients from Backend API
  */
 export const fetchClientsThunk = createAsyncThunk(
@@ -308,6 +324,22 @@ export const updateBookingStatusThunk = createAsyncThunk(
     }
   }
 );
+
+/**
+ * Async Thunk: Cancel Admin Booking on Dedicated Cancellation API (PATCH /api/v1/cancellation/admin/:id)
+ */
+export const cancelAdminBookingThunk = createAsyncThunk(
+  'data/cancelAdminBooking',
+  async ({ id, cancelReason }, { rejectWithValue }) => {
+    try {
+      const res = await bookingAPI.cancelAdminBooking(id, { cancelReason, reason: cancelReason });
+      return { id, cancelReason, data: res.data || res, message: res.message };
+    } catch (err) {
+      return rejectWithValue(err.message || 'Failed to cancel booking');
+    }
+  }
+);
+export const cancelBookingThunk = cancelAdminBookingThunk;
 
 /**
  * Async Thunk: Create Booking on Backend API
@@ -539,6 +571,51 @@ export const deleteCategoryThunk = createAsyncThunk(
   }
 );
 
+/**
+ * Async Thunk: Fetch Enquiries from Backend API (GET /api/v1/admin/enquiries/all)
+ */
+export const fetchEnquiriesThunk = createAsyncThunk(
+  'data/fetchEnquiries',
+  async (params = '', { rejectWithValue }) => {
+    try {
+      const res = await enquiryAPI.getEnquiries(params);
+      return res.data || res;
+    } catch (err) {
+      return rejectWithValue(err.message || 'Failed to fetch help requests');
+    }
+  }
+);
+
+/**
+ * Async Thunk: Fetch Single Enquiry by ID or Code (GET /api/v1/admin/enquiry/:id)
+ */
+export const fetchEnquiryByIdThunk = createAsyncThunk(
+  'data/fetchEnquiryById',
+  async (id, { rejectWithValue }) => {
+    try {
+      const res = await enquiryAPI.getEnquiryById(id);
+      return res.data || res;
+    } catch (err) {
+      return rejectWithValue(err.message || 'Failed to fetch enquiry details');
+    }
+  }
+);
+
+/**
+ * Async Thunk: Update Enquiry Status / Recommendation (PATCH /api/v1/admin/enquiry/:id/status)
+ */
+export const updateEnquiryStatusThunk = createAsyncThunk(
+  'data/updateEnquiryStatus',
+  async ({ id, payload = {} }, { rejectWithValue }) => {
+    try {
+      const res = await enquiryAPI.updateEnquiryStatus(id, payload);
+      return { id, payload, data: res.data || res };
+    } catch (err) {
+      return rejectWithValue(err.message || 'Failed to update enquiry status');
+    }
+  }
+);
+
 const dataSlice = createSlice({
   name: 'data',
   initialState: {
@@ -588,6 +665,16 @@ const dataSlice = createSlice({
     citiesError: null,
     cityActionLoading: false,
     cityActionError: null,
+    backendEnquiries: [],
+    enquiriesPagination: null,
+    enquiriesCounts: null,
+    enquiriesLoading: false,
+    enquiriesError: null,
+    currentEnquiryDetail: null,
+    enquiryDetailLoading: false,
+    enquiryDetailError: null,
+    enquiryActionLoading: false,
+    enquiryActionError: null,
     loading: false,
     error: null,
   },
@@ -813,6 +900,63 @@ const dataSlice = createSlice({
     syncExternalData: (state, action) => {
       if (action.payload) {
         state.data = action.payload;
+      }
+    },
+    setStaffDutyLocally: (state, action) => {
+      const { id, staffId, onDuty } = action.payload || {};
+      const targetId = String(id || staffId || '');
+      const targetStaffId = staffId ? String(staffId) : null;
+      const booleanDuty = Boolean(onDuty);
+
+      if (Array.isArray(state.backendStaffRequests)) {
+        state.backendStaffRequests = state.backendStaffRequests.map((s) => {
+          const match =
+            String(s.id) === targetId ||
+            String(s.staffId) === targetId ||
+            (targetStaffId && String(s.staffId) === targetStaffId);
+          if (match) {
+            return { ...s, onDuty: booleanDuty };
+          }
+          return s;
+        });
+      }
+
+      if (state.data?.staff) {
+        Object.keys(state.data.staff).forEach((k) => {
+          const st = state.data.staff[k];
+          if (
+            k === targetId ||
+            String(st?.id) === targetId ||
+            String(st?.staffId) === targetId ||
+            (targetStaffId && String(st?.staffId) === targetStaffId)
+          ) {
+            state.data.staff[k] = { ...st, onDuty: booleanDuty };
+          }
+        });
+      }
+    },
+    setEnquiryStatusLocally: (state, action) => {
+      const { id, status } = action.payload || {};
+      if (!id) return;
+      const idKey = String(id);
+      if (Array.isArray(state.backendEnquiries)) {
+        state.backendEnquiries = state.backendEnquiries.map((e) =>
+          String(e.id) === idKey || String(e.code) === idKey
+            ? { ...e, status }
+            : e
+        );
+      }
+      if (state.data?.enquiries) {
+        Object.keys(state.data.enquiries).forEach((k) => {
+          const enq = state.data.enquiries[k];
+          if (
+            k === idKey ||
+            String(enq?.id) === idKey ||
+            String(enq?.code) === idKey
+          ) {
+            state.data.enquiries[k] = { ...enq, status };
+          }
+        });
       }
     },
   },
@@ -1113,6 +1257,47 @@ const dataSlice = createSlice({
           }
         }
       })
+      // updateStaffProfileThunk
+      .addCase(updateStaffProfileThunk.fulfilled, (state, action) => {
+        const id = action.payload?.id;
+        const payload = action.payload?.payload || {};
+        const profileData =
+          action.payload?.data?.profile ||
+          action.payload?.data?.staffProfile ||
+          action.payload?.data ||
+          {};
+        if (id) {
+          const targetId = String(id);
+          state.backendStaffRequests = (state.backendStaffRequests || []).map((item) => {
+            const matches =
+              String(item.id) === targetId ||
+              String(item.staffId) === targetId ||
+              (item.user && String(item.user.id) === targetId);
+            if (!matches) return item;
+            return {
+              ...item,
+              ...profileData,
+              ...(payload.onDuty !== undefined ? { onDuty: Boolean(payload.onDuty) } : {}),
+            };
+          });
+          if (state.data?.staff) {
+            Object.keys(state.data.staff).forEach((k) => {
+              const st = state.data.staff[k];
+              if (
+                k === targetId ||
+                String(st?.id) === targetId ||
+                String(st?.staffId) === targetId
+              ) {
+                state.data.staff[k] = {
+                  ...st,
+                  ...profileData,
+                  ...(payload.onDuty !== undefined ? { onDuty: Boolean(payload.onDuty) } : {}),
+                };
+              }
+            });
+          }
+        }
+      })
       // fetchClients
       .addCase(fetchClientsThunk.pending, (state) => {
         state.loading = true;
@@ -1398,6 +1583,31 @@ const dataSlice = createSlice({
         state.bookingActionLoading = false;
         state.bookingActionError = action.payload;
       })
+      // cancelAdminBooking
+      .addCase(cancelAdminBookingThunk.pending, (state) => {
+        state.bookingActionLoading = true;
+        state.bookingActionError = null;
+      })
+      .addCase(cancelAdminBookingThunk.fulfilled, (state, action) => {
+        state.bookingActionLoading = false;
+        const { id, cancelReason, data } = action.payload;
+        if (state.currentBookingDetail && (String(state.currentBookingDetail.id) === String(id) || String(state.currentBookingDetail.code) === String(id))) {
+          state.currentBookingDetail.status = 'cancelled';
+          if (cancelReason) state.currentBookingDetail.cancelReason = cancelReason;
+          if (data && typeof data === 'object') {
+            const bookingObj = data.booking || data;
+            state.currentBookingDetail = { ...state.currentBookingDetail, ...bookingObj };
+          }
+        }
+        if (state.data?.bookings && state.data.bookings[id]) {
+          state.data.bookings[id].status = 'cancelled';
+          if (cancelReason) state.data.bookings[id].cancelReason = cancelReason;
+        }
+      })
+      .addCase(cancelAdminBookingThunk.rejected, (state, action) => {
+        state.bookingActionLoading = false;
+        state.bookingActionError = action.payload;
+      })
       // createBooking
       .addCase(createBookingThunk.pending, (state) => {
         state.bookingActionLoading = true;
@@ -1408,7 +1618,12 @@ const dataSlice = createSlice({
         const booking = action.payload?.booking || action.payload?.data || action.payload;
         if (booking && (booking.id || booking.code)) {
           const key = String(booking.id || booking.code);
-          const cleanBooking = { ...booking, status: 'requested' };
+          const cleanBooking = {
+            ...booking,
+            status: booking.staffId ? (booking.status || 'assigned') : 'requested',
+            confirmedBy: booking.staffId ? booking.confirmedBy : null,
+            confirmedAt: booking.staffId ? booking.confirmedAt : null,
+          };
           if (!state.data.bookings) state.data.bookings = {};
           state.data.bookings[key] = cleanBooking;
           if (booking.code) {
@@ -1910,6 +2125,143 @@ const dataSlice = createSlice({
       })
       .addCase(deleteCategoryThunk.rejected, (state, action) => {
         state.serviceActionError = action.payload;
+      })
+      // fetchEnquiriesThunk
+      .addCase(fetchEnquiriesThunk.pending, (state) => {
+        state.enquiriesLoading = true;
+        state.enquiriesError = null;
+      })
+      .addCase(fetchEnquiriesThunk.fulfilled, (state, action) => {
+        state.enquiriesLoading = false;
+        const payload = action.payload;
+        const list = Array.isArray(payload)
+          ? payload
+          : Array.isArray(payload?.enquiries)
+          ? payload.enquiries
+          : Array.isArray(payload?.data?.enquiries)
+          ? payload.data.enquiries
+          : [];
+        state.backendEnquiries = list;
+        state.enquiriesCounts = payload?.counts || payload?.data?.counts || null;
+        state.enquiriesPagination =
+          payload?.pagination || payload?.data?.pagination || null;
+
+        // Keep state.data.enquiries in sync
+        if (!state.data.enquiries) state.data.enquiries = {};
+        list.forEach((e) => {
+          if (e && (e.id || e.code)) {
+            const key = String(e.id || e.code);
+            state.data.enquiries[key] = {
+              ...(state.data.enquiries[key] || {}),
+              ...e,
+            };
+            if (e.code && e.code !== key) {
+              state.data.enquiries[e.code] = {
+                ...(state.data.enquiries[e.code] || {}),
+                ...e,
+              };
+            }
+          }
+        });
+      })
+      .addCase(fetchEnquiriesThunk.rejected, (state, action) => {
+        state.enquiriesLoading = false;
+        state.enquiriesError = action.payload;
+      })
+      // fetchEnquiryByIdThunk
+      .addCase(fetchEnquiryByIdThunk.pending, (state) => {
+        state.enquiryDetailLoading = true;
+        state.enquiryDetailError = null;
+      })
+      .addCase(fetchEnquiryByIdThunk.fulfilled, (state, action) => {
+        state.enquiryDetailLoading = false;
+        const enqObj = action.payload?.data || action.payload;
+        state.currentEnquiryDetail = enqObj;
+        if (enqObj && (enqObj.id || enqObj.code)) {
+          const idKey = String(enqObj.id || enqObj.code);
+          state.backendEnquiries = (state.backendEnquiries || []).map((item) =>
+            String(item.id) === idKey || String(item.code) === String(enqObj.code)
+              ? { ...item, ...enqObj }
+              : item
+          );
+          if (state.data?.enquiries) {
+            state.data.enquiries[idKey] = {
+              ...(state.data.enquiries[idKey] || {}),
+              ...enqObj,
+            };
+            if (enqObj.code && enqObj.code !== idKey) {
+              state.data.enquiries[enqObj.code] = {
+                ...(state.data.enquiries[enqObj.code] || {}),
+                ...enqObj,
+              };
+            }
+          }
+        }
+      })
+      .addCase(fetchEnquiryByIdThunk.rejected, (state, action) => {
+        state.enquiryDetailLoading = false;
+        state.enquiryDetailError = action.payload;
+      })
+      // updateEnquiryStatusThunk
+      .addCase(updateEnquiryStatusThunk.pending, (state) => {
+        state.enquiryActionLoading = true;
+        state.enquiryActionError = null;
+      })
+      .addCase(updateEnquiryStatusThunk.fulfilled, (state, action) => {
+        state.enquiryActionLoading = false;
+        const id = action.payload?.id;
+        const updatedEnquiry =
+          action.payload?.data?.enquiry ||
+          action.payload?.data?.data ||
+          action.payload?.data ||
+          {};
+        const patchFields = action.payload?.payload || {};
+        if (id) {
+          const idKey = String(id);
+          state.backendEnquiries = (state.backendEnquiries || []).map((item) => {
+            const matches =
+              String(item.id) === idKey || String(item.code) === idKey;
+            if (!matches) return item;
+            return {
+              ...item,
+              ...patchFields,
+              ...updatedEnquiry,
+            };
+          });
+
+          if (
+            state.currentEnquiryDetail &&
+            (String(state.currentEnquiryDetail.id) === idKey ||
+              String(state.currentEnquiryDetail.code) === idKey)
+          ) {
+            state.currentEnquiryDetail = {
+              ...state.currentEnquiryDetail,
+              ...patchFields,
+              ...updatedEnquiry,
+            };
+          }
+
+          if (state.data?.enquiries) {
+            Object.keys(state.data.enquiries).forEach((k) => {
+              const enq = state.data.enquiries[k];
+              if (
+                k === idKey ||
+                String(enq?.id) === idKey ||
+                String(enq?.code) === idKey
+              ) {
+                state.data.enquiries[k] = {
+                  ...enq,
+                  ...patchFields,
+                  ...updatedEnquiry,
+                };
+              }
+            });
+          }
+        }
+      })
+      .addCase(updateEnquiryStatusThunk.rejected, (state, action) => {
+        state.enquiryActionLoading = false;
+        state.enquiryActionError = action.payload;
       });
   },
 });
@@ -1926,6 +2278,8 @@ export const {
   loadDemoData,
   resetAllData,
   syncExternalData,
+  setStaffDutyLocally,
+  setEnquiryStatusLocally,
 } = dataSlice.actions;
 
 export default dataSlice.reducer;

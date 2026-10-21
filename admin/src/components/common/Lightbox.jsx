@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useFiles } from '../../context/FileContext';
 import { getStaffDocumentViewUrl } from '../../services/api';
+import { openDocument } from '../../services/documentViewer';
 import { Icon } from '../../constants/icons';
 
 export function Lightbox({ fileId, onClose }) {
@@ -99,16 +100,15 @@ export function Lightbox({ fileId, onClose }) {
 
           <div className="flex items-center gap-2 shrink-0">
             {streamUrl && (
-              <a
-                href={streamUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white border border-slate-200 text-slate-700 hover:text-[#0E2F5A] hover:bg-slate-50 text-xs font-semibold shadow-2xs transition"
+              <button
+                type="button"
+                onClick={() => openDocument(streamUrl)}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white border border-slate-200 text-slate-700 hover:text-[#0E2F5A] hover:bg-slate-50 text-xs font-semibold shadow-2xs transition cursor-pointer"
                 title="Open in new tab"
               >
                 <Icon name="external" size={14} />
                 <span className="hidden sm:inline">Open full</span>
-              </a>
+              </button>
             )}
 
             {downloadUrl && (
@@ -166,14 +166,13 @@ export function Lightbox({ fileId, onClose }) {
               />
               <div className="mt-2 text-center text-[11px] text-slate-500">
                 PDF not rendering?{' '}
-                <a
-                  href={streamUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-[#0E2F5A] font-bold underline"
+                <button
+                  type="button"
+                  onClick={() => openDocument(streamUrl)}
+                  className="text-[#0E2F5A] font-bold underline cursor-pointer"
                 >
                   Open in browser tab
-                </a>{' '}
+                </button>{' '}
                 or{' '}
                 <a
                   href={downloadUrl}
