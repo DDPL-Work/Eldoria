@@ -289,11 +289,15 @@ export function demoData() {
     s6: { name: 'Kiran Jadhav', role: 'Attendant', phone: '9876543215', city: 'pune', area: 'Kothrud', skills: 'Mobility, night shift', docs: 'pending', onDuty: false },
     s5: { name: 'Lata Pawar', role: 'GNM Nurse', phone: '9876543214', city: 'thane', area: 'Thane West', skills: 'Post-surgery, catheter', docs: 'verified', onDuty: true },
     s2: { name: 'Rahul Kadam', role: 'Physiotherapist', phone: '9876543211', city: 'mumbai', area: 'Dadar, Worli', skills: 'Post-stroke, ortho rehab', docs: 'verified', onDuty: true },
-    s3: { name: 'Sushma More', role: 'Elder Caregiver', phone: '9876543212', city: 'mumbai', area: 'Borivali, Kandivali', skills: 'Bedridden care, 24-hr', docs: 'verified', onDuty: true }
+    s3: { name: 'Sushma More', role: 'Elder Caregiver', phone: '9876543212', city: 'mumbai', area: 'Borivali, Kandivali', skills: 'Bedridden care, 24-hr', docs: 'verified', onDuty: true },
+    s7: { name: 'Vikram Shinde', role: 'Physiotherapist', phone: '9876543216', city: 'mumbai', area: 'Powai, Ghatkopar', skills: 'Neuro rehab, geriatric', docs: 'verified', onDuty: true, approval: 'approved' },
+    s8: { name: 'Pooja Deshmukh', role: 'GNM Nurse', phone: '9876543217', city: 'mumbai', area: 'Juhu, Vile Parle', skills: 'ICU care, tracheostomy', docs: 'verified', onDuty: true, approval: 'approved' },
+    s9: { name: 'Sunil Verma', role: 'Attendant', phone: '9876543218', city: 'mumbai', area: 'Chembur, Kurla', skills: 'Mobility assistance, hygiene', docs: 'verified', onDuty: false, approval: 'approved' }
   };
   Object.values(staff).forEach((s) => (s.createdAt = ago(60 * 24 * 30)));
 
   const meta = (id) => ({ name: `${id}.jpg`, type: 'image/jpeg', size: 6000 });
+  
   const appl = (o, status, mins, extraHist, checks) => ({
     applied: true,
     approval: status,
@@ -312,89 +316,8 @@ export function demoData() {
     ...o
   });
 
-  staff.app1 = appl(
-    {
-      photo: 'fph1',
-      name: 'Rakhi Sawant',
-      phone: '9811122233',
-      email: 'rakhi@example.com',
-      dob: '1996-08-14',
-      gender: 'Female',
-      city: 'mumbai',
-      area: 'Andheri East',
-      address: 'Room 14, Sai Krupa Chawl, Marol, Andheri East, Mumbai 400059',
-      role: 'GNM Nurse',
-      qualification: 'GNM Nursing, 2018',
-      regNo: 'MNC-204511',
-      experience: 6,
-      skillList: ['Elder care', 'Diabetic care', 'Injections & IV', 'Wound dressing'],
-      languages: ['Hindi', 'Marathi', 'English'],
-      availability: ['Day visits', '12-hr shifts'],
-      emergency: { name: 'Sunil Sawant', phone: '9811100011', relation: 'Father' }
-    },
-    'pending',
-    95
-  );
 
-  staff.app2 = appl(
-    {
-      photo: 'fph2',
-      name: 'Priyanka Shinde',
-      phone: '9811122244',
-      email: 'priyanka@example.com',
-      dob: '1994-02-03',
-      gender: 'Female',
-      city: 'mumbai',
-      area: 'Kurla West',
-      address: 'Flat 6, Laxmi Niwas, Kurla West, Mumbai 400070',
-      role: 'Elder Caregiver',
-      qualification: 'Caregiver certificate course, 2020',
-      regNo: '',
-      experience: 4,
-      skillList: ['Elder care', 'Bedridden care', 'Dementia support'],
-      languages: ['Hindi', 'Marathi'],
-      availability: ['24-hr live-in'],
-      emergency: { name: 'Amit Shinde', phone: '9811100022', relation: 'Husband' },
-      reviewNote: 'Your ID photo is blurry. Please upload a clearer photo of the front side.',
-      reviewedAt: ago(40)
-    },
-    'changes',
-    90,
-    [{ at: ago(40), status: 'changes', by: 'admin', note: 'Your ID photo is blurry. Please upload a clearer photo of the front side.' }]
-  );
-
-  staff.app3 = appl(
-    {
-      photo: 'fph3',
-      name: 'Deepa Nair',
-      phone: '9811122255',
-      email: 'deepa@example.com',
-      dob: '1990-11-21',
-      gender: 'Female',
-      city: 'mumbai',
-      area: 'Chembur',
-      address: '22, Shell Colony, Chembur, Mumbai 400071',
-      role: 'B.Sc Nurse',
-      qualification: 'B.Sc Nursing, 2012',
-      regNo: 'MNC-118820',
-      experience: 11,
-      skillList: ['Post-surgery care', 'Catheter care', 'Injections & IV'],
-      languages: ['English', 'Hindi', 'Malayalam'],
-      availability: ['Day visits', '12-hr shifts'],
-      emergency: { name: 'Ravi Nair', phone: '9811100033', relation: 'Brother' },
-      approvedAt: ago(30),
-      reviewedAt: ago(30),
-      reviewNote: ''
-    },
-    'approved',
-    85,
-    [{ at: ago(30), status: 'approved', by: 'admin', note: '' }],
-    { photo: true, idProof: true, qualification: true }
-  );
-
-  Object.values(staff).forEach((s) => {
-    if (s.applied) s.skills = s.skillList.join(', ');
-  });
+  // Strict: No fake demo staff applications
 
   const TN = [
     { label: 'Check BP & SpO₂', done: false },
@@ -809,10 +732,7 @@ export function demoData() {
   };
 
   const { categories, services } = starterCatalog();
-  const cities = {
-    mumbai: { name: 'Mumbai', order: 1, phone: '9820012345', whatsapp: '9820012345' },
-    pune: { name: 'Pune', order: 4, phone: '9822012345', whatsapp: '9822012345' }
-  };
+  const cities = {};
 
   const withIds = (o) => Object.fromEntries(Object.entries(o).map(([k, v]) => [k, { ...v, id: k }]));
 

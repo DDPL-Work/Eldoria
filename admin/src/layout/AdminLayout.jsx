@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { Outlet, useNavigate, useLocation } from "react-router-dom";
 import { Header } from "./Header/Header";
 import { Sidebar } from "./Sidebar/Sidebar";
@@ -6,12 +6,21 @@ import { Toast } from "../components/common/Toast";
 import { Lightbox } from "../components/common/Lightbox";
 import { NewReqPopup } from "../components/common/NewReqPopup";
 import { useUI } from "../context/UIContext";
+import { useStore } from "../context/StoreContext";
 
 export function AdminLayout() {
   const navigate = useNavigate();
   const location = useLocation();
   const { toastMessage, clearToast, previewFileId, closePreview, sidebarCollapsed, toggleSidebarCollapse } = useUI();
+  const { fetchDashboard, fetchStaffRequests, fetchBookings } = useStore();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+
+  // Initial global data fetch on mount so dashboard, staff, bookings, and badges are dynamic immediately
+  useEffect(() => {
+    fetchDashboard?.("all");
+    fetchStaffRequests?.({ approval: "all", limit: 100 });
+    fetchBookings?.();
+  }, [fetchDashboard, fetchStaffRequests, fetchBookings]);
 
   // Determine current active tab from pathname
   const path = location.pathname;

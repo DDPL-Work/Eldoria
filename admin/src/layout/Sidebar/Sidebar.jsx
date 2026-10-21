@@ -5,22 +5,23 @@ import { useStore } from "../../context/StoreContext";
 import { useUI } from "../../context/UIContext";
 
 export function Sidebar({ currentTab, onSelectTab, mobileOpen, onCloseMobile, collapsed, onToggleCollapse }) {
-  const { inCity, bookingsAll, unread, enqAll, applications, apprOf } = useStore();
+  const { inCity, bookingsAll, unread, enqAll, applications, apprOf, dashboardData } = useStore();
   const ui = useUI();
 
   const isCollapsed = collapsed !== undefined ? collapsed : ui?.sidebarCollapsed ?? false;
   const handleToggle = onToggleCollapse || ui?.toggleSidebarCollapse;
 
-  const newReq = inCity(bookingsAll()).filter((b) => b.status === "requested").length;
+  // Real dynamic counts from live dashboard metrics or store
+  const newReq = dashboardData?.kpis?.newRequests?.count ?? inCity(bookingsAll()).filter((b) => b.status === "requested").length;
   const unreadAlerts = unread("admin");
-  const newEnq = inCity(enqAll(), (e) => e.city).filter((e) => e.status === "new").length;
-  const pendingApps = inCity(applications()).filter((x) => apprOf(x) === "pending").length;
+  const newEnq = dashboardData?.alerts?.helpRequests?.count ?? inCity(enqAll(), (e) => e.city).filter((e) => e.status === "new").length;
+  const pendingApps = dashboardData?.alerts?.staffApplications?.count ?? inCity(applications()).filter((x) => apprOf(x) === "pending").length;
 
   const counts = {
-    bookings: newReq || 4,
-    enquiries: newEnq || 1,
-    onboarding: pendingApps || 1,
-    alerts: unreadAlerts || 4,
+    bookings: newReq,
+    enquiries: newEnq,
+    onboarding: pendingApps,
+    alerts: unreadAlerts,
   };
 
   const renderNavItems = (isIconOnly = false) => (

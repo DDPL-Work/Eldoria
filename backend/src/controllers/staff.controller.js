@@ -837,10 +837,25 @@ const viewStaffDocument = async (req, res) => {
     // 2. If a Cloudinary URL was provided in ?url=
     if (!publicId && req.query.url) {
       const parsedUrl = req.query.url;
-      const match = parsedUrl.match(/\/upload\/(?:v\d+\/)?([^\.\?]+)(?:\.([a-zA-Z0-9]+))?/);
-      if (match) {
-        publicId = match[1];
-        if (!format && match[2]) format = match[2];
+      const uploadIdx = parsedUrl.indexOf('/upload/');
+      if (uploadIdx !== -1) {
+        const withoutQuery = parsedUrl.slice(uploadIdx + 8).split('?')[0];
+        const strippedVer = withoutQuery.replace(/^v\d+\//, '');
+        const lastDot = strippedVer.lastIndexOf('.');
+        if (lastDot !== -1) {
+          publicId = strippedVer.slice(0, lastDot);
+          if (!format) format = strippedVer.slice(lastDot + 1);
+        } else {
+          publicId = strippedVer;
+        }
+      } else {
+        const match = parsedUrl.match(/\/upload\/(?:v\d+\/)?([^\?]+)/);
+        if (match) {
+          const part = match[1];
+          const lastDot = part.lastIndexOf('.');
+          publicId = lastDot !== -1 ? part.slice(0, lastDot) : part;
+          if (!format && lastDot !== -1) format = part.slice(lastDot + 1);
+        }
       }
     }
 
