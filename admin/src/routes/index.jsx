@@ -4,6 +4,7 @@ import { AdminLayout } from '../layout/AdminLayout';
 import { useAuth } from '../context/AuthContext';
 
 import { LoginPage } from '../pages/LoginPage';
+import { ForgotPasswordPage } from '../pages/ForgotPasswordPage';
 import { DashboardPage } from '../pages/DashboardPage';
 import { BookingsPage } from '../pages/BookingsPage';
 import { BookingDetailPage } from '../pages/BookingDetailPage';
@@ -53,6 +54,18 @@ export function AppRoutes() {
             <Navigate to="/dashboard" replace />
           ) : (
             <LoginPage />
+          )
+        }
+      />
+
+      {/* Forgot Password Route */}
+      <Route
+        path="/forgot-password"
+        element={
+          isAuthenticated ? (
+            <Navigate to="/dashboard" replace />
+          ) : (
+            <ForgotPasswordPage />
           )
         }
       />

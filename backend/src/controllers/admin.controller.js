@@ -2,6 +2,11 @@ const { Op } = require("sequelize");
 const { sequelize, User, Staff, Client, Booking } = require("../database/models");
 const { errorResponse, successResponse } = require("../utills/responseHandler");
 const { generateStaffId } = require("../helpers/generateStaffID");
+const {
+  checkAndMarkDateExceededBookings,
+  getDateExceededBookings: fetchDateExceededBookings,
+} = require("../services/bookingExpiry.service");
+
 
 /**
  * Helper to build lookup condition by either primary key id or staffId string
@@ -91,6 +96,10 @@ const getStaffRequests = async (req, res) => {
       ];
     }
 
+    const ALLOWED_STAFF_SORT = ['id', 'createdAt', 'updatedAt', 'staffId', 'city', 'approval', 'docs', 'onDuty', 'regNo'];
+    const safeStaffSortBy = ALLOWED_STAFF_SORT.includes(sortBy) ? sortBy : 'createdAt';
+    const safeStaffSortOrder = String(sortOrder).toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
+
     const { count, rows: staffRequests } = await Staff.findAndCountAll({
       where: staffWhere,
       include: [
@@ -102,7 +111,7 @@ const getStaffRequests = async (req, res) => {
           required: false,
         },
       ],
-      order: [[sortBy, sortOrder.toUpperCase() === "ASC" ? "ASC" : "DESC"]],
+      order: [[safeStaffSortBy, safeStaffSortOrder]],
       limit: pageSize,
       offset,
       distinct: true,
@@ -1183,6 +1192,10 @@ const getClients = async (req, res) => {
       ];
     }
 
+    const ALLOWED_CLIENT_SORT = ['id', 'createdAt', 'updatedAt', 'city', 'clientId'];
+    const safeClientSortBy = ALLOWED_CLIENT_SORT.includes(sortBy) ? sortBy : 'createdAt';
+    const safeClientSortOrder = String(sortOrder).toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
+
     const { count, rows: clients } = await Client.findAndCountAll({
       where: clientWhere,
       include: [
@@ -1193,7 +1206,7 @@ const getClients = async (req, res) => {
           required: false,
         },
       ],
-      order: [[sortBy, sortOrder.toUpperCase() === "ASC" ? "ASC" : "DESC"]],
+      order: [[safeClientSortBy, safeClientSortOrder]],
       limit: pageSize,
       offset,
       distinct: true,
@@ -1288,6 +1301,11 @@ const getBookings = async (req, res) => {
       sortOrder = "DESC",
     } = req.query;
 
+    // Automatically check and mark overdue unconfirmed bookings as 'date_exceeded'
+    await checkAndMarkDateExceededBookings({ city }).catch((err) => {
+      console.warn("Date exceeded check in getBookings warning:", err.message);
+    });
+
     const pageNumber = Math.max(1, parseInt(page, 10) || 1);
     const pageSize = Math.max(1, parseInt(limit, 10) || 10);
     const offset = (pageNumber - 1) * pageSize;
@@ -1351,7 +1369,10 @@ const getBookings = async (req, res) => {
           ],
         },
       ],
-      order: [[sortBy, sortOrder.toUpperCase() === "ASC" ? "ASC" : "DESC"]],
+      order: [[
+        ['id', 'createdAt', 'updatedAt', 'bookingId', 'status', 'startDate', 'endDate', 'totalAmount', 'date'].includes(sortBy) ? sortBy : 'createdAt',
+        String(sortOrder).toUpperCase() === 'ASC' ? 'ASC' : 'DESC'
+      ]],
       limit: pageSize,
       offset,
       distinct: true,
@@ -1435,6 +1456,54 @@ const getBookingById = async (req, res) => {
   }
 };
 
+/**
+ * 7.1 Process and mark all overdue unconfirmed bookings as 'date_exceeded'
+ * POST /api/v1/admin/bookings/mark-date-exceeded
+ */
+const markDateExceededBookings = async (req, res) => {
+  try {
+    const { city } = req.body || req.query || {};
+    const result = await checkAndMarkDateExceededBookings({ city });
+
+    return successResponse(
+      res,
+      result,
+      `Processed date-exceeded bookings successfully. ${result.updatedCount} booking(s) marked as date exceeded.`
+    );
+  } catch (error) {
+    return errorResponse(
+      res,
+      error.message || "Failed to mark date-exceeded bookings",
+      500,
+      error
+    );
+  }
+};
+
+/**
+ * 7.2 Fetch all bookings with status 'date_exceeded'
+ * GET /api/v1/admin/bookings/date-exceeded
+ */
+const getDateExceededBookings = async (req, res) => {
+  try {
+    const { city, search, page, limit } = req.query;
+    const result = await fetchDateExceededBookings({ city, search, page, limit });
+
+    return successResponse(
+      res,
+      result,
+      "Date-exceeded bookings retrieved successfully"
+    );
+  } catch (error) {
+    return errorResponse(
+      res,
+      error.message || "Failed to fetch date-exceeded bookings",
+      500,
+      error
+    );
+  }
+};
+
 const {
   getAdminEnquiries: getEnquiries,
   getAdminEnquiryById: getEnquiryById,
@@ -1453,6 +1522,8 @@ module.exports = {
   getClientByClientId,
   getBookings,
   getBookingById,
+  markDateExceededBookings,
+  getDateExceededBookings,
   getEnquiries,
   getEnquiryById,
 };

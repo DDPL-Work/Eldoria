@@ -1,11 +1,12 @@
 import React, { useState } from 'react';
 import { Icon } from '../../constants/icons';
 import { StatusBadge } from '../common/StatusBadge';
+import { CityDropdown } from '../common/CityDropdown';
 import { useStore } from '../../context/StoreContext';
 import { fmtTs } from '../../constants/data';
 
 export function Enquiries({ onOpenEnquiry }) {
-  const { inCity, enqAll, cityName, selectedCity, setSelectedCity, cities } = useStore();
+  const { inCity, enqAll, cityName } = useStore();
   const [filter, setFilter] = useState('open');
 
   const all = inCity(enqAll(), (e) => e.city);
@@ -35,22 +36,9 @@ export function Enquiries({ onOpenEnquiry }) {
 
   return (
     <div className="p-4 sm:p-4 w-full space-y-3">
-      {/* City Dropdown at Top matching Reference Screenshot */}
-      <div className="flex items-center gap-2 self-start bg-white border border-slate-200/90 rounded-xl px-3 py-1 shadow-2xs w-fit">
-        <Icon name="pin" size={15} className="text-slate-500" />
-        <span className="text-xs font-semibold text-slate-500">City</span>
-        <select
-          value={selectedCity}
-          onChange={(e) => setSelectedCity(e.target.value)}
-          className="bg-transparent text-xs font-bold text-slate-800 focus:outline-none cursor-pointer py-1 pr-1"
-        >
-          <option value="all">All cities</option>
-          {cities().map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.name}
-            </option>
-          ))}
-        </select>
+      {/* 1. City Dropdown Pill at Top matching Booking & Dashboard */}
+      <div className="flex items-center justify-between gap-3">
+        <CityDropdown />
       </div>
 
       {/* Header */}

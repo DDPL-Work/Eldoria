@@ -102,6 +102,7 @@ module.exports = (sequelize) => {
           "in_progress",
           "completed",
           "cancelled",
+          "date_exceeded",
         ),
         defaultValue: "requested",
         allowNull: false,

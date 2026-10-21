@@ -1,13 +1,38 @@
-import React, { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { RiRefreshLine } from 'react-icons/ri';
 import { Icon } from '../../constants/icons';
 import { useStore } from '../../context/StoreContext';
 import { useFiles } from '../../context/FileContext';
-import { OB_DOCS, fmtTs, DEFAULT_CITIES } from '../../constants/data';
+import { OB_DOCS, fmtTs } from '../../constants/data';
+import { DatabaseLoader } from '../common/DatabaseLoader';
+import { CityDropdown } from '../common/CityDropdown';
 
 export function Onboarding({ onOpenApplication }) {
-  const { inCity, applications, apprOf, cityName, sCity, cities, selectedCity, setSelectedCity } = useStore();
+  const {
+    inCity,
+    applications,
+    apprOf,
+    cityName,
+    sCity,
+    selectedCity,
+    fetchStaffRequests,
+    dataLoading,
+    dataError
+  } = useStore();
   const { fileGet } = useFiles();
   const [filter, setFilter] = useState('pending');
+
+  // Call getStaffRequests API on mount and when selectedCity changes
+  useEffect(() => {
+    const params = {
+      approval: 'all',
+      limit: 100,
+    };
+    if (selectedCity && selectedCity !== 'all') {
+      params.city = selectedCity;
+    }
+    fetchStaffRequests(params);
+  }, [fetchStaffRequests, selectedCity]);
 
   const all = inCity(applications(), sCity);
 
@@ -17,31 +42,62 @@ export function Onboarding({ onOpenApplication }) {
   const list = filter === 'all' ? all : all.filter((x) => apprOf(x) === filter);
 
   return (
-    <div className="p-4 sm:p-5 lg:p-4 w-full max-w-[1400px] mx-auto space-y-3">
-      {/* 1. City Dropdown Pill at Top */}
-      <div className="flex items-center gap-2 self-start bg-white border border-slate-200/90 rounded-lg px-3 py-1 shadow-2xs w-fit">
-        <Icon name="pin" size={15} className="text-slate-500" />
-        <span className="text-xs font-semibold text-slate-500">City</span>
-        <select
-          value={selectedCity}
-          onChange={(e) => setSelectedCity(e.target.value)}
-          className="bg-transparent text-xs font-bold text-slate-800 focus:outline-none cursor-pointer py-1 pr-1"
+    <div className="p-4 sm:p-5 lg:p-4 w-full max-w-[1400px] mx-auto space-y-2.5">
+      {/* 1. City Dropdown Pill at Top + Refresh Button matching Booking & Dashboard */}
+      <div className="flex items-center justify-between gap-2">
+        <CityDropdown />
+
+        <button
+          type="button"
+          onClick={() => {
+            const params = {
+              approval: 'all',
+              limit: 100,
+            };
+            if (selectedCity && selectedCity !== 'all') {
+              params.city = selectedCity;
+            }
+            fetchStaffRequests(params);
+          }}
+          disabled={dataLoading}
+          className="flex items-center gap-1.5 px-3 py-1.5 bg-white border border-slate-200/90 rounded-lg text-xs font-semibold text-slate-700 hover:text-slate-900 hover:bg-slate-50 transition cursor-pointer shadow-2xs disabled:opacity-60"
+          title="Refresh staff requests from server"
         >
-          <option value="all">All cities</option>
-          {cities().map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.name}
-            </option>
-          ))}
-        </select>
+          <RiRefreshLine className={`text-sm ${dataLoading ? 'animate-spin text-[#0E2F5A]' : ''}`} />
+          <span>{dataLoading ? 'Refreshing...' : 'Refresh'}</span>
+        </button>
       </div>
+
+      {dataError && (
+        <div className="p-3 bg-red-50 border border-red-200 text-red-700 rounded-lg text-xs flex items-center justify-between gap-2">
+          <span>Failed to fetch staff requests: {String(dataError)}</span>
+          <button
+            type="button"
+            onClick={() => {
+              const params = {};
+              if (selectedCity && selectedCity !== 'all') params.city = selectedCity;
+              fetchStaffRequests(params);
+            }}
+            className="underline font-bold hover:text-red-900 cursor-pointer"
+          >
+            Retry
+          </button>
+        </div>
+      )}
 
       {/* 2. Header Row: Title on Left, Count on Right */}
       <div className="flex items-center justify-between gap-3">
         <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Staff onboarding</h1>
-        <span className="text-xs text-slate-500 font-medium">
-          {countFor('pending')} waiting for review
-        </span>
+        <div className="flex items-center gap-2">
+          {dataLoading && (
+            <span className="text-xs text-blue-600 bg-blue-50 px-2.5 py-0.5 rounded-full font-medium animate-pulse">
+              Syncing...
+            </span>
+          )}
+          <span className="text-xs text-slate-500 font-medium">
+            {countFor('pending')} waiting for review
+          </span>
+        </div>
       </div>
 
       {/* 3. Description Subtitle */}
@@ -80,7 +136,14 @@ export function Onboarding({ onOpenApplication }) {
       </div>
 
       {/* 5. Grid of Applicants with Compact Gap and Proper Width */}
-      {list.length === 0 ? (
+      {dataLoading ? (
+        <div className="bg-white rounded-2xl border border-slate-200/90 shadow-2xs overflow-hidden">
+          <DatabaseLoader
+            title="Fetching Staff Applications from Database..."
+            subtitle="Connecting to Eldoria backend server"
+          />
+        </div>
+      ) : list.length === 0 ? (
         <div className="bg-white rounded-2xl p-12 text-center text-slate-400 border border-slate-200/80 space-y-1">
           <p className="font-bold text-slate-700 text-sm">
             {filter === 'pending' ? 'No applications waiting' : 'No applications found'}
@@ -96,8 +159,22 @@ export function Onboarding({ onOpenApplication }) {
           {list.map((a) => {
             const req = OB_DOCS.filter((x) => x.req);
             const verifiedReq = req.filter((x) => (a.docChecks || {})[x.k]).length;
-            const uploadedCount = OB_DOCS.filter((x) => (a.files || {})[x.k]).length;
-            const photoFile = a.files?.photo ? fileGet(a.files.photo.id) : null;
+            const filesObj = a.files || {};
+            const uploadedCount = OB_DOCS.filter((x) => {
+              const f =
+                filesObj[x.k] ||
+                (x.k === 'experience' ? filesObj.experienceLetter || filesObj.experience_letter : null) ||
+                (x.k === 'police' ? filesObj.policeVerification || filesObj.police_verification : null) ||
+                (x.k === 'idProof' ? filesObj.id_proof || filesObj.photo_id || filesObj.aadhar : null) ||
+                (x.k === 'qualification' ? filesObj.qualification_certificate : null);
+              return Boolean(f && (f.data || f.url || f.id || typeof f === 'string'));
+            }).length;
+            const photoData = filesObj.photo;
+            const photoUrl =
+              photoData?.data ||
+              photoData?.url ||
+              (typeof photoData === 'string' ? photoData : null) ||
+              (photoData?.id ? fileGet(photoData.id)?.data : null);
 
             const initials = a.name
               ? a.name
@@ -118,16 +195,23 @@ export function Onboarding({ onOpenApplication }) {
                 {/* Top Row: Avatar + Name / Role / City + Status Badge */}
                 <div className="flex items-start justify-between gap-2.5 w-full">
                   <div className="flex items-center gap-3 min-w-0">
-                    <div className="w-[52px] h-[52px] rounded-full overflow-hidden bg-[#EBF2FA] shrink-0 border border-slate-100 flex items-center justify-center">
-                      {photoFile?.data ? (
+                    <div className="w-[52px] h-[52px] rounded-full overflow-hidden bg-[#EBF2FA] shrink-0 border border-slate-200/80 flex items-center justify-center relative select-none">
+                      {photoUrl && (
                         <img
-                          src={photoFile.data}
+                          src={photoUrl}
                           alt={a.name}
-                          className="w-full h-full object-cover"
+                          className="w-full h-full object-cover absolute inset-0"
+                          onLoad={(e) => {
+                            if (e.currentTarget.naturalWidth <= 2 && e.currentTarget.naturalHeight <= 2) {
+                              e.currentTarget.style.display = 'none';
+                            }
+                          }}
+                          onError={(e) => {
+                            e.currentTarget.style.display = 'none';
+                          }}
                         />
-                      ) : (
-                        <span className="font-extrabold text-[#0A2342] text-sm">{initials}</span>
                       )}
+                      <span className="font-extrabold text-[#0A2342] text-sm select-none">{initials}</span>
                     </div>
 
                     <div className="min-w-0">
@@ -135,7 +219,7 @@ export function Onboarding({ onOpenApplication }) {
                         {a.name}
                       </div>
                       <div className="text-[11px] text-slate-500 font-medium truncate mt-1 leading-tight">
-                        {a.role} · {a.experience || 0} yrs · {cityName(sCity(a))}
+                        {a.role} · {a.experience || 0} yrs · {cityName(sCity(a))}{a.area ? ` · ${a.area}` : ''}
                       </div>
                     </div>
                   </div>

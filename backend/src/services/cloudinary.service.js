@@ -19,18 +19,100 @@ const ALLOWED_EXTENSIONS = ['.pdf', '.jpg', '.jpeg', '.png', '.webp', '.gif'];
  * @returns {boolean}
  */
 const isValidDocumentType = (mimetype = '', originalname = '') => {
-  if (mimetype) {
-    const isMimeAllowed = ALLOWED_MIME_TYPES.includes(mimetype.toLowerCase());
-    if (!isMimeAllowed) return false;
-    return true;
+  if (!mimetype && !originalname) return false;
+
+  const mime = (mimetype || '').toLowerCase().trim();
+  const ext = path.extname(originalname || '').toLowerCase().trim();
+
+  // If extension is present, it MUST be in ALLOWED_EXTENSIONS (rejects .exe, .php, etc.)
+  if (ext && !ALLOWED_EXTENSIONS.includes(ext)) {
+    return false;
   }
-  if (originalname) {
-    const ext = path.extname(originalname).toLowerCase();
-    if (ALLOWED_EXTENSIONS.includes(ext)) {
-      return true;
-    }
+
+  // If mimetype is present, it MUST be in ALLOWED_MIME_TYPES
+  if (mime && !ALLOWED_MIME_TYPES.includes(mime)) {
+    return false;
   }
-  return false;
+
+  // At least one must be explicitly valid
+  const isMimeAllowed = mime ? ALLOWED_MIME_TYPES.includes(mime) : false;
+  const isExtAllowed = ext ? ALLOWED_EXTENSIONS.includes(ext) : false;
+
+  return isMimeAllowed || isExtAllowed;
+};
+
+/**
+ * Checks whether a file is a PDF document based on mimetype or filename.
+ * @param {string} mimetype
+ * @param {string} originalname
+ * @returns {boolean}
+ */
+const isPdfDocument = (mimetype = '', originalname = '') => {
+  const ext = (path.extname(originalname || '') || '').toLowerCase();
+  return (
+    (typeof mimetype === 'string' && mimetype.toLowerCase() === 'application/pdf') ||
+    ext === '.pdf'
+  );
+};
+
+/**
+ * Uploads a single staff document to Cloudinary (supports base64, URL, or file object).
+ * @param {string|Object} fileInput
+ * @param {Object} options - { docKey, name }
+ * @returns {Promise<Object>} Document object
+ */
+const uploadStaffDocument = async (fileInput, options = {}) => {
+  const fileName = (typeof fileInput === 'object' && fileInput?.name)
+    ? fileInput.name
+    : (options.name || `${options.docKey || 'document'}.jpg`);
+  const docKey = options.docKey || (typeof fileInput === 'object' && fileInput?.key) || 'document';
+  const rawData = typeof fileInput === 'string' ? fileInput : fileInput?.data || fileInput?.url || '';
+  const fileType = typeof fileInput === 'object' && fileInput?.type
+    ? fileInput.type
+    : (isPdfDocument('', fileName) ? 'application/pdf' : 'image/jpeg');
+
+  if (!isValidDocumentType(fileType, fileName)) {
+    throw new Error(`Only PDF (.pdf) and Image files are allowed. Received invalid format for '${fileName}'.`);
+  }
+
+  if (typeof rawData === 'string' && (rawData.startsWith('http://') || rawData.startsWith('https://'))) {
+    return {
+      id: `doc_${docKey}_${Date.now().toString(36)}`,
+      key: docKey,
+      name: fileName,
+      type: fileType,
+      url: rawData,
+      secure_url: rawData,
+      data: rawData,
+      status: 'pending',
+      verified: false,
+      uploadedAt: new Date().toISOString(),
+    };
+  }
+
+  const isPdf = isPdfDocument(fileType, fileName);
+  const resource_type = isPdf ? 'auto' : 'image';
+  const cleanKey = docKey.replace(/[^a-zA-Z0-9_-]/g, '_');
+  const uploadRes = await cloudinary.uploader.upload(rawData, {
+    folder: process.env.CLOUDINARY_FOLDER || 'eldoria/staff_documents',
+    resource_type,
+    public_id: `${cleanKey}_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+  });
+
+  const fileUrl = uploadRes.secure_url || uploadRes.url;
+  return {
+    id: `doc_${docKey}_${Date.now().toString(36)}_${Math.random().toString(36).substring(2, 7)}`,
+    key: docKey,
+    name: fileName,
+    type: fileType,
+    url: fileUrl,
+    secure_url: fileUrl,
+    data: fileUrl,
+    public_id: uploadRes.public_id,
+    status: 'pending',
+    verified: false,
+    uploadedAt: new Date().toISOString(),
+  };
 };
 
 /**

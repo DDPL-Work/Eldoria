@@ -317,6 +317,7 @@ export function EnquiryDetail({
                 <Icon name="cal" size={16} />
                 <span>Create booking</span>
               </button>
+              
             </div>
 
             {/* Linked Booking Link (if converted) */}

@@ -114,22 +114,31 @@ const cancelClientBooking = async (req, res) => {
       );
     }
 
-    // Optional ownership verification if client is authenticated
-    if (
-      req.user &&
-      req.user.phone &&
-      req.user.role !== "admin" &&
-      booking.clientPhone
-    ) {
-      const userPhoneDigits = String(req.user.phone).replace(/\D/g, "").slice(-10);
-      const bookingPhoneDigits = String(booking.clientPhone).replace(/\D/g, "").slice(-10);
-      if (userPhoneDigits && bookingPhoneDigits && userPhoneDigits !== bookingPhoneDigits) {
+    // Client identity authorization check (SEC-04)
+    const callerPhone = req.user?.phone || req.body?.phone || req.query?.phone;
+    const callerRole = req.user?.role;
+
+    if (callerRole !== "admin") {
+      if (!callerPhone && !req.user) {
         await transaction.rollback();
         return errorResponse(
           res,
-          "You are not authorized to cancel this booking",
-          403
+          "Authentication token or verified client phone number is required to cancel this booking",
+          401
         );
+      }
+
+      if (callerPhone && booking.clientPhone) {
+        const callerDigits = String(callerPhone).replace(/\D/g, "").slice(-10);
+        const bookingDigits = String(booking.clientPhone).replace(/\D/g, "").slice(-10);
+        if (callerDigits && bookingDigits && callerDigits !== bookingDigits) {
+          await transaction.rollback();
+          return errorResponse(
+            res,
+            "You are not authorized to cancel this booking",
+            403
+          );
+        }
       }
     }
 
