@@ -31,7 +31,9 @@ router.post("/client/login", clientVerifyOtp);
 // Profile management routes (unified for both Staff and Client)
 router.get("/profile", verifyToken, getProfile);
 router.get("/profile/:id", verifyToken, getProfile);
+
 router.patch("/profile/:id", verifyToken, updateProfile);
+
 
 // Mobile number change routes (unified for both Staff and Client)
 router.post("/change-phone/send-otp", verifyToken, sendChangePhoneOtp);

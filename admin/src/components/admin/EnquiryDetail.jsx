@@ -1,8 +1,10 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Icon } from '../../constants/icons';
 import { StatusBadge } from '../common/StatusBadge';
+import { DatabaseLoader } from '../common/DatabaseLoader';
 import { useStore } from '../../context/StoreContext';
 import { useFiles } from '../../context/FileContext';
+import { enquiryAPI } from '../../services/api';
 import { fmtTs, telHref, waHref, ENQ_ST } from '../../constants/data';
 
 export function EnquiryDetail({
@@ -13,13 +15,67 @@ export function EnquiryDetail({
   onPreviewFile,
   onShowToast
 }) {
-  const { data, patch, notify, cityName, catsAll, svcInCat } = useStore();
+  const {
+    data,
+    patch,
+    notify,
+    cityName,
+    catsAll,
+    svcInCat,
+    currentEnquiryDetail,
+    enquiryDetailLoading,
+    fetchEnquiryById,
+    updateEnquiryStatus,
+  } = useStore();
   const { fileGet } = useFiles();
 
-  const e = data.enquiries[enquiryId];
+  // Fetch real help request from backend: GET /api/v1/admin/enquiry/:id
+  useEffect(() => {
+    if (enquiryId) {
+      fetchEnquiryById?.(enquiryId);
+    }
+  }, [enquiryId, fetchEnquiryById]);
+
+  const e =
+    currentEnquiryDetail &&
+    (String(currentEnquiryDetail.id) === String(enquiryId) ||
+      String(currentEnquiryDetail.code) === String(enquiryId))
+      ? currentEnquiryDetail
+      : data.enquiries?.[enquiryId] ||
+        Object.values(data.enquiries || {}).find(
+          (x) => String(x.id) === String(enquiryId) || String(x.code) === String(enquiryId)
+        );
 
   const [note, setNote] = useState(e?.adminNote || '');
   const [rec, setRec] = useState(e?.recommended || '');
+  const [isSaving, setIsSaving] = useState(false);
+  const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
+
+  useEffect(() => {
+    if (e) {
+      setNote(e.adminNote || '');
+      setRec(e.recommended || '');
+    }
+  }, [e?.id, e?.code, e?.adminNote, e?.recommended]);
+
+  if (enquiryDetailLoading && !e) {
+    return (
+      <div className="p-4 sm:p-6 w-full space-y-4">
+        <button
+          type="button"
+          onClick={onBack}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white border border-slate-200 text-xs font-bold text-slate-700 hover:bg-slate-50 transition cursor-pointer"
+        >
+          <Icon name="back" size={16} />
+          <span>Back</span>
+        </button>
+        <DatabaseLoader
+          title="Loading Help Request Details..."
+          subtitle="Fetching latest clinical notes from Eldoria backend"
+        />
+      </div>
+    );
+  }
 
   if (!e) {
     return (
@@ -41,43 +97,78 @@ export function EnquiryDetail({
 
   const msg = `Hello ${e.clientName}, this is the Eldoria Care at Home clinical team regarding your request ${e.code}.`;
 
-  const handleSaveRecommendation = () => {
+  // Save Recommendation via PATCH /api/v1/admin/enquiry/:id/status
+  const handleSaveRecommendation = async () => {
     const trimmed = note.trim();
+    const nextStatus = e.status === 'new' ? 'contacted' : e.status;
+    const targetId = e.id || e.code || enquiryId;
+
+    setIsSaving(true);
     patch('enquiries', e.id, {
       adminNote: trimmed,
       recommended: rec,
-      status: e.status === 'new' ? 'contacted' : e.status,
+      status: nextStatus,
       history: (e.history || []).concat([
         {
-          status: e.status === 'new' ? 'contacted' : e.status,
+          status: nextStatus,
           at: Date.now(),
           by: 'admin',
-          note: trimmed || 'Recommendation updated'
-        }
-      ])
+          note: trimmed || 'Recommendation updated',
+        },
+      ]),
     });
 
-    const recommendedSvc =
-      rec && data.services[rec] ? `Recommended: ${data.services[rec].name}. ` : '';
-    notify(
-      'client:' + e.clientPhone,
-      'Our care team replied',
-      recommendedSvc + (trimmed || 'Open your help request in the app to view our recommendation.'),
-      '',
-      { enqId: e.id }
-    );
+    try {
+      await enquiryAPI.updateEnquiryStatus(targetId, {
+        status: nextStatus,
+        adminNote: trimmed,
+        recommended: rec,
+      });
 
-    onShowToast?.('Saved & shared recommendation with family');
+      const recommendedSvc =
+        rec && data.services?.[rec] ? `Recommended: ${data.services[rec].name}. ` : '';
+      notify(
+        'client:' + e.clientPhone,
+        'Our care team replied',
+        recommendedSvc + (trimmed || 'Open your help request in the app to view our recommendation.'),
+        '',
+        { enqId: e.id }
+      );
+
+      onShowToast?.('Saved & shared recommendation with family');
+    } catch (err) {
+      console.error('Failed to save recommendation:', err);
+      onShowToast?.(err.message || 'Failed to save recommendation on server');
+    } finally {
+      setIsSaving(false);
+    }
   };
 
-  const handleStatusToggle = (newStatus) => {
+  // Status Toggle via PATCH /api/v1/admin/enquiry/:id/status
+  const handleStatusToggle = async (newStatus) => {
+    const targetId = e.id || e.code || enquiryId;
+
+    setIsUpdatingStatus(true);
     patch('enquiries', e.id, {
       status: newStatus,
       history: (e.history || []).concat([
-        { status: newStatus, at: Date.now(), by: 'admin' }
-      ])
+        { status: newStatus, at: Date.now(), by: 'admin' },
+      ]),
     });
-    onShowToast?.(newStatus === 'closed' ? 'Request closed' : 'Request reopened');
+
+    try {
+      await enquiryAPI.updateEnquiryStatus(targetId, {
+        status: newStatus,
+      });
+
+      onShowToast?.(newStatus === 'closed' ? 'Request closed' : 'Request reopened');
+    } catch (err) {
+      console.error('Failed to toggle status:', err);
+      patch('enquiries', e.id, { status: e.status });
+      onShowToast?.(err.message || 'Failed to update status on server');
+    } finally {
+      setIsUpdatingStatus(false);
+    }
   };
 
   return (
@@ -303,10 +394,13 @@ export function EnquiryDetail({
             <div className="space-y-2 pt-1">
               <button
                 type="button"
+                disabled={isSaving}
                 onClick={handleSaveRecommendation}
-                className="w-full py-2.5 px-4 rounded-lg bg-white hover:bg-slate-50 border border-slate-300 text-slate-800 font-bold text-xs sm:text-sm transition cursor-pointer shadow-2xs text-center"
+                className={`w-full py-2.5 px-4 rounded-lg bg-white hover:bg-slate-50 border border-slate-300 text-slate-800 font-bold text-xs sm:text-sm transition cursor-pointer shadow-2xs text-center ${
+                  isSaving ? 'opacity-60 cursor-wait' : ''
+                }`}
               >
-                Save &amp; mark contacted
+                {isSaving ? 'Saving recommendation...' : 'Save & mark contacted'}
               </button>
 
               <button
@@ -321,7 +415,7 @@ export function EnquiryDetail({
             </div>
 
             {/* Linked Booking Link (if converted) */}
-            {e.bookingId && data.bookings[e.bookingId] && (
+            {e.bookingId && data.bookings?.[e.bookingId] && (
               <button
                 type="button"
                 onClick={() => onOpenBooking(e.bookingId)}
@@ -338,18 +432,24 @@ export function EnquiryDetail({
             {e.status === 'closed' ? (
               <button
                 type="button"
+                disabled={isUpdatingStatus}
                 onClick={() => handleStatusToggle('new')}
-                className="w-full py-2.5 px-4 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 font-bold text-xs sm:text-sm transition cursor-pointer shadow-2xs text-center"
+                className={`w-full py-2.5 px-4 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 font-bold text-xs sm:text-sm transition cursor-pointer shadow-2xs text-center ${
+                  isUpdatingStatus ? 'opacity-60 cursor-wait' : ''
+                }`}
               >
-                Reopen request
+                {isUpdatingStatus ? 'Reopening...' : 'Reopen request'}
               </button>
             ) : (
               <button
                 type="button"
+                disabled={isUpdatingStatus}
                 onClick={() => handleStatusToggle('closed')}
-                className="w-full py-2.5 px-4 rounded-lg border border-red-200/90 bg-white hover:bg-red-50 text-[#991B1B] font-bold text-xs sm:text-sm transition cursor-pointer shadow-2xs text-center"
+                className={`w-full py-2.5 px-4 rounded-lg border border-red-200/90 bg-white hover:bg-red-50 text-[#991B1B] font-bold text-xs sm:text-sm transition cursor-pointer shadow-2xs text-center ${
+                  isUpdatingStatus ? 'opacity-60 cursor-wait' : ''
+                }`}
               >
-                Close request
+                {isUpdatingStatus ? 'Closing...' : 'Close request'}
               </button>
             )}
           </div>

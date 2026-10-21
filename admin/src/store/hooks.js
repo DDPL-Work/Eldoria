@@ -34,6 +34,12 @@ import {
   requestStaffChangesThunk,
   rejectStaffThunk,
   revokeStaffDecisionThunk,
+  updateStaffProfileThunk,
+  setStaffDutyLocally as setStaffDutyLocallyAction,
+  fetchEnquiriesThunk,
+  fetchEnquiryByIdThunk,
+  updateEnquiryStatusThunk,
+  setEnquiryStatusLocally as setEnquiryStatusLocallyAction,
   fetchClientsThunk,
   fetchClientByIdThunk,
   fetchDashboardThunk,
@@ -44,6 +50,8 @@ import {
   assignStaffThunk,
   unassignStaffThunk,
   updateBookingStatusThunk,
+  cancelAdminBookingThunk,
+  cancelBookingThunk,
   createBookingThunk,
   fetchCitiesThunk,
   getCityByIdThunk,
@@ -454,6 +462,8 @@ export const normalizeStaffRequest = (req) => {
     rejectedAt: req.rejectedAt ? new Date(req.rejectedAt).getTime() : null,
     submittedAt,
     createdAt: req.createdAt ? new Date(req.createdAt).getTime() : submittedAt,
+    canConfirmBooking: Boolean(req.canConfirmBooking),
+    canTransferBooking: Boolean(req.canTransferBooking),
     notes: req.notes || '',
     raw: req,
   };
@@ -551,6 +561,16 @@ export function useStore() {
   const citiesError = useSelector((state) => state.data.citiesError);
   const cityActionLoading = useSelector((state) => state.data.cityActionLoading);
   const cityActionError = useSelector((state) => state.data.cityActionError);
+  const backendEnquiries = useSelector((state) => state.data.backendEnquiries);
+  const enquiriesCounts = useSelector((state) => state.data.enquiriesCounts);
+  const enquiriesPagination = useSelector((state) => state.data.enquiriesPagination);
+  const enquiriesLoading = useSelector((state) => state.data.enquiriesLoading);
+  const enquiriesError = useSelector((state) => state.data.enquiriesError);
+  const currentEnquiryDetail = useSelector((state) => state.data.currentEnquiryDetail);
+  const enquiryDetailLoading = useSelector((state) => state.data.enquiryDetailLoading);
+  const enquiryDetailError = useSelector((state) => state.data.enquiryDetailError);
+  const enquiryActionLoading = useSelector((state) => state.data.enquiryActionLoading);
+  const enquiryActionError = useSelector((state) => state.data.enquiryActionError);
   const dataLoading = useSelector((state) => state.data.loading);
   const dataError = useSelector((state) => state.data.error);
 
@@ -783,13 +803,20 @@ export function useStore() {
     [backendStaffRequests, currentStaffRequest, data.staff]
   );
 
-  const enqAll = useCallback(
-    () =>
-      Object.values(data.enquiries || {}).sort(
-        (a, b) => (b.createdAt || 0) - (a.createdAt || 0)
-      ),
-    [data.enquiries]
-  );
+  const enqAll = useCallback(() => {
+    if (backendEnquiries && backendEnquiries.length > 0) {
+      return [...backendEnquiries].sort((a, b) => {
+        const tA = new Date(a.createdAt || 0).getTime() || 0;
+        const tB = new Date(b.createdAt || 0).getTime() || 0;
+        return tB - tA;
+      });
+    }
+    return Object.values(data.enquiries || {}).sort((a, b) => {
+      const tA = new Date(a.createdAt || 0).getTime() || 0;
+      const tB = new Date(b.createdAt || 0).getTime() || 0;
+      return tB - tA;
+    });
+  }, [backendEnquiries, data.enquiries]);
 
   const notesFor = useCallback(
     (to = 'admin') =>
@@ -842,6 +869,25 @@ export function useStore() {
     [dispatch]
   );
 
+  const setStaffDutyLocally = useCallback(
+    ({ id, staffId, onDuty }) =>
+      dispatch(setStaffDutyLocallyAction({ id, staffId, onDuty })),
+    [dispatch]
+  );
+
+  const updateStaffProfile = useCallback(
+    (id, payload) => dispatch(updateStaffProfileThunk({ id, payload })),
+    [dispatch]
+  );
+
+  const toggleStaffDuty = useCallback(
+    (id, onDuty) =>
+      dispatch(
+        updateStaffProfileThunk({ id, payload: { onDuty: Boolean(onDuty) } })
+      ),
+    [dispatch]
+  );
+
   const fetchClients = useCallback(
     (params) => dispatch(fetchClientsThunk(params)),
     [dispatch]
@@ -889,6 +935,20 @@ export function useStore() {
 
   const updateBookingStatus = useCallback(
     (id, payload) => dispatch(updateBookingStatusThunk({ id, payload })),
+    [dispatch]
+  );
+
+  const cancelAdminBooking = useCallback(
+    (id, payload) =>
+      dispatch(
+        cancelAdminBookingThunk({
+          id,
+          cancelReason:
+            typeof payload === 'string'
+              ? payload
+              : (payload?.cancelReason || payload?.reason || '')
+        })
+      ),
     [dispatch]
   );
 
@@ -979,6 +1039,26 @@ export function useStore() {
 
   const deleteCategory = useCallback(
     (category) => dispatch(deleteCategoryThunk(category)),
+    [dispatch]
+  );
+
+  const fetchEnquiries = useCallback(
+    (params) => dispatch(fetchEnquiriesThunk(params)),
+    [dispatch]
+  );
+
+  const fetchEnquiryById = useCallback(
+    (id) => dispatch(fetchEnquiryByIdThunk(id)),
+    [dispatch]
+  );
+
+  const updateEnquiryStatus = useCallback(
+    (id, payload) => dispatch(updateEnquiryStatusThunk({ id, payload })),
+    [dispatch]
+  );
+
+  const setEnquiryStatusLocally = useCallback(
+    ({ id, status }) => dispatch(setEnquiryStatusLocallyAction({ id, status })),
     [dispatch]
   );
 
@@ -1076,6 +1156,9 @@ export function useStore() {
     requestStaffChanges,
     rejectStaff,
     revokeStaffDecision,
+    setStaffDutyLocally,
+    updateStaffProfile,
+    toggleStaffDuty,
     fetchClients,
     fetchClientById,
     fetchDashboard,
@@ -1086,6 +1169,7 @@ export function useStore() {
     assignStaff,
     unassignStaff,
     updateBookingStatus,
+    cancelAdminBooking,
     createBooking,
     fetchCities,
     getCityById,
@@ -1104,5 +1188,20 @@ export function useStore() {
     updateCategory,
     toggleCategoryStatus,
     deleteCategory,
+    // Enquiries / Help Requests State & Triggers
+    backendEnquiries,
+    enquiriesCounts,
+    enquiriesPagination,
+    enquiriesLoading,
+    enquiriesError,
+    currentEnquiryDetail,
+    enquiryDetailLoading,
+    enquiryDetailError,
+    enquiryActionLoading,
+    enquiryActionError,
+    fetchEnquiries,
+    fetchEnquiryById,
+    updateEnquiryStatus,
+    setEnquiryStatusLocally,
   };
 }

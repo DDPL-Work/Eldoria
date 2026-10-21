@@ -41,6 +41,11 @@ router.get('/notifications', optionalToken, getClientNotifications);
 // General auth routes (client & staff login)
 router.use('/auth', authRoutes);
 
+// Direct profile management aliases (convenience for /api/v1/profile/:id)
+const { getProfile, updateProfile } = require('../controllers/auth.controller');
+router.get('/profile/:id', verifyToken, getProfile);
+router.patch('/profile/:id', verifyToken, updateProfile);
+
 // Admin authentication & operations routes
 router.use('/admin', adminAuthRoutes);
 router.use('/admin', adminRoutes);
@@ -53,6 +58,17 @@ router.use('/client', clientRoutes);
 
 // Global settings routes (accessible via /settings and /setting)
 router.use('/setting', settingRoutes);
+router.use('/settings', settingRoutes);
+
+// Direct alias for staff booking confirmation permissions
+const { verifyToken, requireAdmin } = require('../middlewares/auth.middleware');
+const {
+  getStaffPermissions,
+  toggleStaffCanConfirm,
+} = require('../controllers/setting.controller');
+
+router.get('/staff-confirm/:staffId', verifyToken, requireAdmin, getStaffPermissions);
+router.patch('/staff-confirm/:staffId', verifyToken, requireAdmin, toggleStaffCanConfirm);
 
 // Booking cancellation flow routes
 router.use('/cancellation', cancellationRoutes);

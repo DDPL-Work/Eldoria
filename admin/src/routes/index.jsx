@@ -86,6 +86,7 @@ export function AppRoutes() {
         <Route path="bookings/:id" element={<BookingDetailPage />} />
 
         <Route path="staff" element={<StaffPage />} />
+        <Route path="staff/:id" element={<ApplicationDetailPage />} />
         <Route path="onboarding" element={<OnboardingPage />} />
         <Route path="onboarding/:id" element={<ApplicationDetailPage />} />
 
