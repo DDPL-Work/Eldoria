@@ -1007,7 +1007,7 @@ const confirmBooking = async (req, res) => {
       return errorResponse(res, `Booking '${id}' not found`, 404);
     }
 
-    if (booking.status !== "requested") {
+    if (booking.status !== "requested" && booking.status !== "confirmed") {
       await transaction.rollback();
       return errorResponse(
         res,
@@ -1016,19 +1016,22 @@ const confirmBooking = async (req, res) => {
       );
     }
 
+    const adminActor = req.user?.name || req.user?.email || "admin";
     const now = new Date();
     const existingHistory = Array.isArray(booking.history) ? [...booking.history] : [];
-    existingHistory.push({
-      status: "confirmed",
-      at: now.toISOString(),
-      by: "admin",
-      note: "Booking confirmed by care desk",
-    });
+    if (!existingHistory.some((h) => h.status === "confirmed")) {
+      existingHistory.push({
+        status: "confirmed",
+        at: now.toISOString(),
+        by: adminActor,
+        note: "Booking confirmed by care desk",
+      });
+    }
 
     await booking.update(
       {
         status: "confirmed",
-        confirmedBy: "admin",
+        confirmedBy: adminActor,
         confirmedAt: now,
         history: existingHistory,
       },
@@ -1405,20 +1408,23 @@ const createAdminBooking = async (req, res) => {
     const bookingCode = await generateBookingId(trimmedClientName, bookingCity, transaction);
     const now = new Date();
 
-    let initialStatus = req.body.status || "requested";
+    // Standard new booking created by care desk always starts as 'requested' (Request received)
+    let initialStatus = "requested";
     let assignedStaffId = null;
     let assignedStaffName = null;
     let assignedBy = null;
     let assignedAt = null;
+    let confirmedBy = null;
+    let confirmedAt = null;
 
     const initialHistory = [
-      { status: "requested", at: now.toISOString(), by: "admin", note: "Booking created by care desk" },
-      { status: "confirmed", at: now.toISOString(), by: "admin", note: "Confirmed by care desk" },
+      {
+        status: "requested",
+        at: now.toISOString(),
+        by: adminActor,
+        note: "Booking request created by care desk",
+      },
     ];
-
-    if (initialStatus === "confirmed") {
-      initialHistory.push({ status: "confirmed", at: now.toISOString(), by: "admin", note: "Confirmed by care desk" });
-    }
 
     // Optional direct staff assignment on booking creation
     if (staffIdentifier) {
@@ -1434,6 +1440,14 @@ const createAdminBooking = async (req, res) => {
         assignedStaffName = staff.user?.name || staff.staffId;
         assignedBy = adminActor;
         assignedAt = now;
+        confirmedBy = adminActor;
+        confirmedAt = now;
+        initialHistory.push({
+          status: "confirmed",
+          at: now.toISOString(),
+          by: adminActor,
+          note: "Confirmed by care desk upon staff assignment",
+        });
         initialHistory.push({
           status: "assigned",
           at: now.toISOString(),
@@ -1498,8 +1512,8 @@ const createAdminBooking = async (req, res) => {
         files: finalFiles,
         visit: {},
         history: initialHistory,
-        confirmedBy: "admin",
-        confirmedAt: now,
+        confirmedBy,
+        confirmedAt,
         assignedBy,
         assignedAt,
       },
@@ -1570,11 +1584,13 @@ const createAdminBooking = async (req, res) => {
         notification: {
           client: {
             to: `client:${cleanPhone}`,
-            title: "Booking confirmed",
-            body: `Your ${finalServiceName} booking ${bookingCode} is confirmed ${formattedTimeNotice}.`,
+            title: assignedStaffId ? "Booking confirmed" : "Booking request received",
+            body: assignedStaffId
+              ? `Your ${finalServiceName} booking ${bookingCode} is confirmed ${formattedTimeNotice}.`
+              : `Your ${finalServiceName} booking request ${bookingCode} has been received for ${formattedTimeNotice}.`,
           },
           admin: {
-            title: `New booking ${bookingCode}`,
+            title: `New booking request ${bookingCode}`,
             body: `${trimmedClientName} booked ${finalServiceName} for ${trimmedPatientName} in ${bookingCity} · ${date}, ${time}`,
           },
           staff: assignedStaffId
@@ -1585,12 +1601,14 @@ const createAdminBooking = async (req, res) => {
               }
             : {
                 city: bookingCity,
-                title: `Open visit ${bookingCode}`,
+                title: `Open visit request ${bookingCode}`,
                 body: `${finalServiceName} for ${trimmedPatientName} · ${date}, ${time} · needs caregiver`,
               },
         },
       },
-      `Booking ${bookingCode} created and confirmed successfully`,
+      assignedStaffId
+        ? `Booking ${bookingCode} created and confirmed successfully`
+        : `Booking ${bookingCode} created successfully (request received)`,
       201
     );
   } catch (error) {

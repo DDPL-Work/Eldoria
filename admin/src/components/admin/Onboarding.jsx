@@ -112,9 +112,9 @@ export function Onboarding({ onOpenApplication }) {
         {[
           ['pending', 'Under review'],
           ['changes', 'Changes requested'],
-          ['approved', 'Approved'],
-          ['rejected', 'Not approved'],
-          ['all', 'All']
+          // ['approved', 'Approved'],
+          // ['rejected', 'Not approved'],
+          // ['all', 'All']
         ].map(([k, l]) => (
           <button
             key={k}

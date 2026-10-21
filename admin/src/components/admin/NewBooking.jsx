@@ -1,7 +1,9 @@
-import React, { useState } from 'react';
+import { useState, useRef } from 'react';
 import { Icon } from '../../constants/icons';
 import { FormCityDropdown } from '../common/FormCityDropdown';
 import { useStore } from '../../context/StoreContext';
+import { openDocument } from '../../services/documentViewer';
+import { Lightbox } from '../common/Lightbox';
 import {
   RELATIONS,
   SLOTS,
@@ -12,11 +14,70 @@ import {
   DEFAULT_CITIES
 } from '../../constants/data';
 
+const formatFileSize = (bytes) => {
+  if (!bytes || bytes <= 0) return '0 B';
+  const k = 1024;
+  const sizes = ['B', 'KB', 'MB', 'GB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return `${parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`;
+};
+
+const readFileAsBase64 = (file) =>
+  new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(r.result);
+    r.onerror = () => reject(new Error(`Failed to read ${file.name}`));
+    r.readAsDataURL(file);
+  });
+
+const compressImageIfNeeded = async (file, maxDim = 1600, quality = 0.85) => {
+  if (!file.type || !file.type.startsWith('image/')) {
+    return readFileAsBase64(file);
+  }
+  if (file.size < 500 * 1024) {
+    return readFileAsBase64(file);
+  }
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        try {
+          const canvas = document.createElement('canvas');
+          let width = img.width;
+          let height = img.height;
+          if (width > maxDim || height > maxDim) {
+            if (width > height) {
+              height = Math.round((height * maxDim) / width);
+              width = maxDim;
+            } else {
+              width = Math.round((width * maxDim) / height);
+              height = maxDim;
+            }
+          }
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0, width, height);
+          const dataUrl = canvas.toDataURL(file.type || 'image/jpeg', quality);
+          resolve(dataUrl);
+        } catch (_) {
+          resolve(e.target.result);
+        }
+      };
+      img.onerror = () => resolve(e.target.result);
+      img.src = e.target.result;
+    };
+    reader.onerror = () => resolve('');
+    reader.readAsDataURL(file);
+  });
+};
+
 export function NewBooking({ onBack, onBookingCreated, fromEnqId }) {
   const {
     selectedCity,
-    cities,
-    services,
+    // cities,
+    // services,
     catsAll,
     svcInCat,
     svc,
@@ -36,6 +97,16 @@ export function NewBooking({ onBack, onBookingCreated, fromEnqId }) {
   const [customTime, setCustomTime] = useState(false);
   const [customPlan, setCustomPlan] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Patient Medical History Documents state (supports multiple files simultaneously)
+  const [medicalFiles, setMedicalFiles] = useState(() =>
+    Array.isArray(enq?.files) ? enq.files : []
+  );
+  const [isProcessingFiles, setIsProcessingFiles] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
+  const [fileError, setFileError] = useState('');
+  const [selectedPreview, setSelectedPreview] = useState(null);
+  const fileInputRef = useRef(null);
 
   const [form, setForm] = useState(() => {
     const defaultCity =
@@ -65,6 +136,94 @@ export function NewBooking({ onBack, onBookingCreated, fromEnqId }) {
   });
 
   const selectedServiceObj = form.service ? svc(form.service) : null;
+
+  const handleFilesAdded = async (fileList) => {
+    const rawFiles = Array.from(fileList || []);
+    if (!rawFiles.length) return;
+
+    setFileError('');
+    setIsProcessingFiles(true);
+
+    const maxFileSize = 10 * 1024 * 1024; // 10MB limit per file
+    const processedFiles = [];
+    const errors = [];
+
+    for (const file of rawFiles) {
+      const isPdf = file.type === 'application/pdf' || /\.pdf$/i.test(file.name);
+      const isImg = file.type?.startsWith('image/') || /\.(jpg|jpeg|png|webp|gif)$/i.test(file.name);
+
+      if (!isPdf && !isImg) {
+        errors.push(`"${file.name}" is not supported. Please select PDF or image files.`);
+        continue;
+      }
+
+      if (file.size > maxFileSize) {
+        errors.push(`"${file.name}" exceeds the 10MB file limit.`);
+        continue;
+      }
+
+      try {
+        const dataUrl = await compressImageIfNeeded(file);
+        if (!dataUrl) {
+          errors.push(`Could not read "${file.name}".`);
+          continue;
+        }
+
+        const id = 'med_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 7);
+        // Create a blob URL for safe, immediate in-browser tab viewing (avoids Chromium data: URL navigation blocks)
+        let blobUrl = '';
+        try {
+          blobUrl = URL.createObjectURL(file);
+        } catch (_) {}
+
+        processedFiles.push({
+          id,
+          name: file.name,
+          type: file.type || (isPdf ? 'application/pdf' : 'image/jpeg'),
+          size: file.size,
+          data: dataUrl,
+          blobUrl: blobUrl || dataUrl,
+          url: blobUrl || dataUrl,
+          uploadedAt: new Date().toISOString(),
+          uploadedBy: 'admin',
+        });
+      } catch (err) {
+        console.error('File read error:', err);
+        errors.push(`Error reading "${file.name}".`);
+      }
+    }
+
+    if (errors.length > 0) {
+      setFileError(errors.join(' '));
+    }
+
+    if (processedFiles.length > 0) {
+      setMedicalFiles((prev) => [...prev, ...processedFiles]);
+    }
+
+    setIsProcessingFiles(false);
+  };
+
+  const handleFileInputChange = (e) => {
+    if (e.target.files && e.target.files.length > 0) {
+      handleFilesAdded(e.target.files);
+    }
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
+
+  const handleDrop = (e) => {
+    e.preventDefault();
+    setIsDragging(false);
+    if (e.dataTransfer?.files && e.dataTransfer.files.length > 0) {
+      handleFilesAdded(e.dataTransfer.files);
+    }
+  };
+
+  const handleRemoveFile = (indexToRemove) => {
+    setMedicalFiles((prev) => prev.filter((_, idx) => idx !== indexToRemove));
+  };
 
   const handleServiceChange = (sid) => {
     if (!sid) {
@@ -121,6 +280,14 @@ export function NewBooking({ onBack, onBookingCreated, fromEnqId }) {
       return;
     }
 
+    if (isProcessingFiles) {
+      setForm((prev) => ({
+        ...prev,
+        err: 'Please wait until medical document files have finished loading.',
+      }));
+      return;
+    }
+
     if (isSubmitting) return;
     setIsSubmitting(true);
     setForm((prev) => ({ ...prev, err: '' }));
@@ -146,6 +313,7 @@ export function NewBooking({ onBack, onBookingCreated, fromEnqId }) {
       notes: form.notes.trim(),
       source: form.source.trim() || 'Call',
       status: 'requested',
+      files: medicalFiles,
     };
 
     try {
@@ -174,6 +342,9 @@ export function NewBooking({ onBack, onBookingCreated, fromEnqId }) {
         id: finalId,
         code: finalCode,
         status: 'requested',
+        files: created?.files || medicalFiles,
+        confirmedBy: null,
+        confirmedAt: null,
         createdAt: now,
         history: [
           { status: 'requested', at: now, by: 'admin', note: 'Booking request created by care desk' }
@@ -614,23 +785,175 @@ export function NewBooking({ onBack, onBookingCreated, fromEnqId }) {
           />
         </div>
 
+        {/* 14. Patient Medical History Documents (Multiple file upload) */}
+        <div className="pt-2 border-t border-slate-100 space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <label className="text-xs sm:text-[13px] font-semibold text-slate-800">
+                Patient Medical History Documents
+              </label>
+              {medicalFiles.length > 0 && (
+                <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-[#0E2F5A]/10 text-[#0E2F5A]">
+                  {medicalFiles.length}
+                </span>
+              )}
+            </div>
+            {medicalFiles.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setMedicalFiles([])}
+                className="text-[11px] font-semibold text-rose-600 hover:text-rose-700 hover:underline cursor-pointer"
+              >
+                Clear all
+              </button>
+            )}
+          </div>
+
+          <p className="text-[11px] text-slate-500">
+            Upload patient reports and test documents (e.g. blood report, urine report, discharge summary, ECG, prescriptions). You can select and upload multiple files simultaneously.
+          </p>
+
+          {/* Upload Dropzone */}
+          <div
+            onDragOver={(e) => {
+              e.preventDefault();
+              setIsDragging(true);
+            }}
+            onDragLeave={() => setIsDragging(false)}
+            onDrop={handleDrop}
+            onClick={() => fileInputRef.current?.click()}
+            className={`border-2 border-dashed rounded-xl p-5 text-center cursor-pointer transition flex flex-col items-center justify-center gap-2 select-none ${
+              isDragging
+                ? 'border-[#0E2F5A] bg-[#0E2F5A]/5 ring-2 ring-[#0E2F5A]/20'
+                : 'border-slate-200 hover:border-slate-300 bg-slate-50/60 hover:bg-slate-50'
+            }`}
+          >
+            <input
+              ref={fileInputRef}
+              type="file"
+              multiple
+              accept=".pdf,image/png,image/jpeg,image/webp,image/jpg"
+              onChange={handleFileInputChange}
+              className="hidden"
+            />
+            <div className="w-10 h-10 rounded-full bg-white border border-slate-200 shadow-2xs flex items-center justify-center text-[#0E2F5A]">
+              {isProcessingFiles ? (
+                <span className="w-4 h-4 border-2 border-[#0E2F5A] border-t-transparent rounded-full animate-spin" />
+              ) : (
+                <Icon name="upload" size={18} />
+              )}
+            </div>
+            <div className="text-xs font-semibold text-slate-800">
+              {isProcessingFiles
+                ? 'Processing selected files...'
+                : 'Click to upload or drag & drop medical reports here'}
+            </div>
+            <div className="text-[11px] text-slate-500">
+              Multiple files supported · PDF, JPG, PNG, WEBP (up to 10MB per file)
+            </div>
+          </div>
+
+          {fileError && (
+            <div className="p-2.5 rounded-lg bg-amber-50 border border-amber-200 text-amber-800 text-[11px] font-medium flex items-center justify-between">
+              <span>{fileError}</span>
+              <button
+                type="button"
+                onClick={() => setFileError('')}
+                className="text-amber-700 hover:text-amber-900 ml-2 font-bold cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+          )}
+
+          {/* Uploaded Documents List */}
+          {medicalFiles.length > 0 && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+              {medicalFiles.map((f, idx) => {
+                const isPdf = f.type?.includes('pdf') || f.name?.toLowerCase().endsWith('.pdf');
+                return (
+                  <div
+                    key={f.id || idx}
+                    className="flex items-center justify-between p-2.5 rounded-lg border border-slate-200 bg-slate-50 shadow-2xs hover:bg-slate-100/70 transition"
+                  >
+                    <div
+                      className="min-w-0 flex items-center gap-2.5 cursor-pointer flex-1"
+                      onClick={() => setSelectedPreview(f)}
+                      title="Click to preview inline"
+                    >
+                      <div
+                        className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${
+                          isPdf ? 'bg-rose-50 text-rose-600' : 'bg-blue-50 text-blue-600'
+                        }`}
+                      >
+                        <Icon name={isPdf ? 'fileText' : 'image'} size={15} />
+                      </div>
+                      <div className="min-w-0">
+                        <p
+                          className="text-xs font-medium text-slate-800 truncate max-w-[190px] sm:max-w-[230px]"
+                          title={f.name}
+                        >
+                          {f.name || `Document ${idx + 1}`}
+                        </p>
+                        <p className="text-[10px] text-slate-400">
+                          {formatFileSize(f.size)}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-1.5 shrink-0 ml-2">
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          openDocument(f);
+                        }}
+                        className="text-[11px] font-bold text-[#0E2F5A] hover:underline flex items-center gap-1 px-1.5 py-1 cursor-pointer"
+                        title="Open in new browser tab"
+                      >
+                        <span>View</span>
+                        <Icon name="external" size={11} />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleRemoveFile(idx);
+                        }}
+                        className="w-7 h-7 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 flex items-center justify-center transition cursor-pointer"
+                        title="Remove document"
+                      >
+                        <Icon name="trash" size={13} />
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
         {form.err && (
           <div className="p-3 rounded-xl bg-red-50 text-red-700 text-xs font-semibold border border-red-200">
             {form.err}
           </div>
         )}
 
-        {/* 14. Action Buttons */}
+        {/* 15. Action Buttons */}
         <div className="flex items-center gap-3 pt-1">
           <button
             type="submit"
-            disabled={isSubmitting}
+            disabled={isSubmitting || isProcessingFiles}
             className="px-5 py-2.5 rounded-lg bg-[#F2A01F] hover:bg-[#e09115] disabled:opacity-60 disabled:cursor-not-allowed text-[#0A2342] font-bold text-xs sm:text-sm shadow-xs transition cursor-pointer flex items-center gap-2"
           >
             {isSubmitting ? (
               <>
                 <span className="w-3.5 h-3.5 border-2 border-[#0A2342] border-t-transparent rounded-full animate-spin" />
                 <span>Creating booking...</span>
+              </>
+            ) : isProcessingFiles ? (
+              <>
+                <span className="w-3.5 h-3.5 border-2 border-[#0A2342] border-t-transparent rounded-full animate-spin" />
+                <span>Processing files...</span>
               </>
             ) : (
               'Create booking request'
@@ -646,6 +969,14 @@ export function NewBooking({ onBack, onBookingCreated, fromEnqId }) {
           </button>
         </div>
       </form>
+
+      {/* Inline Document Preview Modal (Lightbox) */}
+      {selectedPreview && (
+        <Lightbox
+          fileId={selectedPreview}
+          onClose={() => setSelectedPreview(null)}
+        />
+      )}
     </div>
   );
 }

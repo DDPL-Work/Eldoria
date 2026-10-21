@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { RiRefreshLine } from 'react-icons/ri';
 import { Icon } from '../../constants/icons';
 import { CityDropdown } from '../common/CityDropdown';
@@ -13,6 +13,7 @@ import {
   DOW,
   MON
 } from '../../constants/data';
+import EcgWaveAnimation from '../common/EcgWaveAnimation';
 
 export function Dashboard({ onTab, onOpenBooking, onNewBooking }) {
   const { showToast } = useUI();
@@ -25,14 +26,14 @@ export function Dashboard({ onTab, onOpenBooking, onNewBooking }) {
     enqAll,
     applications,
     apprOf,
-    cities,
+    // cities,
     cityName,
     bCity,
     svcB,
-    setStatus,
-    assign,
-    unassign,
-    notify,
+    // setStatus,
+    // assign,
+    // unassign,
+    // notify,
     dashboardData,
     dashboardLoading,
     dashboardError,
@@ -163,16 +164,16 @@ export function Dashboard({ onTab, onOpenBooking, onNewBooking }) {
     : fallbackByCityRows;
 
   // Action: Confirm booking
-  const handleConfirm = (b) => {
-    setStatus(b, 'confirmed', { confirmedBy: 'admin', confirmedAt: Date.now() }, 'admin');
-    notify(
-      'client:' + (b.clientPhone || ''),
-      'Booking confirmed',
-      `Your ${b.serviceName || svcB(b)?.name || 'care'} booking ${b.code} is confirmed for ${b.whenFormatted || `${fmtDate(b.date)}, ${b.time}`}. We'll assign a caregiver next.`,
-      b.id
-    );
-    showToast?.(`Booking ${b.code || ''} confirmed`);
-  };
+  // const handleConfirm = (b) => {
+  //   setStatus(b, 'confirmed', { confirmedBy: 'admin', confirmedAt: Date.now() }, 'admin');
+  //   notify(
+  //     'client:' + (b.clientPhone || ''),
+  //     'Booking confirmed',
+  //     `Your ${b.serviceName || svcB(b)?.name || 'care'} booking ${b.code} is confirmed for ${b.whenFormatted || `${fmtDate(b.date)}, ${b.time}`}. We'll assign a caregiver next.`,
+  //     b.id
+  //   );
+  //   showToast?.(`Booking ${b.code || ''} confirmed`);
+  // };
 
   // Source badge styling
   const renderSourceBadge = (source) => {
@@ -246,44 +247,81 @@ export function Dashboard({ onTab, onOpenBooking, onNewBooking }) {
         </div>
       )}
 
-      {/* 5. CARE DESK HERO BANNER - Clean gradient matching reference image */}
-      <section className="relative overflow-hidden rounded-2xl bg-[linear-gradient(100deg,#0E386E_0%,#13447E_40%,#0E3360_80%,#0A2447_100%)] p-5 sm:p-6 text-white shadow-md border border-[#1b4d88]/40 select-none">
-        <div className="relative z-10 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 sm:gap-6">
-          {/* Left: Official Circular Logo + Greeting Info */}
-          <div className="flex items-center gap-3.5 sm:gap-4.5">
-            <div className="w-13 h-13 sm:w-14 sm:h-14 rounded-full bg-white shadow-md flex items-center justify-center p-0.5 shrink-0 select-none overflow-hidden">
-              <img
-                src="/eldoria-logo.png"
-                alt="Eldoria+ Care at Home"
-                className="w-full h-full object-contain"
-              />
-            </div>
 
-            <div>
-              <p className="text-slate-300 text-xs sm:text-[13px] font-medium leading-none">
-                {bannerGreeting} · {bannerDate}
-              </p>
-              <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight leading-tight mt-1.5">
-                {bannerTitle}
-              </h1>
-              <p className="text-[#f59e0b] font-bold text-xs sm:text-sm mt-1 leading-snug">
-                {bannerSubtitle}
-              </p>
-            </div>
-          </div>
 
-          {/* Right: + New booking Button */}
-          <button
-            type="button"
-            onClick={onNewBooking}
-            className="bg-[#f59e0b] hover:bg-[#e69107] text-[#0c1f36] font-bold text-xs sm:text-sm px-4 py-2.5 rounded-xl flex items-center gap-2 shadow-xs transition shrink-0 cursor-pointer"
-          >
-            <span className="text-lg leading-none font-extrabold">+</span>
-            <span>New booking</span>
-          </button>
-        </div>
-      </section>
+     {/* 5. CARE DESK HERO BANNER */}
+<section
+  className="relative isolate overflow-hidden rounded-lg
+  bg-[linear-gradient(100deg,#0E386E_0%,#13447E_40%,#0E3360_80%,#0A2447_100%)]
+  p-5 sm:p-6 text-white shadow-md border border-[#1b4d88]/40 select-none"
+>
+  {/* Animated ECG Background */}
+  <div
+    aria-hidden="true"
+    className="pointer-events-none absolute inset-x-0 top-1/2
+    z-0 -translate-y-1/2 opacity-[0.45]"
+  >
+    <EcgWaveAnimation />
+  </div>
 
+  {/* Optional subtle overlay to preserve text readability */}
+  <div
+    aria-hidden="true"
+    className="pointer-events-none absolute inset-0 z-0
+    bg-gradient-to-r from-[#0E386E]/20 via-transparent to-[#0A2447]/30"
+  />
+
+  {/* Foreground Content */}
+  <div
+    className="relative z-10 flex flex-col sm:flex-row
+    items-start sm:items-center justify-between gap-4 sm:gap-6"
+  >
+    {/* Left: Logo + Greeting */}
+    <div className="flex items-center gap-3.5 sm:gap-4.5">
+      <div
+        className="w-13 h-13 sm:w-14 sm:h-14 rounded-full
+        bg-white shadow-md flex items-center justify-center
+        p-0.5 shrink-0 overflow-hidden"
+      >
+        <img
+          src="/eldoria-logo.png"
+          alt="Eldoria+ Care at Home"
+          className="w-full h-full object-contain"
+        />
+      </div>
+
+      <div>
+        <p className="text-slate-300 text-xs sm:text-[13px] font-medium leading-none">
+          {bannerGreeting} · {bannerDate}
+        </p>
+
+        <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight leading-tight mt-1.5">
+          {bannerTitle}
+        </h1>
+
+        <p className="text-[#f59e0b] font-bold text-xs sm:text-sm mt-1 leading-snug">
+          {bannerSubtitle}
+        </p>
+      </div>
+    </div>
+
+    {/* Right: New Booking Button */}
+    <button
+      type="button"
+      onClick={onNewBooking}
+      className="bg-[#f59e0b] hover:bg-[#e69107]
+      text-[#0c1f36] font-bold text-xs sm:text-sm
+      px-4 py-2.5 rounded-lg flex items-center gap-2
+      shadow-xs transition shrink-0 cursor-pointer"
+    >
+      <span className="text-lg leading-none font-extrabold">
+        +
+      </span>
+
+      <span>New booking</span>
+    </button>
+  </div>
+</section>
       {/* 6. KPI CARDS - Smooth linear gradient top border as shown in reference image */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5 sm:gap-4">
         {/* KPI 1: New requests */}

@@ -33,7 +33,8 @@ export const ST = {
   on_the_way: { label: 'On the way', cls: 'bg-[#FDF0D9] text-[#8A5000]' },
   in_progress: { label: 'Visit in progress', cls: 'bg-[#FDF0D9] text-[#8A5000]' },
   completed: { label: 'Completed', cls: 'bg-[#E3F4EA] text-[#1E6B42]' },
-  cancelled: { label: 'Cancelled', cls: 'bg-[#FBE7E7] text-[#A12B2B]' }
+  cancelled: { label: 'Cancelled', cls: 'bg-[#FBE7E7] text-[#A12B2B]' },
+  date_exceeded: { label: 'Date exceeded', cls: 'bg-[#FEE2E2] text-[#991B1B]' },
 };
 
 export const FLOW = ['requested', 'confirmed', 'assigned', 'on_the_way', 'in_progress', 'completed'];
@@ -43,7 +44,9 @@ export const FLOW_TXT = {
   assigned: 'Staff assigned',
   on_the_way: 'Staff on the way',
   in_progress: 'Visit in progress',
-  completed: 'Visit completed'
+  completed: 'Visit completed',
+  cancelled: 'Booking cancelled',
+  date_exceeded: 'Booking date exceeded',
 };
 export const ACTIVE = ['requested', 'confirmed', 'assigned', 'on_the_way', 'in_progress'];
 

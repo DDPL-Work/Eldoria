@@ -249,8 +249,8 @@ const getAdminServices = async (req, res) => {
       ],
     });
 
-    const formattedServices = rawServices.map(formatService);
-    const categoriesGrouped = groupServicesByCategory(formattedServices);
+    // const formattedServices = rawServices.map(formatService);
+    // const categoriesGrouped = groupServicesByCategory(formattedServices);
 
     // Enrich categories with standalone Category records from Category table
     try {
@@ -393,7 +393,7 @@ const createService = async (req, res) => {
       categoryIcon,
       categoryDesc,
       categoryOrder,
-      city,
+      // city,
       cityName,
       type = 'care',
       desc,

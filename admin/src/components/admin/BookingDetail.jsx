@@ -1,9 +1,17 @@
 import { useState, useEffect } from 'react';
-import { RiRefreshLine } from 'react-icons/ri';
+import {
+  RiRefreshLine,
+  RiDashboardLine,
+  RiDropLine,
+  RiLungsLine,
+  RiHeartPulseLine,
+  RiThermometerLine,
+} from 'react-icons/ri';
 import { Icon } from '../../constants/icons';
 import { DatabaseLoader } from '../common/DatabaseLoader';
 import { useStore } from '../../context/StoreContext';
-import { bookingAPI } from '../../services/api';
+import { bookingAPI, cancellationAPI } from '../../services/api';
+import { openDocument } from '../../services/documentViewer';
 import {
   fmtDate,
   fmtTs,
@@ -16,6 +24,7 @@ import {
   ACTIVE,
   DEFAULT_CITIES
 } from '../../constants/data';
+import visitReportNurseImg from '../../assets/visit-report-nurse.png';
 
 export function BookingDetail({ bookingId, onBack, onShowToast }) {
   const {
@@ -34,16 +43,17 @@ export function BookingDetail({ bookingId, onBack, onShowToast }) {
     fetchBookingById,
     // Integrated backend booking state & actions
     availableStaff,
-    availableStaffCriteria,
+    // availableStaffCriteria,
     availableStaffLoading,
-    availableStaffError,
-    bookingActionLoading,
-    bookingActionError,
+    // availableStaffError,
+    // bookingActionLoading,
+    // bookingActionError,
     fetchAvailableStaff,
     confirmBooking,
     assignStaff,
     unassignStaff,
     updateBookingStatus,
+    cancelAdminBooking,
     backendStaffRequests
   } = useStore();
 
@@ -98,7 +108,7 @@ export function BookingDetail({ bookingId, onBack, onShowToast }) {
   }, [currentBookingDetail?.id, currentBookingDetail?.code, bookingId, expandRadius, fetchAvailableStaff]);
 
   // Resolve booking: Prefer live backend details, fallback to local store
-  const b =
+  const rawB =
     currentBookingDetail &&
     (String(currentBookingDetail.id) === String(bookingId) ||
       String(currentBookingDetail.code) === String(bookingId))
@@ -107,6 +117,19 @@ export function BookingDetail({ bookingId, onBack, onShowToast }) {
         Object.values(data?.bookings || {}).find(
           (x) => String(x.code) === String(bookingId) || String(x.id) === String(bookingId)
         );
+
+  // Normalize: Newly created bookings without staff assignment start as 'requested' (Request received)
+  const isAutoConfirmedBug =
+    rawB &&
+    !rawB.staffId &&
+    !rawB.assignedStaff &&
+    rawB.status === 'confirmed' &&
+    (!rawB.history || rawB.history.length <= 2) &&
+    !rawB.assignedBy;
+
+  const b = isAutoConfirmedBug
+    ? { ...rawB, status: 'requested', confirmedBy: null, confirmedAt: null }
+    : rawB;
 
   // Loading state when initial detail hasn't arrived
   if (bookingDetailLoading && !b) {
@@ -463,26 +486,29 @@ export function BookingDetail({ bookingId, onBack, onShowToast }) {
     setActionLoading(true);
     setCancelError('');
     try {
-      // Call backend API PATCH /api/v1/admin/booking/:id/status
-      const res = await bookingAPI.updateBookingStatus(bid, {
-        status: 'cancelled',
+      // Call dedicated backend cancellation API: PATCH /api/v1/cancellation/admin/:id
+      const res = await cancellationAPI.cancelAdminBooking(bid, {
         cancelReason: finalReason,
-        note: finalReason,
+        reason: finalReason,
       });
-      updateBookingStatus(bid, { status: 'cancelled', cancelReason: finalReason, note: finalReason });
+      if (cancelAdminBooking) {
+        cancelAdminBooking(bid, { cancelReason: finalReason });
+      }
       setStatus(b, 'cancelled', { cancelReason: finalReason, note: finalReason }, 'admin');
       await fetchBookingById(bid);
       onShowToast?.(res?.message || `Booking cancelled: ${finalReason}`);
-    } catch (err) {
-      console.warn('Backend cancel booking error (using local fallback):', err);
-      setStatus(b, 'cancelled', { cancelReason: finalReason, note: finalReason }, 'admin');
-      onShowToast?.(`Booking cancelled: ${finalReason} (local store)`);
-    } finally {
-      setActionLoading(false);
       setConfirmCancel(false);
       setCancelReasonPreset('');
       setCancelReasonCustom('');
       setCancelError('');
+    } catch (err) {
+      console.warn('Backend cancel booking error:', err);
+      const errMsg = err?.message || 'Failed to cancel booking';
+      setCancelError(errMsg);
+      onShowToast?.(`Cancel failed: ${errMsg}`);
+      return;
+    } finally {
+      setActionLoading(false);
     }
 
     notify(
@@ -515,6 +541,8 @@ export function BookingDetail({ bookingId, onBack, onShowToast }) {
       cls = 'bg-[#E4ECF7] text-[#0E2F5A] border border-transparent';
     } else if (status === 'cancelled') {
       cls = 'bg-[#FBE7E7] text-[#A12B2B] border border-transparent';
+      } else if (status === 'date_exceeded') {
+      cls = 'bg-[#FEE2E2] text-[#991B1B] border border-[#FCA5A5]';
     }
     const label = ST[status]?.label || status;
     return (
@@ -526,6 +554,55 @@ export function BookingDetail({ bookingId, onBack, onShowToast }) {
 
   const idx = FLOW.indexOf(b.status);
   const when = (sName) => (b.history || []).filter((h) => h.status === sName).slice(-1)[0];
+
+  const formatFileSize = (bytes) => {
+    if (!bytes || isNaN(bytes)) return '';
+    const num = Number(bytes);
+    if (num < 1024) return `${num} B`;
+    if (num < 1024 * 1024) return `${(num / 1024).toFixed(1)} KB`;
+    return `${(num / (1024 * 1024)).toFixed(1)} MB`;
+  };
+
+  const getReportsList = () => {
+    let raw = b.reports;
+    if (typeof raw === 'string') {
+      try {
+        raw = JSON.parse(raw);
+      } catch (e) {
+        raw = [];
+      }
+    }
+    if (Array.isArray(raw) && raw.length > 0) {
+      return raw;
+    }
+    // Fallback: If no explicit reports array but visit data exists
+    if (b.visit && Object.keys(b.visit).length > 0) {
+      return [
+        {
+          id: b.visit.lastReportId || 'rep_current',
+          date: b.date || '',
+          notes: b.visit.note || b.visit.notes || '',
+          vitals: {
+            bp: b.visit.bp,
+            sugar: b.visit.sugar,
+            spo2: b.visit.spo2,
+            temp: b.visit.temp,
+            pulse: b.visit.pulse,
+          },
+          tasks: Array.isArray(b.tasks) ? b.tasks : [],
+          photos: Array.isArray(b.visit.photos) ? b.visit.photos : [],
+          files: Array.isArray(b.visit.files) ? b.visit.files : [],
+          submittedAt: b.visit.lastReportAt,
+          staffName: b.staffName || (st ? st.name : ''),
+        },
+      ];
+    }
+    return [];
+  };
+
+  const reportsList = getReportsList();
+  const report = reportsList.length > 0 ? reportsList[reportsList.length - 1] : null;
+
 
   return (
     <div className="p-4 sm:p-6 lg:p-4 w-full max-w-[1400px] mx-auto space-y-4">
@@ -563,6 +640,16 @@ export function BookingDetail({ bookingId, onBack, onShowToast }) {
           {renderStatusPill(b.status)}
         </div>
       </div>
+
+      {/* Date Exceeded Warning Banner */}
+      {b.status === 'date_exceeded' && (
+        <div className="bg-rose-50 border border-rose-200/90 rounded-xl p-3.5 sm:p-4 text-xs sm:text-sm text-rose-900 flex items-start gap-3 shadow-2xs">
+          <span className="text-base sm:text-lg shrink-0">⚠️</span>
+          <div>
+            <span className="font-bold">Booking Date Exceeded:</span> The scheduled date ({fmtDate(b.date)}) has passed without any confirmation or staff assignment from the Care Desk. Please reschedule the visit date or cancel this request.
+          </div>
+        </div>
+      )}
 
       {/* Non-blocking Detail Error Notice */}
       {bookingDetailError && (
@@ -661,7 +748,7 @@ export function BookingDetail({ bookingId, onBack, onShowToast }) {
 
             <dt className="text-slate-500 font-medium">Confirmed by</dt>
             <dd className="font-semibold text-slate-900">
-              {b.confirmedBy ? (
+              {b.status !== 'requested' && b.confirmedBy ? (
                 <span>
                   {actorName(b.confirmedBy)} · {fmtTs(b.confirmedAt)}
                 </span>
@@ -682,99 +769,423 @@ export function BookingDetail({ bookingId, onBack, onShowToast }) {
             </dd>
           </dl>
 
-          {/* Visit Report (If available) */}
-          {b.visit && (
-            <div className="pt-4 border-t border-slate-100">
-              <div className="text-xs sm:text-sm font-bold text-slate-900 mb-2">Visit report</div>
-              <dl className="grid grid-cols-[105px_minmax(0,1fr)] sm:grid-cols-[115px_minmax(0,1fr)] gap-x-3 gap-y-2 text-xs sm:text-[13px]">
-                <dt className="text-slate-500 font-medium">BP</dt>
-                <dd className="font-semibold text-slate-900">{b.visit.bp || '—'}</dd>
-
-                <dt className="text-slate-500 font-medium">Sugar</dt>
-                <dd className="font-semibold text-slate-900">{b.visit.sugar || '—'}</dd>
-
-                <dt className="text-slate-500 font-medium">SpO₂</dt>
-                <dd className="font-semibold text-slate-900">{b.visit.spo2 || '—'}</dd>
-
-                <dt className="text-slate-500 font-medium">Notes</dt>
-                <dd className="font-semibold text-slate-900">{b.visit.note || '—'}</dd>
-
-                <dt className="text-slate-500 font-medium">Tasks done</dt>
-                <dd className="font-semibold text-slate-900">
-                  {(b.tasks || []).filter((t) => t.done).length} of {(b.tasks || []).length}
-                </dd>
-              </dl>
+          {/* Patient Medical History Documents (if any) */}
+          {Array.isArray(b.files) && b.files.length > 0 && (
+            <div className="pt-4 border-t border-slate-100 space-y-2.5">
+              <div className="flex items-center gap-2">
+                <span className="text-xs sm:text-sm font-bold text-slate-900">Patient Medical History Documents</span>
+                <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-slate-100 text-slate-700">
+                  {b.files.length}
+                </span>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                {b.files.map((f, i) => (
+                  <div
+                    key={f.id || i}
+                    className="flex items-center justify-between p-2.5 rounded-lg border border-slate-200 bg-slate-50 shadow-2xs"
+                  >
+                    <div className="min-w-0 flex items-center gap-2">
+                   <Icon
+  name="fileText"
+  size={14}
+  className="text-blue-500 shrink-0"
+/>
+                      <span className="text-xs font-medium text-slate-800 truncate" title={f.name}>
+                        {f.name || `Document ${i + 1}`}
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => openDocument(f)}
+                      className="text-[11px] font-bold text-[#0E2F5A] hover:underline flex items-center gap-1 shrink-0 ml-2 cursor-pointer"
+                      title="View document in new tab"
+                    >
+                      <span>View</span>
+                      <Icon name="external" size={11} className="text-blue-500 shrink-0" />
+                    </button>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
 
-          {/* Status History Timeline matching reference prototype */}
-          <div className="pt-4 border-t border-slate-100">
-            <div className="text-xs sm:text-sm font-bold text-slate-900 mb-3">Status history</div>
-            {b.status === 'cancelled' ? (
-              <div className="p-3.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-900 text-xs space-y-1.5 shadow-2xs">
-                <div className="font-bold flex items-center gap-1.5 text-rose-700 text-xs sm:text-[13px]">
-                  <span className="w-2 h-2 rounded-full bg-rose-600 inline-block shrink-0" />
-                  <span>Booking Cancelled</span>
-                </div>
-                <div className="text-slate-700 leading-relaxed font-normal">
-                  <span className="font-semibold text-slate-900">Reason:</span>{' '}
-                  {b.cancelReason ||
-                    (Array.isArray(b.history) ? b.history.find((h) => h.status === 'cancelled')?.note : '') ||
-                    'Cancelled by care desk'}
+          {/* Visit Report Section (Single Report, no duplicates) */}
+          <div className="pt-3 border-t border-slate-100 space-y-2.5">
+            <div className="flex items-center justify-between">
+              <div className="text-xs sm:text-sm font-bold text-slate-900">Visit Report</div>
+            </div>
+
+            {!report ? (
+              <div className="py-3 px-5 rounded-xl border border-dashed border-slate-200/90 bg-slate-50/50 text-center flex flex-col items-center justify-center space-y-1.5">
+                <img
+                  src={visitReportNurseImg}
+                  alt="No visit report yet"
+                  className="h-28 sm:h-43 md:h-43 max-h-[200px] w-auto object-contain select-none pointer-events-none drop-shadow-2xs"
+                />
+                <div className="space-y-0.5 max-w-md">
+                  <div className="text-xs sm:text-[13px] font-bold text-slate-800">
+                    No visit report submitted yet
+                  </div>
+                  <p className="text-[11px] text-slate-400 max-w-sm mx-auto leading-normal">
+                    When the caregiver visits the patient, submitted vitals, checklist tasks, observation notes, and photos will appear here.
+                  </p>
                 </div>
               </div>
-            ) : (
-              <div className="flex flex-col">
-                {FLOW.map((sName, i) => {
-                  const done = i < idx || (i === idx && b.status === 'completed');
-                  const cur = i === idx && !done;
-                  const h = when(sName);
-                  const isLast = i === FLOW.length - 1;
+            ) : (() => {
+              const rep = report;
+              const tasks = (Array.isArray(rep.tasks) && rep.tasks.length > 0)
+                ? rep.tasks
+                : (Array.isArray(b.tasks) ? b.tasks : []);
+              const photos = Array.isArray(rep.photos) ? rep.photos : [];
+              const files = Array.isArray(rep.files) ? rep.files : [];
+              const vitals = rep.vitals || (b.visit ? {
+                bp: b.visit.bp,
+                sugar: b.visit.sugar,
+                spo2: b.visit.spo2,
+                temp: b.visit.temp,
+                pulse: b.visit.pulse,
+              } : {});
+              const completedTasksCount = tasks.filter((t) => t.done).length;
+              const reportDate = rep.date ? fmtDate(rep.date) : fmtDate(b.date);
+              const staffDisplayName = rep.staffName || (photos[0]?.uploadedBy) || (st?.name) || 'Assigned Caregiver';
 
-                  return (
-                    <div key={sName} className="flex gap-2.5 items-stretch">
-                      {/* Left Rail: Node + Line */}
-                      <div className="flex flex-col items-center w-5 shrink-0">
-                        {done ? (
-                          <span className="w-5 h-5 rounded-full bg-[#1E6B42] border-2 border-[#1E6B42] flex items-center justify-center text-white shrink-0 shadow-2xs">
-                            <Icon name="check" size={11} strokeWidth={3} className="text-white" />
-                          </span>
-                        ) : cur ? (
-                          <span className="w-5 h-5 rounded-full bg-white border-[4px] border-[#F2A01F] shrink-0 shadow-2xs" />
-                        ) : (
-                          <span className="w-5 h-5 rounded-full bg-white border-2 border-[#E1E9F4] shrink-0" />
-                        )}
-
-                        {!isLast && (
-                          <span
-                            className={`w-[2px] flex-1 min-h-[14px] my-0.5 ${
-                              done ? 'bg-[#1E6B42]' : 'bg-[#E1E9F4]'
-                            }`}
-                          />
-                        )}
-                      </div>
-
-                      {/* Right Text */}
-                      <div className="pb-2.5 pt-0.5">
-                        <div
-                          className={`text-xs sm:text-[13px] font-bold leading-tight ${
-                            i > idx ? 'text-slate-400 font-medium' : 'text-slate-900'
-                          }`}
-                        >
-                          {FLOW_TXT[sName]}
+              return (
+                <div
+                  key={rep.id || 'visit_report'}
+                  className=" sm:p- space-y-4 shadow-2xs"
+                >
+                  {/* Top Row: Date, Caregiver, Timestamp & Tasks Badge */}
+                  <div className="flex flex-wrap items-center justify-between gap-2.5 pb-3 border-b border-slate-200/80">
+                    <div className="flex items-center gap-2.5">
+                      <span className="w-8 h-8 rounded-lg bg-[#E4ECF7] text-[#0E2F5A] flex items-center justify-center font-bold text-xs shrink-0">
+                        <Icon name="cal" size={15} />
+                      </span>
+                      <div>
+                        <div className="text-xs sm:text-[13px] font-bold text-slate-900">
+                          {reportDate}
                         </div>
-                        {h && i <= idx && (
-                          <div className="text-[11px] text-slate-400 font-medium mt-0.5">
-                            {fmtTs(h.at)}
-                            {h.by && h.by !== 'client' ? ` · by ${actorName(h.by)}` : ''}
-                          </div>
-                        )}
+                        <div className="text-[11px] text-slate-400">
+                          Caregiver: <span className="font-semibold text-slate-700">{staffDisplayName}</span>
+                          {(rep.submittedAt || rep.createdAt) && (
+                            <span> · {fmtTs(rep.submittedAt || rep.createdAt)}</span>
+                          )}
+                        </div>
                       </div>
                     </div>
-                  );
-                })}
-              </div>
-            )}
+
+                    {tasks.length > 0 && (
+                      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold bg-[#E3F4EA] text-[#1E6B42]">
+                        <Icon name="check" size={12} strokeWidth={3} />
+                        <span>
+                          {completedTasksCount} of {tasks.length} tasks done
+                        </span>
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Notes Section */}
+                  {(rep.notes || rep.note || b.visit?.note) && (
+                    <div className="space-y-1">
+                      <div className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                        Caregiver Notes
+                      </div>
+                      <div className="p-3 rounded-lg bg-white border border-slate-200 text-xs sm:text-[13px] text-slate-800 leading-relaxed font-normal ">
+                        "{rep.notes || rep.note || b.visit?.note}"
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Vitals Recorded Section (Compact, Fixed Height Cards with Corner React-Icons) */}
+                  {(vitals.bp || vitals.sugar || vitals.spo2 || vitals.temp || vitals.temperature || vitals.pulse) && (() => {
+                    const parseVital = (val) => {
+                      if (!val && val !== 0) return { num: '—', unit: '' };
+                      const str = String(val).trim();
+                      const m = str.match(/^([\d./]+)\s*(.*)$/);
+                      if (m) {
+                        return { num: m[1], unit: m[2] };
+                      }
+                      return { num: str, unit: '' };
+                    };
+
+                    const bp = parseVital(vitals.bp);
+                    const sugar = parseVital(vitals.sugar);
+                    const spo2 = parseVital(vitals.spo2);
+                    const pulse = parseVital(vitals.pulse);
+                    const temp = parseVital(vitals.temperature || vitals.temp);
+
+                    return (
+                      <div className="space-y-1.5">
+                        <div className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                          Vitals Recorded
+                        </div>
+                        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-5 gap-2.5">
+                          {vitals.bp && (
+                            <div className="p-2.5 sm:p-3 rounded-lg bg-white border border-slate-200 shadow-2xs flex flex-col justify-between min-h-[58px]">
+                              <div className="flex items-center justify-between">
+                                <span className="text-[10px] sm:text-[11px] font-semibold text-slate-400 uppercase tracking-wider">
+                                  BP
+                                </span>
+                                <RiDashboardLine size={13} className="text-slate-400 shrink-0" />
+                              </div>
+                              <div className="flex items-baseline gap-1 mt-0.5 truncate">
+                                <span className="text-xs sm:text-[13px] font-bold text-slate-900 tracking-tight">
+                                  {bp.num}
+                                </span>
+                                {bp.unit && (
+                                  <span className="text-[10px] sm:text-[11px] font-medium text-slate-400">
+                                    {bp.unit}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          )}
+
+                          {vitals.sugar && (
+                            <div className="p-2.5 sm:p-3 rounded-lg bg-white border border-slate-200 shadow-2xs flex flex-col justify-between min-h-[58px]">
+                              <div className="flex items-center justify-between">
+                                <span className="text-[10px] sm:text-[11px] font-semibold text-slate-400 uppercase tracking-wider">
+                                  Sugar
+                                </span>
+                                <RiDropLine size={13} className="text-slate-400 shrink-0" />
+                              </div>
+                              <div className="flex items-baseline gap-1 mt-0.5 truncate">
+                                <span className="text-xs sm:text-[13px] font-bold text-slate-900 tracking-tight">
+                                  {sugar.num}
+                                </span>
+                                {sugar.unit && (
+                                  <span className="text-[10px] sm:text-[11px] font-medium text-slate-400">
+                                    {sugar.unit}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          )}
+
+                          {vitals.spo2 && (
+                            <div className="p-2.5 sm:p-3 rounded-lg bg-white border border-slate-200 shadow-2xs flex flex-col justify-between min-h-[58px]">
+                              <div className="flex items-center justify-between">
+                                <span className="text-[10px] sm:text-[11px] font-semibold text-slate-400 uppercase tracking-wider">
+                                  SpO₂
+                                </span>
+                                <RiLungsLine size={13} className="text-slate-400 shrink-0" />
+                              </div>
+                              <div className="flex items-baseline gap-1 mt-0.5 truncate">
+                                <span className="text-xs sm:text-[13px] font-bold text-slate-900 tracking-tight">
+                                  {spo2.num}
+                                </span>
+                                {spo2.unit && (
+                                  <span className="text-[10px] sm:text-[11px] font-medium text-slate-400">
+                                    {spo2.unit}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          )}
+
+                          {vitals.pulse && (
+                            <div className="p-2.5 sm:p-3 rounded-lg bg-white border border-slate-200 shadow-2xs flex flex-col justify-between min-h-[58px]">
+                              <div className="flex items-center justify-between">
+                                <span className="text-[10px] sm:text-[11px] font-semibold text-slate-400 uppercase tracking-wider">
+                                  Pulse
+                                </span>
+                                <RiHeartPulseLine size={13} className="text-slate-400 shrink-0" />
+                              </div>
+                              <div className="flex items-baseline gap-1 mt-0.5 truncate">
+                                <span className="text-xs sm:text-[13px] font-bold text-slate-900 tracking-tight">
+                                  {pulse.num}
+                                </span>
+                                {pulse.unit && (
+                                  <span className="text-[10px] sm:text-[11px] font-medium text-slate-400">
+                                    {pulse.unit}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          )}
+
+                          {(vitals.temperature || vitals.temp) && (
+                            <div className="p-2.5 sm:p-3 rounded-lg bg-white border border-slate-200 shadow-2xs flex flex-col justify-between min-h-[58px]">
+                              <div className="flex items-center justify-between">
+                                <span className="text-[10px] sm:text-[11px] font-semibold text-slate-400 uppercase tracking-wider">
+                                  Temp
+                                </span>
+                                <RiThermometerLine size={13} className="text-slate-400 shrink-0" />
+                              </div>
+                              <div className="flex items-baseline gap-1 mt-0.5 truncate">
+                                <span className="text-xs sm:text-[13px] font-bold text-slate-900 tracking-tight">
+                                  {temp.num}
+                                </span>
+                                {temp.unit && (
+                                  <span className="text-[10px] sm:text-[11px] font-medium text-slate-400">
+                                    {temp.unit}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })()}
+
+                  {/* Checklist / Tasks Section */}
+                  {tasks.length > 0 && (
+                    <div className="space-y-1.5">
+                      <div className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                        Checklist Tasks ({completedTasksCount}/{tasks.length})
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        {tasks.map((task, tIdx) => (
+                          <div
+                            key={tIdx}
+                            className={`flex items-center gap-2.5 p-2.5 rounded-lg border text-xs ${
+                              task.done
+                                ? 'bg-[#E3F4EA]/40 border-[#A3D9B8] text-slate-900'
+                                : 'bg-white border-slate-200 text-slate-500'
+                            }`}
+                          >
+                            <span
+                              className={`w-4 h-4 rounded flex items-center justify-center shrink-0 ${
+                                task.done
+                                  ? 'bg-[#1E6B42] text-white'
+                                  : 'border border-slate-300 bg-white'
+                              }`}
+                            >
+                              {task.done && <Icon name="check" size={10} strokeWidth={3} />}
+                            </span>
+                            <span className={task.done ? 'font-semibold text-slate-900' : 'font-medium'}>
+                              {task.label || task.title || task.name}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Photos Section */}
+                  {photos.length > 0 && (
+                    <div className="space-y-2 pt-1">
+                      <div className="flex items-center justify-between">
+                        <div className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                          Visit Report Photos ({photos.length})
+                        </div>
+                        <span className="text-[11px] text-slate-400">Click photo or button to view full size</span>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                        {photos.map((photo, pIdx) => {
+                          const photoUrl = photo.url || photo.data;
+                          const photoName = photo.name || `Photo ${pIdx + 1}`;
+                          const photoSize = formatFileSize(photo.size);
+
+                          return (
+                            <div
+                              key={photo.id || pIdx}
+                              className="group flex flex-col rounded-lg overflow-hidden border border-slate-200 bg-white shadow-2xs hover:shadow-sm transition-all"
+                            >
+                              {/* Image Thumbnail with Overlay */}
+                              <a
+                                href={photoUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="relative block aspect-[4/3] bg-slate-100 overflow-hidden cursor-pointer"
+                                title="Click to view image in full size (opens in new tab)"
+                              >
+                                <img
+                                  src={photoUrl}
+                                  alt={photoName}
+                                  loading="lazy"
+                                  className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
+                                />
+                                <div className="absolute inset-0 bg-black/0 group-hover:bg-black/25 transition-colors flex items-center justify-center">
+                                  <span className="opacity-0 group-hover:opacity-100 transition-opacity px-2.5 py-1 rounded bg-black/75 text-white text-[11px] font-medium flex items-center gap-1.5 shadow">
+                                    <Icon name="external" size={12} strokeWidth={2.2} />
+                                    <span>Full Image</span>
+                                  </span>
+                                </div>
+                              </a>
+
+                              {/* Photo Details & Action Button */}
+                              <div className="p-3 flex-1 flex flex-col justify-between space-y-2.5">
+                                <div className="min-w-0">
+                                  <div
+                                    className="text-xs font-bold text-slate-800 truncate"
+                                    title={photoName}
+                                  >
+                                    {photoName}
+                                  </div>
+                                  <div className="text-[11px] text-slate-400 flex items-center gap-1.5 mt-0.5">
+                                    {photoSize && <span>{photoSize}</span>}
+                                    {photo.uploadedBy && (
+                                      <>
+                                        <span>•</span>
+                                        <span className="truncate">{photo.uploadedBy}</span>
+                                      </>
+                                    )}
+                                  </div>
+                                </div>
+
+                                {/* Open in new tab button */}
+                                <a
+                                  href={photoUrl}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="w-full h-8 rounded-lg bg-[#E4ECF7] hover:bg-[#D5E3F5] text-[#0E2F5A] text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer shadow-2xs"
+                                  title="Open photo in new tab"
+                                >
+                                  <Icon name="external" size={13} strokeWidth={2.2} />
+                                  <span>Open in new tab</span>
+                                </a>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Attached Documents / Files inside report (if any) */}
+                  {files.length > 0 && (
+                    <div className="space-y-2 pt-1">
+                      <div className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                        Attached Documents ({files.length})
+                      </div>
+                      <div className="space-y-2">
+                        {files.map((file, fIdx) => (
+                          <div
+                            key={file.id || fIdx}
+                            className="flex items-center justify-between p-3 rounded-lg border border-slate-200 bg-white shadow-2xs"
+                          >
+                            <div className="flex items-center gap-2.5 min-w-0">
+                              <span className="w-8 h-8 rounded-lg bg-slate-100 text-slate-600 flex items-center justify-center shrink-0">
+                                <Icon name="fileText" size={16} />
+                              </span>
+                              <div className="min-w-0">
+                                <div className="text-xs font-bold text-slate-800 truncate">
+                                  {file.name || `Document ${fIdx + 1}`}
+                                </div>
+                                <div className="text-[11px] text-slate-400">
+                                  {formatFileSize(file.size)}
+                                </div>
+                              </div>
+                            </div>
+                            <a
+                              href={file.url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="h-7 px-3 rounded-md bg-[#0E2F5A] hover:bg-[#0A2342] text-white text-[11px] font-bold transition flex items-center gap-1 shrink-0"
+                            >
+                              <Icon name="external" size={11} />
+                              <span>Open</span>
+                            </a>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
           </div>
         </section>
 
@@ -1042,6 +1453,76 @@ export function BookingDetail({ bookingId, onBack, onShowToast }) {
                 Copy
               </button>
             </div>
+          </div>
+
+          {/* Card 3: Status history (Relocated under WhatsApp the client) */}
+          <div className="bg-white rounded-lg p-5 border border-slate-200/90 shadow-2xs space-y-3">
+            <div className="text-xs sm:text-sm font-bold text-slate-900">Status history</div>
+            {b.status === 'cancelled' ? (
+              <div className="p-3.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-900 text-xs space-y-1.5 shadow-2xs">
+                <div className="font-bold flex items-center gap-1.5 text-rose-700 text-xs sm:text-[13px]">
+                  <span className="w-2 h-2 rounded-full bg-rose-600 inline-block shrink-0" />
+                  <span>Booking Cancelled</span>
+                </div>
+                <div className="text-slate-700 leading-relaxed font-normal">
+                  <span className="font-semibold text-slate-900">Reason:</span>{' '}
+                  {b.cancelReason ||
+                    (Array.isArray(b.history) ? b.history.find((h) => h.status === 'cancelled')?.note : '') ||
+                    'Cancelled by care desk'}
+                </div>
+              </div>
+            ) : (
+              <div className="flex flex-col">
+                {FLOW.map((sName, i) => {
+                  const done = i < idx || (i === idx && b.status === 'completed');
+                  const cur = i === idx && !done;
+                  const h = when(sName);
+                  const isLast = i === FLOW.length - 1;
+
+                  return (
+                    <div key={sName} className="flex gap-2.5 items-stretch">
+                      {/* Left Rail: Node + Line */}
+                      <div className="flex flex-col items-center w-5 shrink-0">
+                        {done ? (
+                          <span className="w-5 h-5 rounded-full bg-[#1E6B42] border-2 border-[#1E6B42] flex items-center justify-center text-white shrink-0 shadow-2xs">
+                            <Icon name="check" size={11} strokeWidth={3} className="text-white" />
+                          </span>
+                        ) : cur ? (
+                          <span className="w-5 h-5 rounded-full bg-white border-[4px] border-[#F2A01F] shrink-0 shadow-2xs" />
+                        ) : (
+                          <span className="w-5 h-5 rounded-full bg-white border-2 border-[#E1E9F4] shrink-0" />
+                        )}
+
+                        {!isLast && (
+                          <span
+                            className={`w-[2px] flex-1 min-h-[14px] my-0.5 ${
+                              done ? 'bg-[#1E6B42]' : 'bg-[#E1E9F4]'
+                            }`}
+                          />
+                        )}
+                      </div>
+
+                      {/* Right Text */}
+                      <div className="pb-2.5 pt-0.5">
+                        <div
+                          className={`text-xs sm:text-[13px] font-bold leading-tight ${
+                            i > idx ? 'text-slate-400 font-medium' : 'text-slate-900'
+                          }`}
+                        >
+                          {FLOW_TXT[sName]}
+                        </div>
+                        {h && i <= idx && (
+                          <div className="text-[11px] text-slate-400 font-medium mt-0.5">
+                            {fmtTs(h.at)}
+                            {h.by && h.by !== 'client' ? ` · by ${actorName(h.by)}` : ''}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
 
           {/* Card 3: Cancel Booking with Reason */}

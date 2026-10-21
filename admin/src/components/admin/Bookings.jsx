@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { RiRefreshLine } from 'react-icons/ri';
 import { Icon } from '../../constants/icons';
 import { StatusBadge } from '../common/StatusBadge';
@@ -8,6 +8,16 @@ import { useStore } from '../../context/StoreContext';
 import { fmtDate, todayISO, ACTIVE } from '../../constants/data';
 import { bookingAPI } from '../../services/api';
 import bookingErrorImg from '../../assets/booking-error.png';
+
+const FILTER_OPTIONS = [
+  { id: 'active', label: 'Active' },
+  { id: 'requested', label: 'New requests' },
+  { id: 'date_exceeded', label: 'Date exceeded' },
+  { id: 'today', label: 'Today' },
+  { id: 'completed', label: 'Completed' },
+  { id: 'cancelled', label: 'Cancelled' },
+  { id: 'all', label: 'All bookings' }
+];
 
 export function Bookings({ onOpenBooking, onNewBooking }) {
   const {
@@ -28,8 +38,30 @@ export function Bookings({ onOpenBooking, onNewBooking }) {
   } = useStore();
 
   const [filter, setFilter] = useState('active');
+  const [isFilterOpen, setIsFilterOpen] = useState(false);
+  const filterDropdownRef = useRef(null);
   const [query, setQuery] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
+
+  // Close filter dropdown on outside click or Escape key
+  useEffect(() => {
+    function handleClickOutside(event) {
+      if (filterDropdownRef.current && !filterDropdownRef.current.contains(event.target)) {
+        setIsFilterOpen(false);
+      }
+    }
+    function handleKeyDown(event) {
+      if (event.key === 'Escape') {
+        setIsFilterOpen(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, []);
 
   // Reset page when filter, query, or city changes
   // useEffect(() => {
@@ -75,6 +107,7 @@ export function Bookings({ onOpenBooking, onNewBooking }) {
   const filterFn = {
     active: (b) => ACTIVE.includes(b.status),
     requested: (b) => b.status === 'requested',
+    date_exceeded: (b) => b.status === 'date_exceeded',
     today: (b) => b.date === todayISO(),
     completed: (b) => b.status === 'completed',
     cancelled: (b) => b.status === 'cancelled',
@@ -155,32 +188,66 @@ export function Bookings({ onOpenBooking, onNewBooking }) {
         </button> 
       </div>
 
-      {/* 3. TOOLS: Filter Chips & Search Bar */}
+      {/* 3. TOOLS: Status Filter Dropdown & Search Bar */}
       <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
-        {/* Chips */}
-        <div className="flex items-center gap-2 overflow-x-auto no-scrollbar py-0.5">
-          {[
-            ['active', 'Active'],
-            ['requested', 'New requests'],
-            ['today', 'Today'],
-            ['completed', 'Completed'],
-            ['cancelled', 'Cancelled'],
-            ['all', 'All']
-          ].map(([k, l]) => (
-            <button
-              key={k}
-              type="button"
-              onClick={() => setFilter(k)}
-              aria-pressed={filter === k}
-              className={`px-3.5 py-1.5 sm:py-2 rounded-lg text-xs sm:text-[13px] whitespace-nowrap transition cursor-pointer select-none ${
-                filter === k
-                  ? 'bg-[#E4ECF7] border-1 border-[#0E2F5A] text-[#0E2F5A] font-extrabold shadow-2xs'
-                  : 'bg-white hover:bg-slate-50 border border-slate-200/90 text-slate-600 font-semibold shadow-2xs'
-              }`}
+        {/* Status Filter Dropdown (Replaces horizontal scroller) */}
+        <div className="relative" ref={filterDropdownRef}>
+          <button
+            type="button"
+            onClick={() => setIsFilterOpen((prev) => !prev)}
+            className="inline-flex items-center justify-between gap-2.5 bg-white hover:bg-slate-50 border border-slate-200/90 rounded-lg px-3.5 py-1.5 sm:py-2 shadow-2xs transition cursor-pointer select-none text-xs sm:text-[13px] min-w-[200px]"
+            aria-expanded={isFilterOpen}
+            aria-haspopup="listbox"
+          >
+            <div className="flex items-center gap-2">
+              <Icon name="filter" size={14} className="text-slate-500" />
+              <span className="text-slate-400 font-medium">Status:</span>
+              <span className="text-[#0E2F5A] font-extrabold">
+                {FILTER_OPTIONS.find((opt) => opt.id === filter)?.label || 'Active'}
+              </span>
+            </div>
+            <Icon
+              name="down"
+              size={12}
+              className={`text-slate-400 transition-transform duration-150 ${isFilterOpen ? 'rotate-180' : ''}`}
+            />
+          </button>
+
+          {isFilterOpen && (
+            <div
+              className="absolute left-0 top-full mt-1.5 w-56 sm:w-60 bg-white rounded-xl shadow-xl border border-slate-200 z-50 py-1.5 animate-in fade-in zoom-in-95 duration-100 overflow-hidden"
+              role="listbox"
             >
-              {l}
-            </button>
-          ))}
+              <div className="px-3.5 py-1 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                Filter by Status
+              </div>
+              {FILTER_OPTIONS.map((opt) => {
+                const isSelected = filter === opt.id;
+                return (
+                  <button
+                    key={opt.id}
+                    type="button"
+                    role="option"
+                    aria-selected={isSelected}
+                    onClick={() => {
+                      setFilter(opt.id);
+                      setIsFilterOpen(false);
+                    }}
+                    className={`w-full text-left px-3.5 py-2 text-xs sm:text-[13px] transition cursor-pointer flex items-center justify-between ${
+                      isSelected
+                        ? 'bg-[#E4ECF7] text-[#0E2F5A] font-extrabold'
+                        : 'text-slate-700 hover:bg-slate-50 font-medium'
+                    }`}
+                  >
+                    <span>{opt.label}</span>
+                    {isSelected && (
+                      <span className="text-[#0E2F5A] font-black text-sm">✓</span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          )}
         </div>
 
         {/* Search Input */}
