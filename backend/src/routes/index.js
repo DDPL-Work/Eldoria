@@ -26,8 +26,8 @@ router.get('/services', getPublicServices);
 router.get('/services/categories', getPublicCategories);
 router.get('/services/:id', getPublicServiceById);
 
-// Public Coming Soon Notify Me & In-App Notification convenience aliases
-const { optionalToken } = require('../middlewares/auth.middleware');
+// Auth middlewares
+const { verifyToken, requireAdmin, optionalToken } = require('../middlewares/auth.middleware');
 const {
   subscribeNotifyMe,
   getClientNotifications,
@@ -61,7 +61,6 @@ router.use('/setting', settingRoutes);
 router.use('/settings', settingRoutes);
 
 // Direct alias for staff booking confirmation permissions
-const { verifyToken, requireAdmin } = require('../middlewares/auth.middleware');
 const {
   getStaffPermissions,
   toggleStaffCanConfirm,
