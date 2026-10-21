@@ -7,6 +7,7 @@ const { successResponse, errorResponse } = require("../utills/responseHandler");
 const { logOtpToTerminal } = require("../helpers/otpLogger");
 const { getJwtSecret, JWT_EXPIRES_IN } = require("../configs/jwt.config");
 
+
 /**
  * Standardize phone number format (digits only, e.g. 10 digits)
  */

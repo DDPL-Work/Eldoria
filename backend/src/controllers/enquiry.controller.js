@@ -593,7 +593,6 @@ const bookEnquiryRecommendation = async (req, res) => {
         return errorResponse(res, "You are not authorized to convert this help request", 403);
       }
     }
-
     // Check if already converted and has an active booking
     if (enquiry.status === "converted" && enquiry.bookingId && Booking) {
       const existingBooking = await Booking.findByPk(enquiry.bookingId, { transaction });
