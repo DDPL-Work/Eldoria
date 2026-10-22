@@ -1,8 +1,7 @@
-import { GetState, GetCity } from 'react-country-state-city';
 import indianCitiesPkg from 'indian-states-cities-list';
 import { DEFAULT_CITIES } from '../constants/data';
 
-// 1. Synchronously parse static district cities from indian-states-cities-list
+// 1. Synchronously parse static district cities from indian-states-cities-list (37 states, 739 cities - offline)
 const { STATE_WISE_CITIES } = indianCitiesPkg || {};
 export const staticIndianCities = [];
 
@@ -22,84 +21,15 @@ if (STATE_WISE_CITIES) {
   });
 }
 
-// Global in-memory cache so we only load from react-country-state-city once
-let cachedApiCities = null;
-let loadingPromise = null;
-
+/**
+ * Returns offline local Indian cities instantly without remote HTTP calls
+ */
 export async function fetchPackageCities() {
-  if (cachedApiCities) return cachedApiCities;
-  if (loadingPromise) return loadingPromise;
-
-  loadingPromise = (async () => {
-    try {
-      const states = await GetState(101); // Country ID 101 = India
-      if (!Array.isArray(states)) {
-        cachedApiCities = [];
-        return cachedApiCities;
-      }
-
-      const majorStateNames = [
-        'Maharashtra',
-        'Delhi',
-        'Karnataka',
-        'Tamil Nadu',
-        'Gujarat',
-        'Rajasthan',
-        'Uttar Pradesh',
-        'West Bengal',
-        'Telangana',
-        'Kerala',
-        'Punjab',
-        'Madhya Pradesh',
-        'Goa',
-        'Uttarakhand',
-        'Haryana',
-        'Bihar',
-        'Odisha',
-        'Assam',
-        'Jharkhand',
-        'Chhattisgarh',
-        'Himachal Pradesh'
-      ];
-
-      const targetStates = states.filter((s) =>
-        majorStateNames.some((m) => m.toLowerCase() === s.name?.toLowerCase())
-      );
-
-      const loaded = [];
-      for (const st of targetStates) {
-        try {
-          const cities = await GetCity(101, st.id);
-          if (Array.isArray(cities)) {
-            cities.forEach((ct) => {
-              if (ct?.name) {
-                const name = ct.name.trim();
-                const id = name.toLowerCase().replace(/[^a-z0-9]+/g, '-');
-                loaded.push({ id, name, state: st.name });
-              }
-            });
-          }
-        } catch {
-          // Ignore individual state error
-        }
-      }
-
-      cachedApiCities = loaded;
-      return cachedApiCities;
-    } catch (err) {
-      console.warn('Could not load react-country-state-city data, using static fallback:', err);
-      cachedApiCities = [];
-      return cachedApiCities;
-    } finally {
-      loadingPromise = null;
-    }
-  })();
-
-  return loadingPromise;
+  return staticIndianCities;
 }
 
 /**
- * Combine operational cities with static package cities and dynamic package cities
+ * Combine operational cities with static district package cities
  */
 export function buildMergedCities({ storeCities = [], backendCities = [], dynamicCities = [] }) {
   const map = new Map();
@@ -127,7 +57,7 @@ export function buildMergedCities({ storeCities = [], backendCities = [], dynami
     });
   }
 
-  // 3. Dynamic package cities (react-country-state-city)
+  // 3. Dynamic package cities (if any passed)
   if (Array.isArray(dynamicCities)) {
     dynamicCities.forEach((c) => {
       if (c && c.id && !map.has(c.id)) {

@@ -1,11 +1,11 @@
-import React, { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect } from "react";
 import { Icon } from "../../constants/icons";
 import { useStore } from "../../context/StoreContext";
 import { useAuth } from "../../context/AuthContext";
 import { useNavigate } from "react-router-dom";
 
-export function Header({ onNewBooking, onOpenAlerts, onOpenMobileMenu, onToggleCollapse, isCollapsed }) {
-  const { unread, enqAll, inCity, cityName, selectedCity } = useStore();
+export function Header({onOpenAlerts, onOpenMobileMenu,  }) {
+  const { unread, cityName, selectedCity } = useStore();
   const { logout, user } = useAuth();
   const navigate = useNavigate();
   const unreadAlerts = unread("admin");
@@ -82,17 +82,17 @@ export function Header({ onNewBooking, onOpenAlerts, onOpenMobileMenu, onToggleC
                 </span>
                 <span className="text-[#F59E0B] font-black text-sm sm:text-base">+</span>
               </div>
-              <span className="text-[10px] sm:text-[11px] text-slate-400 font-medium leading-none block mt-0.5 sm:mt-1">
+              {/* <span className="text-[10px] sm:text-[11px] text-slate-400 font-medium leading-none block mt-0.5 sm:mt-1">
                 Care at Home · MVP demo
-              </span>
+              </span> */}
             </div>
           </div>
 
           {/* Green "Saved on this device" Pill Badge */}
-          <div className="hidden md:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-950/40 border border-emerald-800/50 text-emerald-400 text-[11px] font-semibold ml-2">
+          {/* <div className="hidden md:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-950/40 border border-emerald-800/50 text-emerald-400 text-[11px] font-semibold ml-2">
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
             <span>Saved on this device</span>
-          </div>
+          </div> */}
         </div>
 
         {/* Right: App Switcher + Notification Bell + Profile Section */}
@@ -189,7 +189,7 @@ export function Header({ onNewBooking, onOpenAlerts, onOpenMobileMenu, onToggleC
               aria-label="Admin Profile"
             >
               <div className="relative">
-                <div className="w-7 h-7 rounded-full bg-gradient-to-tr from-[#F59E0B] to-[#FBBF24] text-[#0B1E36] font-extrabold text-xs flex items-center justify-center shadow-xs">
+                <div className="w-7 h-7 rounded-full bg-linear-to-tr from-[#F59E0B] to-[#FBBF24] text-[#0B1E36] font-extrabold text-xs flex items-center justify-center shadow-xs">
                   AD
                 </div>
                 <span className="absolute bottom-0 right-0 w-2 h-2 rounded-full bg-emerald-400 ring-1 ring-[#0B1E36]" />

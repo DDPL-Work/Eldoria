@@ -8,6 +8,7 @@ import { useStore } from '../../context/StoreContext';
 import { useUI } from '../../context/UIContext';
 import { enquiryAPI } from '../../services/api';
 import { fmtTs } from '../../constants/data';
+import { Pagination } from '../common/Pagination';
 
 export function Enquiries({ onOpenEnquiry, onShowToast: onShowToastProp }) {
   const { showToast } = useUI ? useUI() : {};
@@ -27,7 +28,14 @@ export function Enquiries({ onOpenEnquiry, onShowToast: onShowToastProp }) {
   } = useStore();
 
   const [filter, setFilter] = useState('open');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
   const [updatingId, setUpdatingId] = useState(null);
+
+  // Reset page when filter or city changes
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [filter, selectedCity]);
 
   // 1. Fetch real help requests from backend: GET /api/v1/admin/enquiries/all
   const loadEnquiries = useCallback(() => {
@@ -77,6 +85,15 @@ export function Enquiries({ onOpenEnquiry, onShowToast: onShowToastProp }) {
   const list = useMemo(() => {
     return all.filter(filterFn);
   }, [all, filterFn]);
+
+  // Pagination calculation
+  const totalCount = list.length;
+  const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
+  const safeCurrentPage = Math.min(Math.max(1, currentPage), totalPages);
+  const displayList = list.slice(
+    (safeCurrentPage - 1) * pageSize,
+    safeCurrentPage * pageSize
+  );
 
   const countFor = (k) => {
     if (enquiriesCounts && enquiriesCounts[k] !== undefined) {
@@ -220,7 +237,7 @@ export function Enquiries({ onOpenEnquiry, onShowToast: onShowToastProp }) {
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-          {list.map((e) => {
+          {displayList.map((e) => {
             const isUpdating = updatingId === String(e.id || e.code);
             return (
               <button
@@ -333,6 +350,22 @@ export function Enquiries({ onOpenEnquiry, onShowToast: onShowToastProp }) {
               </button>
             );
           })}
+        </div>
+      )}
+
+      {/* Pagination Bar for Help Requests */}
+      {list.length > 0 && (
+        <div className="bg-white rounded-xl border border-slate-200/90 shadow-2xs overflow-hidden mt-3">
+          <Pagination
+            currentPage={safeCurrentPage}
+            pageSize={pageSize}
+            totalCount={totalCount}
+            totalPages={totalPages}
+            onPageChange={(p) => setCurrentPage(p)}
+            onPageSizeChange={(s) => setPageSize(s)}
+            itemName="requests"
+            pageSizeOptions={[10, 25, 50, 100]}
+          />
         </div>
       )}
     </div>

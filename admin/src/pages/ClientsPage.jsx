@@ -1,6 +1,10 @@
 import React from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Clients } from '../components/admin/Clients';
 
 export function ClientsPage() {
-  return <Clients />;
+  const navigate = useNavigate();
+
+  return <Clients onOpenClient={(id) => navigate(`/clients/${id}`)} />;
 }
+

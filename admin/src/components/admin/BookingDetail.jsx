@@ -118,16 +118,27 @@ export function BookingDetail({ bookingId, onBack, onShowToast }) {
           (x) => String(x.code) === String(bookingId) || String(x.id) === String(bookingId)
         );
 
-  // Normalize: Newly created bookings without staff assignment start as 'requested' (Request received)
-  const isAutoConfirmedBug =
+  // Helper to distinguish client-app created bookings vs care desk admin bookings
+  const isClientAppBooking = (item) => {
+    if (!item) return false;
+    const firstHist = Array.isArray(item.history) && item.history.length > 0 ? item.history[0] : null;
+    if (firstHist && firstHist.by === 'client') return true;
+    if (item.source?.toLowerCase() === 'app' && (!item.confirmedBy || item.confirmedBy === 'client')) return true;
+    return false;
+  };
+
+  // Only newly created unassigned bookings from Client App start as 'requested' (Request received)
+  // until care desk confirms. Admin-created bookings directly stay 'confirmed'.
+  const isClientUnconfirmed =
     rawB &&
+    isClientAppBooking(rawB) &&
     !rawB.staffId &&
     !rawB.assignedStaff &&
     rawB.status === 'confirmed' &&
     (!rawB.history || rawB.history.length <= 2) &&
     !rawB.assignedBy;
 
-  const b = isAutoConfirmedBug
+  const b = isClientUnconfirmed
     ? { ...rawB, status: 'requested', confirmedBy: null, confirmedAt: null }
     : rawB;
 
@@ -434,9 +445,19 @@ export function BookingDetail({ bookingId, onBack, onShowToast }) {
     try {
       if (nextStatus === 'confirmed') {
         // Call backend API PATCH /api/v1/admin/booking/:id/confirm
-        const res = await bookingAPI.confirmBooking(bid, { confirmedBy: 'admin' });
-        confirmBooking(bid, { confirmedBy: 'admin' });
-        onShowToast?.(res?.message || 'Booking confirmed');
+        try {
+          const res = await bookingAPI.confirmBooking(bid, { confirmedBy: 'admin' });
+          confirmBooking(bid, { confirmedBy: 'admin' });
+          onShowToast?.(res?.message || 'Booking confirmed');
+        } catch (confirmErr) {
+          const errMsg = String(confirmErr?.message || confirmErr?.error || '');
+          if (errMsg.includes("status 'confirmed'") || errMsg.includes('already') || confirmErr?.status === 400) {
+            confirmBooking(bid, { confirmedBy: 'admin' });
+            onShowToast?.('Booking confirmed');
+          } else {
+            throw confirmErr;
+          }
+        }
       } else {
         // Call backend API PATCH /api/v1/admin/booking/:id/status
         const res = await bookingAPI.updateBookingStatus(bid, {

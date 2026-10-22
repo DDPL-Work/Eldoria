@@ -8,6 +8,7 @@ import { useStore } from '../../context/StoreContext';
 import { fmtDate, todayISO, ACTIVE } from '../../constants/data';
 import { bookingAPI } from '../../services/api';
 import bookingErrorImg from '../../assets/booking-error.png';
+import { Pagination } from '../common/Pagination';
 
 const FILTER_OPTIONS = [
   { id: 'active', label: 'Active' },
@@ -42,6 +43,7 @@ export function Bookings({ onOpenBooking, onNewBooking }) {
   const filterDropdownRef = useRef(null);
   const [query, setQuery] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
 
   // Close filter dropdown on outside click or Escape key
   useEffect(() => {
@@ -64,28 +66,18 @@ export function Bookings({ onOpenBooking, onNewBooking }) {
   }, []);
 
   // Reset page when filter, query, or city changes
-  // useEffect(() => {
-  //   setCurrentPage(1);
-  // }, [selectedCity, filter, query]);
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [selectedCity, filter, query]);
 
-  // Load bookings from Backend API
+  // Load bookings from Backend API (fetches all city records so active tab and all dropdown tabs paginate identically to Staff)
   const loadBookings = useCallback(() => {
     const params = {
-      page: currentPage,
-      limit: 20
+      limit: 1000
     };
 
     if (selectedCity && selectedCity !== 'all') {
       params.city = selectedCity;
-    }
-
-    // 'active' is a multi-status frontend filter, not a single DB enum value
-    if (filter && filter !== 'all' && filter !== 'active') {
-      if (filter === 'today') {
-        params.date = todayISO();
-      } else {
-        params.status = filter;
-      }
     }
 
     if (query.trim()) {
@@ -93,9 +85,8 @@ export function Bookings({ onOpenBooking, onNewBooking }) {
     }
 
     fetchBookings(params);
-  }, [fetchBookings, selectedCity, filter, query, currentPage]);
+  }, [fetchBookings, selectedCity, query]);
 
-  
   useEffect(() => {
     loadBookings();
   }, [loadBookings]);
@@ -114,11 +105,27 @@ export function Bookings({ onOpenBooking, onNewBooking }) {
     all: () => true
   }[filter] || (() => true);
 
-  // Strictly real backend bookings from API — unassigned newly created bookings default to 'requested'
+  // Helper to distinguish client-app created bookings vs care desk admin bookings
+  const isClientAppBooking = (b) => {
+    if (!b) return false;
+    const firstHist = Array.isArray(b.history) && b.history.length > 0 ? b.history[0] : null;
+    if (firstHist && firstHist.by === 'client') return true;
+    if (b.source?.toLowerCase() === 'app' && (!b.confirmedBy || b.confirmedBy === 'client')) return true;
+    return false;
+  };
+
+  // Strictly real backend bookings from API — client-app requests default to 'requested',
+  // while admin-created bookings with status 'confirmed' remain 'confirmed' in list.
   const seenCodes = new Set();
   const rawList = (Array.isArray(backendBookings) ? backendBookings : [])
     .map((b) => {
-      if (b && !b.staffId && !b.assignedStaff && b.status === 'confirmed' && (!b.history || b.history.length <= 2)) {
+      if (
+        isClientAppBooking(b) &&
+        !b.staffId &&
+        !b.assignedStaff &&
+        b.status === 'confirmed' &&
+        (!b.history || b.history.length <= 2)
+      ) {
         return { ...b, status: 'requested' };
       }
       return b;
@@ -141,6 +148,15 @@ export function Bookings({ onOpenBooking, onNewBooking }) {
           .toLowerCase()
           .includes(q)
     );
+
+  // Pagination calculation (matches Staff.jsx behavior)
+  const totalCount = list.length;
+  const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
+  const safeCurrentPage = Math.min(Math.max(1, currentPage), totalPages);
+  const displayList = list.slice(
+    (safeCurrentPage - 1) * pageSize,
+    safeCurrentPage * pageSize
+  );
 
   const actorName = (actor) => {
     if (!actor || actor === 'admin') return 'Care desk';
@@ -376,7 +392,7 @@ export function Bookings({ onOpenBooking, onNewBooking }) {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200">
-                {list.map((b) => {
+                {displayList.map((b) => {
                   const s = svcB(b);
                   const st = b.assignedStaff
                     ? {
@@ -494,38 +510,17 @@ export function Bookings({ onOpenBooking, onNewBooking }) {
           </div>
         )}
 
-        {/* 5. PAGINATION FOOTER */}
-        {bookingsPagination && bookingsPagination.totalPages > 1 && (
-          <div className="flex items-center justify-between px-4 py-3 bg-white border-t border-slate-100 text-xs text-slate-600">
-            <div>
-              Showing page <span className="font-bold text-slate-900">{bookingsPagination.currentPage}</span> of{' '}
-              <span className="font-bold text-slate-900">{bookingsPagination.totalPages}</span>{' '}
-              ({bookingsPagination.total} total bookings)
-            </div>
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-                disabled={!bookingsPagination.hasPrevPage && currentPage <= 1}
-                className="px-3 py-1.5 rounded-lg border border-slate-200 text-slate-700 font-semibold hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition cursor-pointer"
-              >
-                Previous
-              </button>
-              <button
-                type="button"
-                onClick={() =>
-                  setCurrentPage((p) => Math.min(bookingsPagination.totalPages, p + 1))
-                }
-                disabled={
-                  !bookingsPagination.hasNextPage && currentPage >= bookingsPagination.totalPages
-                }
-                className="px-3 py-1.5 rounded-lg border border-slate-200 text-slate-700 font-semibold hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition cursor-pointer"
-              >
-                Next
-              </button>
-            </div>
-          </div>
-        )}
+        {/* 5. ADVANCED PAGINATION FOOTER */}
+        <Pagination
+          currentPage={safeCurrentPage}
+          pageSize={pageSize}
+          totalCount={totalCount}
+          totalPages={totalPages}
+          onPageChange={(p) => setCurrentPage(p)}
+          onPageSizeChange={(s) => setPageSize(s)}
+          itemName="bookings"
+          pageSizeOptions={[10, 25, 50, 100]}
+        />
       </section>
     </div>
   );
