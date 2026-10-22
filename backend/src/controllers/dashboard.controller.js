@@ -323,7 +323,7 @@ const getBookings = async (req, res) => {
       date,
       search,
       page = 1,
-      limit = 20
+      limit = 100
     } = req.query;
 
     const pageNum = Math.max(1, parseInt(page, 10) || 1);
