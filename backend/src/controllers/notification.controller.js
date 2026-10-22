@@ -326,7 +326,7 @@ const getClientNotifications = async (req, res) => {
       );
     }
 
-    const { unreadOnly = "false", page = 1, limit = 20 } = req.query;
+    const { unreadOnly = "false", page = 1, limit = 100 } = req.query;
     const pageNum = Math.max(1, parseInt(page, 10) || 1);
     const pageSize = Math.min(50, Math.max(1, parseInt(limit, 10) || 20));
     const offset = (pageNum - 1) * pageSize;
@@ -476,7 +476,7 @@ const getAdminNotifyRequests = async (req, res) => {
       city,
       search,
       page = 1,
-      limit = 50,
+      limit = 100,
     } = req.query;
 
     const where = {};

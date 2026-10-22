@@ -792,7 +792,7 @@ const getAdminEnquiries = async (req, res) => {
       city,
       search,
       page = 1,
-      limit = 20,
+      limit = 100,
       sortBy = "createdAt",
       sortOrder = "DESC",
     } = req.query;

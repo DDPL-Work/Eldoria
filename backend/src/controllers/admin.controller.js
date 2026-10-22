@@ -51,7 +51,7 @@ const getStaffRequests = async (req, res) => {
       onDuty,
       search,
       page = 1,
-      limit = 10,
+      limit = 100,
       sortBy = "createdAt",
       sortOrder = "DESC",
     } = req.query;
@@ -1148,7 +1148,7 @@ const getClients = async (req, res) => {
       service,
       search,
       page = 1,
-      limit = 10,
+      limit = 100,
       sortBy = "createdAt",
       sortOrder = "DESC",
     } = req.query;
@@ -1441,7 +1441,7 @@ const getBookings = async (req, res) => {
       staffId,
       search,
       page = 1,
-      limit = 1000,
+      limit = 100,
       sortBy = "createdAt",
       sortOrder = "DESC",
     } = req.query;
