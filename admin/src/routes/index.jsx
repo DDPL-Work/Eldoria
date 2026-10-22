@@ -13,6 +13,7 @@ import { StaffPage } from '../pages/StaffPage';
 import { OnboardingPage } from '../pages/OnboardingPage';
 import { ApplicationDetailPage } from '../pages/ApplicationDetailPage';
 import { ClientsPage } from '../pages/ClientsPage';
+import { ClientDetailPage } from '../pages/ClientDetailPage';
 import { CitiesPage } from '../pages/CitiesPage';
 import { ServicesPage } from '../pages/ServicesPage';
 import { EnquiriesPage } from '../pages/EnquiriesPage';
@@ -91,6 +92,7 @@ export function AppRoutes() {
         <Route path="onboarding/:id" element={<ApplicationDetailPage />} />
 
         <Route path="clients" element={<ClientsPage />} />
+        <Route path="clients/:id" element={<ClientDetailPage />} />
         <Route path="cities" element={<CitiesPage />} />
         <Route path="services" element={<ServicesPage />} />
 

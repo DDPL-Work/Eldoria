@@ -5,6 +5,7 @@ import { useStore } from '../../context/StoreContext';
 import { telHref, waHref } from '../../constants/data';
 import { DatabaseLoader } from '../common/DatabaseLoader';
 import { CityDropdown } from '../common/CityDropdown';
+import { Pagination } from '../common/Pagination';
 
 function formatClientDate(val) {
   if (!val) return '—';
@@ -21,23 +22,35 @@ function formatClientDate(val) {
   }
 }
 
-export function Clients() {
+export function Clients({ onOpenClient }) {
   const {
     cityName,
     cities,
     selectedCity,
     setSelectedCity,
     backendClients,
+    clientsPagination,
     fetchClients,
     dataLoading,
     dataError
   } = useStore();
 
   const [searchQuery, setSearchQuery] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+  const [jumpPageInput, setJumpPageInput] = useState('');
 
-  // Call getClients API on mount and whenever selectedCity or searchQuery changes
+  // Reset to page 1 whenever search query or city filter changes
   useEffect(() => {
-    const params = {};
+    setCurrentPage(1);
+  }, [selectedCity, searchQuery]);
+
+  // Call getClients API on mount and whenever parameters change
+  useEffect(() => {
+    const params = {
+      page: currentPage,
+      limit: pageSize
+    };
     if (selectedCity && selectedCity !== 'all') {
       params.city = selectedCity;
     }
@@ -45,7 +58,7 @@ export function Clients() {
       params.search = searchQuery.trim();
     }
     fetchClients(params);
-  }, [fetchClients, selectedCity, searchQuery]);
+  }, [fetchClients, selectedCity, searchQuery, currentPage, pageSize]);
 
   // Normalize backend clients list
   const rows = (backendClients || []).map((c) => {
@@ -71,7 +84,10 @@ export function Clients() {
   });
 
   const handleRefresh = () => {
-    const params = {};
+    const params = {
+      page: currentPage,
+      limit: pageSize
+    };
     if (selectedCity && selectedCity !== 'all') {
       params.city = selectedCity;
     }
@@ -81,6 +97,32 @@ export function Clients() {
     fetchClients(params);
   };
 
+  // Total count, total pages, and pagination helpers
+  const totalCount =
+    clientsPagination?.total !== undefined
+      ? clientsPagination.total
+      : Array.isArray(backendClients)
+      ? backendClients.length
+      : 0;
+
+  const totalPages =
+    clientsPagination?.totalPages !== undefined && clientsPagination.totalPages > 0
+      ? clientsPagination.totalPages
+      : Math.max(1, Math.ceil(totalCount / pageSize));
+
+  // Safe clamped current page
+  const safeCurrentPage = Math.min(Math.max(1, currentPage), totalPages);
+
+  // If backend returned paginated data, we render rows directly.
+  // If backend returned unpaginated list, slice client-side.
+  const isServerPaginated =
+    clientsPagination && clientsPagination.totalPages !== undefined;
+  const displayRows = isServerPaginated
+    ? rows
+    : rows.slice((safeCurrentPage - 1) * pageSize, safeCurrentPage * pageSize);
+
+
+
   return (
     <div className="p-4 sm:p-6 lg:p-4 w-full max-w-[1400px] mx-auto space-y-4">
       {/* 1. Page Header: Title, Count & Refresh Action */}
@@ -89,7 +131,7 @@ export function Clients() {
           <div className="flex items-center gap-3">
             <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Clients</h1>
             <span className="text-xs text-slate-500 font-medium">
-              {rows.length} {rows.length === 1 ? 'client' : 'clients'}
+              {totalCount} {totalCount === 1 ? 'client' : 'clients'}
             </span>
           </div>
           <p className="text-xs text-slate-600 max-w-3xl leading-relaxed mt-0.5">
@@ -196,10 +238,16 @@ export function Clients() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {rows.map((r) => (
-                  <tr key={r.id || r.phone} className="hover:bg-slate-50/60 transition">
+                {displayRows.map((r) => (
+                  <tr
+                    key={r.id || r.phone}
+                    onClick={() => onOpenClient && onOpenClient(r.clientId || r.id)}
+                    className="hover:bg-slate-50/60 transition cursor-pointer group"
+                  >
                     <td className="py-3.5 px-4 whitespace-nowrap">
-                      <div className="font-bold text-slate-900 leading-tight">{r.name}</div>
+                      <div className="font-bold text-slate-900 group-hover:text-[#0E2F5A] leading-tight transition-colors">
+                        {r.name}
+                      </div>
                       {r.email && (
                         <div className="text-[11px] text-slate-400 truncate max-w-[180px]">
                           {r.email}
@@ -250,6 +298,7 @@ export function Clients() {
                           <>
                             <a
                               href={telHref(r.phone)}
+                              onClick={(e) => e.stopPropagation()}
                               className="h-8 inline-flex items-center justify-center gap-1.5 px-3 rounded-lg bg-white border border-slate-200 hover:bg-slate-50 text-slate-800 text-xs font-bold transition shadow-2xs leading-none whitespace-nowrap select-none"
                               aria-label={`Call ${r.name}`}
                             >
@@ -261,6 +310,7 @@ export function Clients() {
                                 r.phone,
                                 `Hello ${r.name}, this is the Eldoria Care at Home team.`
                               )}
+                              onClick={(e) => e.stopPropagation()}
                               target="_blank"
                               rel="noopener noreferrer"
                               className="h-8 inline-flex items-center justify-center gap-1.5 px-3 rounded-lg bg-[#128C4A] hover:bg-[#0e703b] text-white text-xs font-bold transition shadow-2xs leading-none whitespace-nowrap select-none"
@@ -279,6 +329,17 @@ export function Clients() {
             </table>
           </div>
         )}
+
+        {/* 4. Advanced Pagination Footer */}
+        <Pagination
+          currentPage={currentPage}
+          pageSize={pageSize}
+          totalCount={totalCount}
+          totalPages={totalPages}
+          onPageChange={(p) => setCurrentPage(p)}
+          onPageSizeChange={(s) => setPageSize(s)}
+          itemName="clients"
+        />
       </section>
     </div>
   );

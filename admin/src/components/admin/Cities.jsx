@@ -4,6 +4,7 @@ import { Icon } from '../../constants/icons';
 import { useStore } from '../../context/StoreContext';
 import { ACTIVE, digits } from '../../constants/data';
 import { DatabaseLoader } from '../common/DatabaseLoader';
+import { Pagination } from '../common/Pagination';
 
 export function Cities({ onShowToast }) {
   const {
@@ -27,12 +28,19 @@ export function Cities({ onShowToast }) {
 
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('all'); // 'all' | 'live' | 'paused'
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
   const [cityModal, setCityModal] = useState(null);
   const [modalVisible, setModalVisible] = useState(false);
   const [deleteModal, setDeleteModal] = useState(null);
   const [deleteVisible, setDeleteVisible] = useState(false);
   const [togglingId, setTogglingId] = useState(null);
   const closeTimerRef = useRef(null);
+
+  // Reset page when filter or search changes
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery, statusFilter]);
 
   const allCities = citiesAll();
   // const liveCities = cities();
@@ -293,6 +301,15 @@ export function Cities({ onShowToast }) {
     });
   }, [displayCities, statusFilter, searchQuery]);
 
+  // Pagination calculation
+  const totalCount = filteredCities.length;
+  const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
+  const safeCurrentPage = Math.min(Math.max(1, currentPage), totalPages);
+  const displayFilteredCities = filteredCities.slice(
+    (safeCurrentPage - 1) * pageSize,
+    safeCurrentPage * pageSize
+  );
+
   return (
     <div className="p-4 sm:p-6 lg:p-4 w-full max-w-[1400px] mx-auto space-y-4 sm:space-y-4">
       {/* Top Header */}
@@ -484,7 +501,7 @@ export function Cities({ onShowToast }) {
             </div>
           </div>
         ) : (
-          filteredCities.map((c) => {
+          displayFilteredCities.map((c) => {
             const bs = allBookings.filter((b) => bCity(b) === c.id || bCity(b) === c.cityId);
             const ss = allStaff.filter(
               (s) =>
@@ -622,6 +639,22 @@ export function Cities({ onShowToast }) {
           })
         )}
       </div>
+
+      {/* Pagination Bar for Cities */}
+      {filteredCities.length > 0 && (
+        <div className="bg-white rounded-xl border border-slate-200/90 shadow-2xs overflow-hidden">
+          <Pagination
+            currentPage={safeCurrentPage}
+            pageSize={pageSize}
+            totalCount={totalCount}
+            totalPages={totalPages}
+            onPageChange={(p) => setCurrentPage(p)}
+            onPageSizeChange={(s) => setPageSize(s)}
+            itemName="cities"
+            pageSizeOptions={[10, 25, 50, 100]}
+          />
+        </div>
+      )}
 
       {/* Add / Edit City Modal */}
       {cityModal && (

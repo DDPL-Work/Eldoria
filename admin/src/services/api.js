@@ -300,8 +300,9 @@ export const adminAPI = {
   // GET /api/v1/admin/clients
   getClients: (params = '') => api.get(`/admin/clients${buildQuery(params)}`),
 
-  // GET /api/v1/admin/clients/:id
+  // GET /api/v1/admin/clients/:clientId
   getClientById: (clientId) => api.get(`/admin/clients/${clientId}`),
+  getClientByClientId: (clientId) => api.get(`/admin/clients/${clientId}`),
 
   // --- Help requests (Enquiries) Management ---
   // GET /api/v1/admin/enquiries/all
@@ -371,6 +372,7 @@ export const bookingAPI = {
     }
   },
   createBooking: (data) => api.post('/admin/booking/create', data),
+
   getBookingById: (id) => api.get(`/admin/booking/${id}`),
   getAvailableStaff: (id, params = '') => api.get(`/admin/booking/${id}/available-staff${buildQuery(params)}`),
   getAvailableStaffForBooking: (id, params = '') => api.get(`/admin/booking/${id}/available-staff${buildQuery(params)}`),
@@ -454,8 +456,11 @@ export const staffConfirmAPI = {
 };
 
 export const clientAPI = {
+  // GET /api/v1/admin/clients
   getClients: (params = '') => api.get(`/admin/clients${buildQuery(params)}`),
+  // GET /api/v1/admin/clients/:clientId
   getClientById: (clientId) => api.get(`/admin/clients/${clientId}`),
+  getClientByClientId: (clientId) => api.get(`/admin/clients/${clientId}`),
 };
 
 export const serviceAPI = {

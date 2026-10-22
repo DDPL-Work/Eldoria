@@ -6,6 +6,7 @@ import { useFiles } from '../../context/FileContext';
 import { OB_DOCS, fmtTs } from '../../constants/data';
 import { DatabaseLoader } from '../common/DatabaseLoader';
 import { CityDropdown } from '../common/CityDropdown';
+import { Pagination } from '../common/Pagination';
 
 export function Onboarding({ onOpenApplication }) {
   const {
@@ -21,6 +22,8 @@ export function Onboarding({ onOpenApplication }) {
   } = useStore();
   const { fileGet } = useFiles();
   const [filter, setFilter] = useState('pending');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
 
   // Call getStaffRequests API on mount and when selectedCity changes
   useEffect(() => {
@@ -34,12 +37,26 @@ export function Onboarding({ onOpenApplication }) {
     fetchStaffRequests(params);
   }, [fetchStaffRequests, selectedCity]);
 
+  // Reset page when filter or city changes
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [filter, selectedCity]);
+
   const all = inCity(applications(), sCity);
 
   const countFor = (k) =>
     k === 'all' ? all.length : all.filter((x) => apprOf(x) === k).length;
 
   const list = filter === 'all' ? all : all.filter((x) => apprOf(x) === filter);
+
+  // Pagination calculation
+  const totalCount = list.length;
+  const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
+  const safeCurrentPage = Math.min(Math.max(1, currentPage), totalPages);
+  const displayList = list.slice(
+    (safeCurrentPage - 1) * pageSize,
+    safeCurrentPage * pageSize
+  );
 
   return (
     <div className="p-4 sm:p-5 lg:p-4 w-full max-w-[1400px] mx-auto space-y-2.5">
@@ -156,7 +173,7 @@ export function Onboarding({ onOpenApplication }) {
         </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-          {list.map((a) => {
+          {displayList.map((a) => {
             const req = OB_DOCS.filter((x) => x.req);
             const verifiedReq = req.filter((x) => (a.docChecks || {})[x.k]).length;
             const filesObj = a.files || {};
@@ -264,6 +281,22 @@ export function Onboarding({ onOpenApplication }) {
               </button>
             );
           })}
+        </div>
+      )}
+
+      {/* Pagination Bar for Onboarding Applications */}
+      {list.length > 0 && (
+        <div className="bg-white rounded-xl border border-slate-200/90 shadow-2xs overflow-hidden mt-3">
+          <Pagination
+            currentPage={safeCurrentPage}
+            pageSize={pageSize}
+            totalCount={totalCount}
+            totalPages={totalPages}
+            onPageChange={(p) => setCurrentPage(p)}
+            onPageSizeChange={(s) => setPageSize(s)}
+            itemName="applications"
+            pageSizeOptions={[10, 25, 50, 100]}
+          />
         </div>
       )}
     </div>

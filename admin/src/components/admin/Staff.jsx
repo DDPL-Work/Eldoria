@@ -8,6 +8,7 @@ import { FormCityDropdown } from '../common/FormCityDropdown';
 import healthcareTeamImg from '../../assets/healthcare-team.png';
 import { staffAPI } from '../../services/api';
 import { useStore } from '../../context/StoreContext';
+import { Pagination } from '../common/Pagination';
 import {
   OB_ROLES,
   DEFAULT_CITIES,
@@ -121,9 +122,25 @@ export function Staff({ onShowToast }) {
       .map((b) => b.staffId)
   );
 
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
   const [editingStaff, setEditingStaff] = useState(null);
   const [confirmDel, setConfirmDel] = useState(null);
   const [dutyLoadingIds, setDutyLoadingIds] = useState({});
+
+  // Reset page when selected city changes
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [selectedCity]);
+
+  // Pagination calculation
+  const totalCount = list.length;
+  const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
+  const safeCurrentPage = Math.min(Math.max(1, currentPage), totalPages);
+  const displayStaff = list.slice(
+    (safeCurrentPage - 1) * pageSize,
+    safeCurrentPage * pageSize
+  );
 
   useEffect(() => {
     const handleKeyDown = (e) => {
@@ -537,7 +554,7 @@ export function Staff({ onShowToast }) {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {list.map((s) => {
+                {displayStaff.map((s) => {
                   const mine = allBookings.filter((b) => b.staffId === s.id);
                   const isBusy = busyIds.has(s.id);
                   const initials = s.name
@@ -702,6 +719,18 @@ export function Staff({ onShowToast }) {
             </table>
           </div>
         )}
+
+        {/* Advanced Pagination Footer */}
+        <Pagination
+          currentPage={safeCurrentPage}
+          pageSize={pageSize}
+          totalCount={totalCount}
+          totalPages={totalPages}
+          onPageChange={(p) => setCurrentPage(p)}
+          onPageSizeChange={(s) => setPageSize(s)}
+          itemName="staff"
+          pageSizeOptions={[10, 25, 50, 100]}
+        />
       </section>
     </div>
   );

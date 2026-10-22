@@ -1,10 +1,10 @@
-import { useState, useEffect } from 'react';
+import { useEffect } from 'react';
 import { RiRefreshLine } from 'react-icons/ri';
 import { Icon } from '../../constants/icons';
 import { CityDropdown } from '../common/CityDropdown';
 import { DatabaseLoader } from '../common/DatabaseLoader';
 import { useStore } from '../../context/StoreContext';
-import { useUI } from '../../context/UIContext';
+// import { useUI } from '../../context/UIContext';
 import {
   fmtDate,
   todayISO,
@@ -16,7 +16,7 @@ import {
 import EcgWaveAnimation from '../common/EcgWaveAnimation';
 
 export function Dashboard({ onTab, onOpenBooking, onNewBooking }) {
-  const { showToast } = useUI();
+  // const { showToast } = useUI();
   const {
     selectedCity,
     setSelectedCity,
@@ -138,23 +138,24 @@ export function Dashboard({ onTab, onOpenBooking, onNewBooking }) {
   // Ensure staff availability has additional active staff to increase height and match Needs Action
   const staffAvailability = (() => {
     const list = [...rawStaffAvailability];
-    const existingNames = new Set(list.map((s) => (s.name || '').toLowerCase().trim()));
 
-    const supplementaryStaff = [
-      { id: 'st_extra_1', staffId: 'STF-105', name: 'Vikram Shinde', role: 'Physiotherapist', qualification: 'Physiotherapist', city: 'mumbai', cityName: 'Mumbai', area: 'Powai, Ghatkopar', onDuty: true },
-      { id: 'st_extra_2', staffId: 'STF-106', name: 'Pooja Deshmukh', role: 'GNM Nurse', qualification: 'GNM Nurse', city: 'mumbai', cityName: 'Mumbai', area: 'Juhu, Vile Parle', onDuty: true },
-      { id: 'st_extra_3', staffId: 'STF-107', name: 'Sushma More', role: 'Elder Caregiver', qualification: 'Elder Caregiver', city: 'mumbai', cityName: 'Mumbai', area: 'Borivali, Kandivali', onDuty: true },
-      { id: 'st_extra_4', staffId: 'STF-108', name: 'Sunil Verma', role: 'Attendant', qualification: 'Attendant', city: 'mumbai', cityName: 'Mumbai', area: 'Chembur, Kurla', onDuty: false },
-    ];
+    // const existingNames = new Set(list.map((s) => (s.name || '').toLowerCase().trim()));
 
-    supplementaryStaff.forEach((s) => {
-      if (!existingNames.has(s.name.toLowerCase().trim())) {
-        if (selectedCity === 'all' || (s.city || '').toLowerCase() === (selectedCity || '').toLowerCase()) {
-          list.push(s);
-          existingNames.add(s.name.toLowerCase().trim());
-        }
-      }
-    });
+    // const supplementaryStaff = [
+    //   { id: 'st_extra_1', staffId: 'STF-105', name: 'Vikram Shinde', role: 'Physiotherapist', qualification: 'Physiotherapist', city: 'mumbai', cityName: 'Mumbai', area: 'Powai, Ghatkopar', onDuty: true },
+    //   { id: 'st_extra_2', staffId: 'STF-106', name: 'Pooja Deshmukh', role: 'GNM Nurse', qualification: 'GNM Nurse', city: 'mumbai', cityName: 'Mumbai', area: 'Juhu, Vile Parle', onDuty: true },
+    //   { id: 'st_extra_3', staffId: 'STF-107', name: 'Sushma More', role: 'Elder Caregiver', qualification: 'Elder Caregiver', city: 'mumbai', cityName: 'Mumbai', area: 'Borivali, Kandivali', onDuty: true },
+    //   { id: 'st_extra_4', staffId: 'STF-108', name: 'Sunil Verma', role: 'Attendant', qualification: 'Attendant', city: 'mumbai', cityName: 'Mumbai', area: 'Chembur, Kurla', onDuty: false },
+    // ];
+
+    // supplementaryStaff.forEach((s) => {
+    //   if (!existingNames.has(s.name.toLowerCase().trim())) {
+    //     if (selectedCity === 'all' || (s.city || '').toLowerCase() === (selectedCity || '').toLowerCase()) {
+    //       list.push(s);
+    //       existingNames.add(s.name.toLowerCase().trim());
+    //     }
+    //   }
+    // });
 
     return list;
   })();
@@ -629,8 +630,10 @@ export function Dashboard({ onTab, onOpenBooking, onNewBooking }) {
           </div>
         </section>
 
+
+
         {/* 10. STAFF AVAILABILITY SECTION (Right ~35% / 4 cols) */}
-        <section className="lg:col-span-4 bg-white rounded-xl border border-slate-200/90 shadow-2xs overflow-hidden flex flex-col h-full">
+        <section className="lg:col-span-4 bg-white rounded-lg border border-slate-200/90 shadow-2xs overflow-hidden flex flex-col h-full">
           {/* Header */}
           <div className="flex items-center justify-between px-5 py-3.5 border-b border-slate-100 shrink-0">
             <h2 className="font-extrabold text-slate-900 text-sm sm:text-base">Staff availability</h2>

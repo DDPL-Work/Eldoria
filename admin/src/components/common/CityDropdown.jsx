@@ -1,11 +1,10 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
-import { GetState, GetCity } from 'react-country-state-city';
 import indianCitiesPkg from 'indian-states-cities-list';
 import { Icon } from '../../constants/icons';
 import { useStore } from '../../context/StoreContext';
 import { DEFAULT_CITIES } from '../../constants/data';
 
-// Extract instant district cities from local package
+// Extract instant district cities from local package (37 states, 739 cities - 0 network calls)
 const { STATE_WISE_CITIES } = indianCitiesPkg || {};
 const staticIndianCities = [];
 if (STATE_WISE_CITIES) {
@@ -27,8 +26,6 @@ export function CityDropdown({ className = '' }) {
   const { selectedCity, setSelectedCity, cityName, cities, backendCities } = useStore();
   const [isOpen, setIsOpen] = useState(false);
   const [search, setSearch] = useState('');
-  const [apiCities, setApiCities] = useState([]);
-  const [loadingPkg, setLoadingPkg] = useState(false);
   const dropdownRef = useRef(null);
   const searchInputRef = useRef(null);
 
@@ -54,72 +51,7 @@ export function CityDropdown({ className = '' }) {
     }
   }, [isOpen]);
 
-  // Load Indian cities dynamically from react-country-state-city (Country ID 101 for India)
-  useEffect(() => {
-    let mounted = true;
-    async function loadCitiesFromPackage() {
-      try {
-        setLoadingPkg(true);
-        // Get all states for India from react-country-state-city
-        const states = await GetState(101);
-        if (!mounted || !Array.isArray(states)) return;
-
-        // Fetch cities from top high-density states
-        const majorStateNames = [
-          'Maharashtra',
-          'Delhi',
-          'Karnataka',
-          'Tamil Nadu',
-          'Gujarat',
-          'Rajasthan',
-          'Uttar Pradesh',
-          'West Bengal',
-          'Telangana',
-          'Kerala',
-          'Punjab',
-          'Madhya Pradesh',
-          'Goa',
-          'Uttarakhand',
-        ];
-
-        const targetStates = states.filter((s) =>
-          majorStateNames.some(
-            (m) => m.toLowerCase() === s.name.toLowerCase()
-          )
-        );
-
-        const loaded = [];
-        for (const st of targetStates) {
-          try {
-            const cities = await GetCity(101, st.id);
-            if (Array.isArray(cities)) {
-              cities.forEach((ct) => {
-                const id = ct.name.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-');
-                loaded.push({ id, name: ct.name, state: st.name });
-              });
-            }
-          } catch {
-            // Ignore individual state error
-          }
-        }
-
-        if (mounted && loaded.length > 0) {
-          setApiCities(loaded);
-        }
-      } catch (err) {
-        console.warn('Could not load react-country-state-city data, using local fallback:', err);
-      } finally {
-        if (mounted) setLoadingPkg(false);
-      }
-    }
-
-    loadCitiesFromPackage();
-    return () => {
-      mounted = false;
-    };
-  }, []);
-
-  // Merge operational default cities + react-country-state-city + local district cities
+  // Merge operational default cities + local district cities
   const allCitiesList = useMemo(() => {
     const map = new Map();
 
@@ -149,14 +81,7 @@ export function CityDropdown({ className = '' }) {
       }
     });
 
-    // 3. Add react-country-state-city cities
-    apiCities.forEach((c) => {
-      if (!map.has(c.id)) {
-        map.set(c.id, c);
-      }
-    });
-
-    // 4. Add static district cities
+    // 3. Add static district cities (739 Indian cities from local package)
     staticIndianCities.forEach((c) => {
       if (!map.has(c.id)) {
         map.set(c.id, c);
@@ -164,7 +89,7 @@ export function CityDropdown({ className = '' }) {
     });
 
     return Array.from(map.values());
-  }, [apiCities, cities, backendCities]);
+  }, [cities, backendCities]);
 
   // Filter cities by search term
   const filteredCities = useMemo(() => {
@@ -304,11 +229,7 @@ export function CityDropdown({ className = '' }) {
 
           {/* Footer showing count */}
           <div className="px-3 py-1.5 bg-slate-50 border-t border-slate-100 text-[10px] text-slate-400 flex items-center justify-between">
-            <span>
-              {loadingPkg
-                ? 'Loading cities from package...'
-                : `${filteredCities.length} Indian cities available`}
-            </span>
+            <span>{filteredCities.length} Indian cities available</span>
             <span className="text-[#0E2F5A] font-semibold">India</span>
           </div>
         </div>

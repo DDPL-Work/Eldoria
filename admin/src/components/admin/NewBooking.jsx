@@ -1,4 +1,5 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect, useMemo } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { Icon } from '../../constants/icons';
 import { FormCityDropdown } from '../common/FormCityDropdown';
 import { useStore } from '../../context/StoreContext';
@@ -87,7 +88,11 @@ export function NewBooking({ onBack, onBookingCreated, fromEnqId }) {
     notify,
     staffCanConfirm,
     staffList,
-    createBooking
+    createBooking,
+    backendClients,
+    fetchClients,
+    backendBookings,
+    fetchBookings
   } = useStore();
 
   const enq = fromEnqId ? data.enquiries[fromEnqId] : null;
@@ -108,20 +113,29 @@ export function NewBooking({ onBack, onBookingCreated, fromEnqId }) {
   const [selectedPreview, setSelectedPreview] = useState(null);
   const fileInputRef = useRef(null);
 
+  const [searchParams] = useSearchParams();
+
+  // Read URL query parameters for auto-filling when opened from ClientDetail page (Only 4 fields: name, phone, city, area)
+  const qName = searchParams.get('name') || searchParams.get('clientName') || '';
+  const qPhone = searchParams.get('phone') || searchParams.get('clientPhone') || searchParams.get('mobile') || '';
+  const qCity = searchParams.get('city') || '';
+  const qArea = searchParams.get('area') || searchParams.get('locality') || '';
+
   const [form, setForm] = useState(() => {
     const defaultCity =
-      enq?.city || (selectedCity !== 'all' ? selectedCity : '');
+      qCity || enq?.city || (selectedCity !== 'all' ? selectedCity : '');
     const initialSvc = enq?.recommended && data.services[enq.recommended]
       ? enq.recommended
       : '';
     const initialPlan = enq?.plan || '';
+    const cleanPhone = qPhone ? digits(qPhone).slice(-10) : (enq?.clientPhone || '');
 
     return {
-      clientName: enq?.clientName || '',
-      clientPhone: enq?.clientPhone || '',
-      source: enq ? 'App' : '',
+      clientName: qName || enq?.clientName || '',
+      clientPhone: cleanPhone,
+      source: enq ? 'App' : 'Call',
       city: defaultCity,
-      area: enq?.area || '',
+      area: qArea || enq?.area || '',
       patientName: '',
       patientAge: enq?.patientAge || '',
       relation: '',
@@ -134,6 +148,151 @@ export function NewBooking({ onBack, onBookingCreated, fromEnqId }) {
       err: ''
     };
   });
+
+  // Auto-fill only the 4 client fields if query parameters are present
+  useEffect(() => {
+    if (qName || qPhone || qCity || qArea) {
+      setForm((prev) => ({
+        ...prev,
+        clientName: qName || prev.clientName,
+        clientPhone: (qPhone ? digits(qPhone).slice(-10) : '') || prev.clientPhone,
+        city: qCity || prev.city,
+        area: qArea || prev.area,
+      }));
+    }
+  }, [qName, qPhone, qCity, qArea]);
+
+  // Client dropdown state & outside click handling
+  const [isClientDropdownOpen, setIsClientDropdownOpen] = useState(false);
+  const clientDropdownRef = useRef(null);
+
+  // Fetch clients & bookings if not already loaded in store
+  useEffect(() => {
+    if (!backendClients || backendClients.length === 0) {
+      fetchClients?.();
+    }
+    if (!backendBookings || backendBookings.length === 0) {
+      fetchBookings?.();
+    }
+  }, [fetchClients, fetchBookings, backendClients, backendBookings]);
+
+  // Handle click outside & escape key to close client dropdown
+  useEffect(() => {
+    function handleClickOutside(event) {
+      if (clientDropdownRef.current && !clientDropdownRef.current.contains(event.target)) {
+        setIsClientDropdownOpen(false);
+      }
+    }
+    function handleKeyDown(event) {
+      if (event.key === 'Escape') {
+        setIsClientDropdownOpen(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, []);
+
+  // Aggregate clients from backend database, store, and previous bookings
+  const clientOptions = useMemo(() => {
+    const map = new Map();
+
+    const addClient = (item) => {
+      if (!item) return;
+      const u = item.user || {};
+      const name = (u.name || item.name || item.clientName || item.patientName || '').trim();
+      if (!name) return;
+
+      const rawPhone = u.phone || item.phone || item.clientPhone || item.emergencyPhone || '';
+      const phone = rawPhone ? digits(String(rawPhone)).slice(-10) : '';
+      const city = (item.city || item.clientCity || '').trim();
+      const area = (item.area || item.locality || item.clientArea || '').trim();
+      const clientId = item.clientId || (item.id ? `CLT-${item.id}` : '');
+
+      // Normalize key by lowercased name + phone
+      const key = `${name.toLowerCase()}__${phone || 'nophone'}`;
+      if (!map.has(key)) {
+        map.set(key, {
+          id: item.id || clientId || key,
+          name,
+          phone,
+          city,
+          area,
+          clientId,
+        });
+      } else {
+        const existing = map.get(key);
+        if (!existing.phone && phone) existing.phone = phone;
+        if (!existing.city && city) existing.city = city;
+        if (!existing.area && area) existing.area = area;
+        if (!existing.clientId && clientId) existing.clientId = clientId;
+      }
+    };
+
+    // 1. From backend clients list
+    if (Array.isArray(backendClients)) {
+      backendClients.forEach(addClient);
+    }
+
+    // 2. From demo/local clients
+    if (data?.clients) {
+      Object.values(data.clients).forEach(addClient);
+    }
+
+    // 3. From backend bookings
+    if (Array.isArray(backendBookings)) {
+      backendBookings.forEach((b) => {
+        addClient({
+          name: b.clientName || b.client?.name || b.user?.name,
+          phone: b.clientPhone || b.client?.phone || b.user?.phone,
+          city: b.city,
+          area: b.area,
+        });
+      });
+    }
+
+    // 4. From demo/local bookings
+    if (data?.bookings) {
+      Object.values(data.bookings).forEach((b) => {
+        addClient({
+          name: b.clientName,
+          phone: b.clientPhone,
+          city: b.city,
+          area: b.area,
+        });
+      });
+    }
+
+    return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name));
+  }, [backendClients, data?.clients, backendBookings, data?.bookings]);
+
+  // Filter clients based on user typing
+  const filteredClients = useMemo(() => {
+    const q = (form.clientName || '').trim().toLowerCase();
+    if (!q) return clientOptions;
+    return clientOptions.filter((c) => {
+      const matchName = c.name.toLowerCase().includes(q);
+      const matchPhone = c.phone && c.phone.includes(q);
+      const matchCity = c.city && c.city.toLowerCase().includes(q);
+      const matchArea = c.area && c.area.toLowerCase().includes(q);
+      const matchId = c.clientId && c.clientId.toLowerCase().includes(q);
+      return matchName || matchPhone || matchCity || matchArea || matchId;
+    });
+  }, [clientOptions, form.clientName]);
+
+  const handleSelectClient = (client) => {
+    setForm((prev) => ({
+      ...prev,
+      clientName: client.name,
+      clientPhone: client.phone || prev.clientPhone,
+      city: client.city || prev.city,
+      area: client.area || prev.area,
+    }));
+    setIsClientDropdownOpen(false);
+  };
 
   const selectedServiceObj = form.service ? svc(form.service) : null;
 
@@ -263,16 +422,24 @@ export function NewBooking({ onBack, onBookingCreated, fromEnqId }) {
       setForm((prev) => ({ ...prev, err: 'Please select or enter a city.' }));
       return;
     }
+    if (!form.area.trim()) {
+      setForm((prev) => ({ ...prev, err: 'Please enter area / locality.' }));
+      return;
+    }
     if (!form.patientName.trim()) {
       setForm((prev) => ({ ...prev, err: 'Please enter patient name.' }));
       return;
     }
-    if (!form.service) {
-      setForm((prev) => ({ ...prev, err: 'Please select a service.' }));
-      return;
-    }
     if (!form.date) {
       setForm((prev) => ({ ...prev, err: 'Please select a booking date.' }));
+      return;
+    }
+    if (!form.time.trim()) {
+      setForm((prev) => ({ ...prev, err: 'Please select or enter a service time slot.' }));
+      return;
+    }
+    if (!form.service) {
+      setForm((prev) => ({ ...prev, err: 'Please select a service.' }));
       return;
     }
     if (!form.address.trim()) {
@@ -308,7 +475,7 @@ export function NewBooking({ onBack, onBookingCreated, fromEnqId }) {
       relation: form.relation.trim() || 'Other',
       plan: form.plan.trim() || 'Single visit',
       date: form.date,
-      time: form.time.trim() || '9:00 AM',
+      time: form.time.trim(),
       address: form.address.trim(),
       notes: form.notes.trim(),
       source: form.source.trim() || 'Call',
@@ -436,22 +603,163 @@ export function NewBooking({ onBack, onBookingCreated, fromEnqId }) {
       >
         {/* Form Fields: 5-column responsive grid with expanded Service field */}
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3 sm:gap-3.5">
-          {/* 1. Client Name */}
-          <div>
-            <label className={labelCls}>Client name</label>
-            <input
-              type="text"
-              required
-              placeholder="Client full name"
-              value={form.clientName}
-              onChange={(e) => setForm({ ...form, clientName: e.target.value })}
-              className={inputCls}
-            />
+          {/* 1. Client Name with Dropdown & Manual Input */}
+          <div className="relative" ref={clientDropdownRef}>
+            <div className="flex items-center justify-between mb-1.5 h-5">
+              <label className="text-xs sm:text-[13px] font-medium text-slate-600 truncate">
+                Client name <span className="text-rose-500 font-bold">*</span>
+              </label>
+              {clientOptions.length > 0 && (
+                <span className="text-[11px] text-slate-400 font-normal">
+                  {clientOptions.length} registered
+                </span>
+              )}
+            </div>
+
+            <div className="relative">
+              <input
+                type="text"
+                required
+                placeholder="Type or select client..."
+                value={form.clientName}
+                onFocus={() => setIsClientDropdownOpen(true)}
+                onClick={() => setIsClientDropdownOpen(true)}
+                onChange={(e) => {
+                  setForm({ ...form, clientName: e.target.value });
+                  setIsClientDropdownOpen(true);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Escape') {
+                    setIsClientDropdownOpen(false);
+                  }
+                }}
+                className={`${inputCls} pr-14`}
+                autoComplete="off"
+              />
+
+              {/* Action buttons inside the right side of the input */}
+              <div className="absolute right-1.5 top-1/2 -translate-y-1/2 flex items-center gap-0.5">
+                {form.clientName && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setForm({ ...form, clientName: '' });
+                      setIsClientDropdownOpen(true);
+                    }}
+                    className="p-1 text-slate-400 hover:text-slate-600 rounded cursor-pointer transition text-xs leading-none"
+                    title="Clear client name"
+                  >
+                    ✕
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setIsClientDropdownOpen((prev) => !prev)}
+                  className={`p-1.5 text-slate-400 hover:text-[#0E2F5A] rounded cursor-pointer transition ${
+                    isClientDropdownOpen ? 'rotate-180 text-[#0E2F5A]' : ''
+                  }`}
+                  title={isClientDropdownOpen ? 'Close list' : 'View clients list'}
+                  tabIndex={-1}
+                >
+                  <Icon name="down" size={13} />
+                </button>
+              </div>
+            </div>
+
+            {/* Dropdown Menu */}
+            {isClientDropdownOpen && (
+              <div className="absolute left-0 top-full mt-1.5 w-full min-w-[280px] sm:min-w-[340px] bg-white rounded-xl shadow-2xl border border-slate-200 z-50 overflow-hidden flex flex-col animate-in fade-in zoom-in-95 duration-100">
+                {/* Header bar */}
+                <div className="px-3 py-2 bg-slate-50 border-b border-slate-100 flex items-center justify-between text-[11px] font-semibold text-slate-500">
+                  <div className="flex items-center gap-1.5">
+                    <Icon name="users" size={13} className="text-[#0E2F5A]" />
+                    <span>Select Client or Type Manually</span>
+                  </div>
+                  <span>{filteredClients.length} match{filteredClients.length === 1 ? '' : 'es'}</span>
+                </div>
+
+                {/* Clients list */}
+                <div className="max-h-60 overflow-y-auto divide-y divide-slate-100/80 text-xs">
+                  {filteredClients.length === 0 ? (
+                    <div className="p-4 text-center space-y-2">
+                      <p className="text-slate-600 font-medium">
+                        No client matches "{form.clientName}"
+                      </p>
+                      <p className="text-[11px] text-slate-400">
+                        You can continue typing manually — this new client will be created with the booking.
+                      </p>
+                      {form.clientName.trim() && (
+                        <button
+                          type="button"
+                          onClick={() => setIsClientDropdownOpen(false)}
+                          className="mt-1 text-xs font-semibold text-[#0E2F5A] bg-[#E4ECF7] hover:bg-[#d5e3f5] px-3 py-1.5 rounded-lg transition cursor-pointer"
+                        >
+                          Use "{form.clientName}" as new client ✓
+                        </button>
+                      )}
+                    </div>
+                  ) : (
+                    filteredClients.map((client) => {
+                      const isSelected =
+                        form.clientName &&
+                        client.name.toLowerCase() === form.clientName.toLowerCase();
+                      return (
+                        <button
+                          key={client.id || client.name + client.phone}
+                          type="button"
+                          onClick={() => handleSelectClient(client)}
+                          className={`w-full text-left px-3.5 py-2.5 transition cursor-pointer flex flex-col gap-0.5 ${
+                            isSelected
+                              ? 'bg-[#E4ECF7] text-[#0E2F5A]'
+                              : 'hover:bg-slate-50 text-slate-800'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="font-semibold text-xs sm:text-[13px] text-slate-900 truncate">
+                              {client.name}
+                            </span>
+                            {client.clientId && (
+                              <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 shrink-0">
+                                {client.clientId}
+                              </span>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-2 text-[11px] text-slate-500 truncate">
+                            {client.phone && (
+                              <span className="font-mono">📞 {client.phone}</span>
+                            )}
+                            {client.city && (
+                              <span className="truncate">
+                                • 📍 {client.city}{client.area ? `, ${client.area}` : ''}
+                              </span>
+                            )}
+                          </div>
+                        </button>
+                      );
+                    })
+                  )}
+                </div>
+
+                {/* Footer hint */}
+                <div className="px-3 py-1.5 bg-slate-50/80 border-t border-slate-100 text-[10px] text-slate-400 flex items-center justify-between">
+                  <span>💡 Click client to auto-fill phone & location</span>
+                  <button
+                    type="button"
+                    onClick={() => setIsClientDropdownOpen(false)}
+                    className="hover:text-slate-600 font-medium cursor-pointer"
+                  >
+                    Close ✕
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* 2. Client Mobile */}
           <div>
-            <label className={labelCls}>Client mobile (10 digits)</label>
+            <label className={labelCls}>
+              Client mobile (10 digits) <span className="text-rose-500 font-bold">*</span>
+            </label>
             <input
               type="tel"
               required
@@ -515,7 +823,9 @@ export function NewBooking({ onBack, onBookingCreated, fromEnqId }) {
 
           {/* 4. City */}
           <div>
-            <label className={labelCls}>City</label>
+            <label className={labelCls}>
+              City <span className="text-rose-500 font-bold">*</span>
+            </label>
             <FormCityDropdown
               value={form.city}
               onChange={(city) => setForm({ ...form, city })}
@@ -525,9 +835,12 @@ export function NewBooking({ onBack, onBookingCreated, fromEnqId }) {
 
           {/* 5. Area / Locality */}
           <div>
-            <label className={labelCls}>Area / Locality</label>
+            <label className={labelCls}>
+              Area / Locality <span className="text-rose-500 font-bold">*</span>
+            </label>
             <input
               type="text"
+              required
               placeholder="e.g. Andheri West, Bandra"
               value={form.area}
               onChange={(e) => setForm({ ...form, area: e.target.value })}
@@ -537,7 +850,9 @@ export function NewBooking({ onBack, onBookingCreated, fromEnqId }) {
 
           {/* 6. Patient Name */}
           <div>
-            <label className={labelCls}>Patient name</label>
+            <label className={labelCls}>
+              Patient name <span className="text-rose-500 font-bold">*</span>
+            </label>
             <input
               type="text"
               required
@@ -613,7 +928,9 @@ export function NewBooking({ onBack, onBookingCreated, fromEnqId }) {
 
           {/* 9. Date */}
           <div>
-            <label className={labelCls}>Date</label>
+            <label className={labelCls}>
+              Date <span className="text-rose-500 font-bold">*</span>
+            </label>
             <input
               type="date"
               required
@@ -625,11 +942,14 @@ export function NewBooking({ onBack, onBookingCreated, fromEnqId }) {
 
           {/* 10. Time */}
           <div>
-            <label className={labelCls}>Time</label>
+            <label className={labelCls}>
+              Time <span className="text-rose-500 font-bold">*</span>
+            </label>
             {customTime ? (
               <div className="relative">
                 <input
                   type="text"
+                  required
                   placeholder="e.g. 10:30 AM or 4:00 PM"
                   value={form.time}
                   onChange={(e) => setForm({ ...form, time: e.target.value })}
@@ -651,6 +971,7 @@ export function NewBooking({ onBack, onBookingCreated, fromEnqId }) {
             ) : (
               <select
                 value={form.time}
+                required
                 onChange={(e) => {
                   if (e.target.value === '__custom__') {
                     setCustomTime(true);
@@ -764,7 +1085,9 @@ export function NewBooking({ onBack, onBookingCreated, fromEnqId }) {
 
         {/* 12. Address (Full Width) */}
         <div>
-          <label className={labelCls}>Address</label>
+          <label className={labelCls}>
+            Address <span className="text-rose-500 font-bold">*</span>
+          </label>
           <textarea
             required
             rows={2}
