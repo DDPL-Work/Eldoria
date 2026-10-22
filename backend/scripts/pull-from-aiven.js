@@ -1,52 +1,41 @@
 require('dotenv').config();
 const { getLocalSequelize, getAivenSequelize } = require('../src/configs/db.config');
 const { migrateUp } = require('../src/database/migrations/runner');
+const { defineDb, smartMirrorRecord } = require('./sync-to-aiven');
 
 const localSequelize = getLocalSequelize();
 const aivenSequelize = getAivenSequelize();
 
-// Define models on both connections
-const defineDb = (seq) => {
-  return {
-    Admin: require('../src/database/models/admin.model')(seq),
-    City: require('../src/database/models/city.model')(seq),
-    Service: require('../src/database/models/service.model')(seq),
-    User: require('../src/database/models/user.model')(seq),
-    Staff: require('../src/database/models/staff.model')(seq),
-    Client: require('../src/database/models/client.model')(seq),
-    Booking: require('../src/database/models/booking.model')(seq),
-    Enquiry: require('../src/database/models/enquiry.model')(seq),
-    Otp: require('../src/database/models/otp.model')(seq),
-  };
-};
+async function pullFromAiven(options = {}) {
+  const { isStandalone = false, silent = false } = options;
+  const log = silent ? () => {} : console.log;
+  const warn = silent ? () => {} : console.warn;
 
-async function pullFromAiven() {
-  console.log('🚀 Starting Data Pull: [Aiven Cloud] ➡️ [Local MySQL]...\n');
+  log('🚀 Starting Data Pull: [Aiven Cloud] ➡️ [Local MySQL]...\n');
 
   try {
-    // 1. Authenticate both connections
     await localSequelize.authenticate();
-    console.log('✅ Connected to Local MySQL.');
+    log('✅ Connected to Local MySQL.');
 
     await aivenSequelize.authenticate();
-    console.log('✅ Connected to Aiven MySQL Cloud.\n');
+    log('✅ Connected to Aiven MySQL Cloud.\n');
 
-    // 2. Ensure migrations are applied on Local
-    console.log('🔄 Checking database schema & migrations on Local MySQL...');
+    log('🔄 Checking database schema & migrations on Local MySQL...');
     const applied = await migrateUp(localSequelize);
     if (applied.length > 0) {
-      console.log(`✅ Applied ${applied.length} pending migrations on Local: ${applied.join(', ')}`);
+      log(`✅ Applied ${applied.length} pending migrations on Local: ${applied.join(', ')}`);
     } else {
-      console.log('✅ Local database schema is up-to-date.');
+      log('✅ Local database schema is up-to-date.');
     }
 
     const localDb = defineDb(localSequelize);
     const aivenDb = defineDb(aivenSequelize);
 
-    // Pull in dependency order
     const pullPlan = [
       'Admin',
       'City',
+      'Category',
+      'Setting',
       'Service',
       'User',
       'Staff',
@@ -54,14 +43,17 @@ async function pullFromAiven() {
       'Booking',
       'Enquiry',
       'Otp',
+      'NotifyMe',
+      'InAppNotification',
     ];
 
-    console.log('\n📦 Pulling table records into Local MySQL...');
+    log('\n📦 Pulling table records into Local MySQL...');
     const summary = [];
 
     for (const modelName of pullPlan) {
       const localModel = localDb[modelName];
       const aivenModel = aivenDb[modelName];
+      if (!localModel || !aivenModel) continue;
 
       const records = await aivenModel.findAll({ raw: true });
 
@@ -75,11 +67,15 @@ async function pullFromAiven() {
 
       for (const record of records) {
         try {
-          await localModel.upsert(record);
+          await smartMirrorRecord(localModel, modelName, record);
           pulledCount++;
         } catch (err) {
           errorCount++;
-          console.warn(`   ⚠️ Error pulling ${modelName} ID ${record.id || record.staffId || record.userId}: ${err.message}`);
+          const details =
+            err.errors && Array.isArray(err.errors)
+              ? err.errors.map((e) => `${e.path || e.type}: ${e.message}`).join(', ')
+              : err.message;
+          warn(`   ⚠️ Error pulling ${modelName} ID ${record.id || record.staffId || record.userId}: ${details}`);
         }
       }
 
@@ -91,17 +87,31 @@ async function pullFromAiven() {
       });
     }
 
-    console.log('\n📊 Pull Summary:');
-    console.table(summary);
-    console.log('\n✨ Cloud entries from Aiven have been successfully pulled into Local MySQL!');
+    if (!silent) {
+      log('\n📊 Pull Summary:');
+      console.table(summary);
+      log('\n✨ Cloud entries from Aiven have been successfully pulled into Local MySQL!');
+    }
 
+    return { success: true, summary };
   } catch (error) {
     console.error('\n❌ Data pull failed:', error.message);
-    process.exit(1);
+    if (isStandalone) {
+      process.exit(1);
+    }
+    throw error;
   } finally {
-    await localSequelize.close().catch(() => {});
-    await aivenSequelize.close().catch(() => {});
+    if (isStandalone) {
+      await localSequelize.close().catch(() => {});
+      await aivenSequelize.close().catch(() => {});
+    }
   }
 }
 
-pullFromAiven();
+if (require.main === module) {
+  pullFromAiven({ isStandalone: true });
+}
+
+module.exports = {
+  pullFromAiven,
+};

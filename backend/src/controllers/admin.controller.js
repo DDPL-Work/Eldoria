@@ -1241,35 +1241,180 @@ const getClients = async (req, res) => {
 
 /**
  * 6. Fetch single client by clientId or primary key id
+ * Clean non-redundant response: Client personal details followed by bookings with patient information
  * GET /api/v1/admin/clients/:clientId
  */
 const getClientByClientId = async (req, res) => {
   try {
-    const { clientId } = req.params;
+    const clientIdParam = req.params.clientId || req.params.clientID || req.params.id;
 
-    if (!clientId) {
+    if (!clientIdParam) {
       return errorResponse(res, "Client ID or clientId string is required", 400);
     }
 
+    // 1. Fetch Client profile with associated User account
     const client = await Client.findOne({
-      where: buildClientLookupCondition(clientId),
+      where: buildClientLookupCondition(clientIdParam),
       include: [
         {
           model: User,
           as: "user",
-          attributes: ["id", "name", "email", "phone", "role", "isActive", "createdAt"],
+          attributes: ["id", "name", "email", "phone", "role", "isActive", "createdAt", "updatedAt"],
         },
       ],
     });
 
     if (!client) {
-      return errorResponse(res, `Client '${clientId}' not found`, 404);
+      return errorResponse(res, `Client '${clientIdParam}' not found`, 404);
     }
+
+    // 2. Build matching criteria for all bookings associated with this client
+    const bookingOrConditions = [];
+    if (client.clientId) {
+      bookingOrConditions.push({ clientId: client.clientId });
+    }
+    bookingOrConditions.push({ clientId: String(client.id) });
+    if (client.user && client.user.phone) {
+      bookingOrConditions.push({ clientPhone: client.user.phone });
+    }
+    if (client.emergencyPhone) {
+      bookingOrConditions.push({ clientPhone: client.emergencyPhone });
+    }
+
+    // 3. Fetch all bookings for this client
+    const bookings = await Booking.findAll({
+      where: {
+        [Op.or]: bookingOrConditions,
+      },
+      order: [["createdAt", "DESC"]],
+      include: [
+        {
+          model: Staff,
+          as: "assignedStaff",
+          required: false,
+          attributes: ["id", "staffId", "city", "area", "qualification"],
+          include: [
+            {
+              model: User,
+              as: "user",
+              required: false,
+              attributes: ["id", "name", "email", "phone"],
+            },
+          ],
+        },
+      ],
+    });
+
+    // 4. Format bookings — patient details depend on each specific booking
+    const formattedBookings = bookings.map((b) => {
+      const bJson = b.toJSON ? b.toJSON() : b;
+      return {
+        id: bJson.id,
+        code: bJson.code,
+        serviceId: bJson.serviceId,
+        service: bJson.service,
+        serviceName: bJson.serviceName,
+        categoryId: bJson.categoryId,
+        category: bJson.category,
+        plan: bJson.plan,
+        date: bJson.date,
+        time: bJson.time,
+        status: bJson.status,
+        price: bJson.price,
+        source: bJson.source,
+        notes: bJson.notes,
+        patient: {
+          name: bJson.patientName,
+          age: bJson.patientAge,
+          gender: bJson.patientGender,
+          relation: bJson.relation,
+          address: bJson.address,
+          area: bJson.area,
+          city: bJson.city,
+        },
+        staffId: bJson.staffId,
+        assignedStaff: bJson.assignedStaff
+          ? {
+              id: bJson.assignedStaff.id,
+              staffId: bJson.assignedStaff.staffId,
+              name: bJson.assignedStaff.user?.name || "Assigned Caregiver",
+              phone: bJson.assignedStaff.user?.phone || null,
+              qualification: bJson.assignedStaff.qualification,
+              city: bJson.assignedStaff.city,
+            }
+          : null,
+        confirmedBy: bJson.confirmedBy,
+        confirmedAt: bJson.confirmedAt,
+        assignedBy: bJson.assignedBy,
+        assignedAt: bJson.assignedAt,
+        checkInAt: bJson.checkInAt,
+        checkOutAt: bJson.checkOutAt,
+        tasks: bJson.tasks || [],
+        files: bJson.files || [],
+        reports: bJson.reports || [],
+        history: bJson.history || [],
+        createdAt: bJson.createdAt,
+        updatedAt: bJson.updatedAt,
+      };
+    });
+
+    // 5. Unique patient summary derived from the client's bookings
+    const patientMap = new Map();
+    formattedBookings.forEach((b) => {
+      if (b.patient && b.patient.name) {
+        const key = b.patient.name.trim().toLowerCase();
+        if (!patientMap.has(key)) {
+          patientMap.set(key, {
+            name: b.patient.name,
+            age: b.patient.age,
+            gender: b.patient.gender,
+            relation: b.patient.relation,
+            totalBookings: 1,
+            lastBookingCode: b.code,
+          });
+        } else {
+          patientMap.get(key).totalBookings += 1;
+        }
+      }
+    });
+    const patients = Array.from(patientMap.values());
+
+    // 6. Clean Client personal details (strictly client identity, no patient data)
+    const clientPersonalDetails = {
+      id: client.id,
+      clientId: client.clientId,
+      userId: client.userId,
+      name: client.user?.name || "Client",
+      email: client.user?.email || null,
+      phone: client.user?.phone || client.emergencyPhone || null,
+      city: client.city,
+      area: client.area,
+      address: client.address,
+      pincode: client.pincode,
+      landmark: client.landmark,
+      source: client.source,
+      preferredLanguage: client.preferredLanguage,
+      status: client.status,
+      emergencyContact: {
+        name: client.emergencyName || null,
+        phone: client.emergencyPhone || null,
+        relation: client.emergencyRelation || null,
+      },
+      createdAt: client.createdAt,
+      updatedAt: client.updatedAt,
+    };
+
+    const responseData = {
+      client: clientPersonalDetails,
+      patients,
+      totalBookings: formattedBookings.length,
+      bookings: formattedBookings,
+    };
 
     return successResponse(
       res,
-      client,
-      "Client details retrieved successfully",
+      responseData,
+      "Client details and bookings retrieved successfully",
     );
   } catch (error) {
     return errorResponse(

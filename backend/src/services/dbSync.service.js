@@ -1,33 +1,37 @@
-const { getAivenSequelize, isLocal } = require('../configs/db.config');
+const { getAivenSequelize, getLocalSequelize, isLocal, isServer } = require('../configs/db.config');
+const { smartMirrorRecord } = require('../../scripts/sync-to-aiven');
 
-let aivenDbInstance = null;
-let isAivenConnected = null;
+let targetDbInstance = null;
+let isTargetAvailable = null;
+let isReplicating = false;
 
 /**
- * Initializes the model definitions on the Aiven Sequelize connection.
+ * Initializes model definitions on the secondary/target connection.
+ * If running on Local -> Target is Aiven Cloud.
+ * If running on Cloud/Server -> Target is Local MySQL (if accessible).
  */
-const getAivenDb = () => {
-  if (aivenDbInstance) return aivenDbInstance;
+const getTargetDb = () => {
+  if (targetDbInstance) return targetDbInstance;
 
-  const aivenSequelize = getAivenSequelize();
+  const targetSequelize = isLocal ? getAivenSequelize() : getLocalSequelize();
   const db = {
-    sequelize: aivenSequelize,
-    Admin: require('../database/models/admin.model')(aivenSequelize),
-    User: require('../database/models/user.model')(aivenSequelize),
-    Staff: require('../database/models/staff.model')(aivenSequelize),
-    Client: require('../database/models/client.model')(aivenSequelize),
-    Otp: require('../database/models/otp.model')(aivenSequelize),
-    Booking: require('../database/models/booking.model')(aivenSequelize),
-    Enquiry: require('../database/models/enquiry.model')(aivenSequelize),
-    City: require('../database/models/city.model')(aivenSequelize),
-    Service: require('../database/models/service.model')(aivenSequelize),
-    Category: require('../database/models/category.model')(aivenSequelize),
-    Setting: require('../database/models/setting.model')(aivenSequelize),
-    NotifyMe: require('../database/models/notifyMe.model')(aivenSequelize),
-    InAppNotification: require('../database/models/inAppNotification.model')(aivenSequelize),
+    sequelize: targetSequelize,
+    Admin: require('../database/models/admin.model')(targetSequelize),
+    User: require('../database/models/user.model')(targetSequelize),
+    Staff: require('../database/models/staff.model')(targetSequelize),
+    Client: require('../database/models/client.model')(targetSequelize),
+    Otp: require('../database/models/otp.model')(targetSequelize),
+    Booking: require('../database/models/booking.model')(targetSequelize),
+    Enquiry: require('../database/models/enquiry.model')(targetSequelize),
+    City: require('../database/models/city.model')(targetSequelize),
+    Service: require('../database/models/service.model')(targetSequelize),
+    Category: require('../database/models/category.model')(targetSequelize),
+    Setting: require('../database/models/setting.model')(targetSequelize),
+    NotifyMe: require('../database/models/notifyMe.model')(targetSequelize),
+    InAppNotification: require('../database/models/inAppNotification.model')(targetSequelize),
   };
 
-  // Associations
+  // Associations for foreignKey consistency
   db.User.hasOne(db.Staff, { foreignKey: 'staffId', sourceKey: 'staffId', as: 'staffProfile', constraints: false });
   db.Staff.belongsTo(db.User, { foreignKey: 'staffId', targetKey: 'staffId', as: 'user', constraints: false });
   db.User.hasOne(db.Client, { foreignKey: 'userId', as: 'clientProfile', constraints: false });
@@ -41,13 +45,19 @@ const getAivenDb = () => {
   db.Service.belongsTo(db.City, { foreignKey: 'cityId', as: 'primaryCity', constraints: false });
   db.City.hasMany(db.Service, { foreignKey: 'cityId', as: 'services', constraints: false });
 
-  aivenDbInstance = db;
-  return aivenDbInstance;
+  targetDbInstance = db;
+  return targetDbInstance;
 };
 
 // Queue for asynchronous background replication
 const syncQueue = [];
 let isProcessingQueue = false;
+
+const isSyncEnabled = () => {
+  // Sync is enabled by default if ENABLE_AIVEN_SYNC or ENABLE_DB_SYNC is true
+  const flag = process.env.ENABLE_AIVEN_SYNC || process.env.ENABLE_DB_SYNC;
+  return flag === 'true';
+};
 
 const processQueue = async () => {
   if (isProcessingQueue || syncQueue.length === 0) return;
@@ -56,44 +66,77 @@ const processQueue = async () => {
   while (syncQueue.length > 0) {
     const task = syncQueue.shift();
     try {
+      isReplicating = true;
       await executeSyncTask(task);
     } catch (err) {
-      console.warn(`⚠️ [Aiven Sync Error] Failed to mirror ${task.modelName} (${task.action}):`, err.message);
+      const details =
+        err.errors && Array.isArray(err.errors)
+          ? err.errors.map((e) => `${e.path || e.type}: ${e.message}`).join(', ')
+          : err.message;
+      const targetName = isLocal ? 'Aiven Cloud' : 'Local MySQL';
+      console.warn(`⚠️ [DB Sync Error] Failed to mirror ${task.modelName} (${task.action}) to ${targetName}:`, details);
+    } finally {
+      isReplicating = false;
     }
   }
 
   isProcessingQueue = false;
 };
 
+const MODEL_BUSINESS_KEYS = {
+  Booking: ['code'],
+  Client: ['clientId'],
+  Staff: ['staffId'],
+  Admin: ['email'],
+  Category: ['slug', 'name'],
+  City: ['name'],
+  Setting: ['id'],
+  User: ['phone', 'email'],
+  Enquiry: ['code'],
+};
+
 const executeSyncTask = async (task) => {
   const { modelName, action, data, primaryKey } = task;
-  const aivenDb = getAivenDb();
-  const targetModel = aivenDb[modelName];
+  const targetDb = getTargetDb();
+  const targetModel = targetDb[modelName];
 
   if (!targetModel) {
-    console.warn(`⚠️ [Aiven Sync] Model '${modelName}' not found on Aiven.`);
+    console.warn(`⚠️ [DB Sync] Model '${modelName}' not found on target connection.`);
     return;
   }
 
   if (action === 'upsert') {
     if (Array.isArray(data)) {
       for (const item of data) {
-        await targetModel.upsert(item);
+        await smartMirrorRecord(targetModel, modelName, item);
       }
     } else {
-      await targetModel.upsert(data);
+      await smartMirrorRecord(targetModel, modelName, data);
     }
   } else if (action === 'destroy') {
-    const whereClause = {};
-    if (primaryKey && data[primaryKey]) {
-      whereClause[primaryKey] = data[primaryKey];
-    } else if (data.id) {
-      whereClause.id = data.id;
-    } else {
-      console.warn(`⚠️ [Aiven Sync] Missing primary key identifier to delete from ${modelName}`);
-      return;
+    const keys = MODEL_BUSINESS_KEYS[modelName] || [];
+    let whereClause = null;
+
+    for (const key of keys) {
+      if (data && data[key]) {
+        whereClause = { [key]: data[key] };
+        break;
+      }
     }
-    await targetModel.destroy({ where: whereClause });
+
+    if (!whereClause) {
+      if (primaryKey && data[primaryKey]) {
+        whereClause = { [primaryKey]: data[primaryKey] };
+      } else if (data.id) {
+        whereClause = { id: data.id };
+      }
+    }
+
+    if (whereClause) {
+      await targetModel.destroy({ where: whereClause });
+    } else {
+      console.warn(`⚠️ [DB Sync] Missing identifier to delete from ${modelName}`);
+    }
   }
 };
 
@@ -101,7 +144,7 @@ const executeSyncTask = async (task) => {
  * Enqueue a sync task to be processed asynchronously.
  */
 const enqueueSync = (modelName, action, data, primaryKey) => {
-  if (!isLocal || process.env.ENABLE_AIVEN_SYNC !== 'true') {
+  if (!isSyncEnabled() || isReplicating) {
     return;
   }
 
@@ -110,14 +153,19 @@ const enqueueSync = (modelName, action, data, primaryKey) => {
 };
 
 /**
- * Attaches Sequelize lifecycle hooks to replicate all database writes from Local to Aiven.
+ * Attaches Sequelize lifecycle hooks to replicate all database writes
+ * bidirectionally between Local MySQL and Aiven Cloud.
  */
 const attachAivenSyncHooks = (db) => {
-  if (!isLocal || process.env.ENABLE_AIVEN_SYNC !== 'true') {
+  if (!isSyncEnabled()) {
     return;
   }
 
-  console.log('🔄 Automatic real-time background sync from Local MySQL to Aiven enabled.');
+  const directionLabel = isLocal
+    ? 'Local MySQL ➡️ Aiven Cloud'
+    : 'Aiven Cloud ➡️ Local MySQL';
+
+  console.log(`🔄 Automatic real-time background sync [${directionLabel}] enabled on all database actions.`);
 
   const syncableModels = [
     'Admin',
@@ -125,12 +173,14 @@ const attachAivenSyncHooks = (db) => {
     'Staff',
     'Client',
     'City',
+    'Category',
     'Service',
     'Booking',
     'Enquiry',
     'Otp',
-    'Category',
     'Setting',
+    'NotifyMe',
+    'InAppNotification',
   ];
 
   syncableModels.forEach((modelName) => {
@@ -140,22 +190,26 @@ const attachAivenSyncHooks = (db) => {
     const primaryKey = model.primaryKeyAttribute || 'id';
 
     // Hook: After Create
-    model.addHook('afterCreate', `aiven_sync_create_${modelName}`, (instance) => {
+    model.addHook('afterCreate', `db_sync_create_${modelName}`, (instance) => {
+      if (isReplicating) return;
       enqueueSync(modelName, 'upsert', instance.toJSON(), primaryKey);
     });
 
     // Hook: After Update
-    model.addHook('afterUpdate', `aiven_sync_update_${modelName}`, (instance) => {
+    model.addHook('afterUpdate', `db_sync_update_${modelName}`, (instance) => {
+      if (isReplicating) return;
       enqueueSync(modelName, 'upsert', instance.toJSON(), primaryKey);
     });
 
     // Hook: After Destroy
-    model.addHook('afterDestroy', `aiven_sync_destroy_${modelName}`, (instance) => {
+    model.addHook('afterDestroy', `db_sync_destroy_${modelName}`, (instance) => {
+      if (isReplicating) return;
       enqueueSync(modelName, 'destroy', instance.toJSON(), primaryKey);
     });
 
     // Hook: After Bulk Create
-    model.addHook('afterBulkCreate', `aiven_sync_bulk_${modelName}`, (instances) => {
+    model.addHook('afterBulkCreate', `db_sync_bulk_${modelName}`, (instances) => {
+      if (isReplicating) return;
       if (Array.isArray(instances) && instances.length > 0) {
         enqueueSync(
           modelName,
@@ -167,7 +221,8 @@ const attachAivenSyncHooks = (db) => {
     });
 
     // Hook: After Upsert
-    model.addHook('afterUpsert', `aiven_sync_upsert_${modelName}`, (values) => {
+    model.addHook('afterUpsert', `db_sync_upsert_${modelName}`, (values) => {
+      if (isReplicating) return;
       const payload = Array.isArray(values) ? values[0] : values;
       const json = payload && typeof payload.toJSON === 'function' ? payload.toJSON() : payload;
       if (json) {
@@ -177,8 +232,24 @@ const attachAivenSyncHooks = (db) => {
   });
 };
 
+/**
+ * Triggers a full bidirectional sync between both databases on-demand.
+ */
+const syncBothDatabases = async (options = {}) => {
+  const { pullFromAiven } = require('../../scripts/pull-from-aiven');
+  const { syncToAiven } = require('../../scripts/sync-to-aiven');
+
+  console.log('🔄 Executing full bidirectional synchronization between Local MySQL and Aiven Cloud...');
+  await pullFromAiven({ silent: options.silent || false, isStandalone: false });
+  await syncToAiven({ silent: options.silent || false, isStandalone: false });
+  console.log('✅ Full bidirectional synchronization completed successfully.');
+};
+
 module.exports = {
   attachAivenSyncHooks,
+  attachDbSyncHooks: attachAivenSyncHooks,
   enqueueSync,
-  getAivenDb,
+  getTargetDb,
+  getAivenDb: getTargetDb,
+  syncBothDatabases,
 };
