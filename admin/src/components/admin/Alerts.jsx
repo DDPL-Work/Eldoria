@@ -1,6 +1,7 @@
 import React from 'react';
 import { useStore } from '../../context/StoreContext';
 import { fmtTs } from '../../constants/data';
+import noNotificationsImg from '../../assets/no-notifications.png';
 
 export function Alerts({ onNavigateTarget }) {
   const { notesFor, patch } = useStore();
@@ -49,11 +50,25 @@ export function Alerts({ onNavigateTarget }) {
       {/* 2. Notifications Card Section */}
       <section className="bg-white rounded-lg border border-slate-200/90 shadow-2xs overflow-hidden">
         {list.length === 0 ? (
-          <div className="p-12 text-center text-slate-400 space-y-1">
-            <b className="block text-slate-800 text-sm font-bold">No notifications</b>
-            <span className="text-xs text-slate-500">
+          <div className="flex flex-col items-center justify-center px-4 py-8 sm:py-11 text-center bg-white min-h-[399px]">
+            {/* Illustration */}
+            <div className="w-full max-w-[340px] sm:max-w-[420px] md:max-w-[480px] h-[190px] sm:h-[240px] md:h-[270px] flex items-center justify-center mb-3 shrink-0">
+              <img
+                src={noNotificationsImg}
+                alt="No Notifications"
+                className="w-full h-full object-contain pointer-events-none select-none"
+              />
+            </div>
+
+            {/* Main heading */}
+            <h2 className="text-xl sm:text-2xl font-bold text-[#0E2F5A] tracking-tight mb-1.5">
+              No notifications
+            </h2>
+
+            {/* Supporting description */}
+            <p className="text-xs sm:text-sm text-slate-500 max-w-[500px] mx-auto px-2 leading-relaxed">
               New requests, cancellations and completed visits are logged here.
-            </span>
+            </p>
           </div>
         ) : (
           <div className="divide-y divide-[#E1E9F4]">

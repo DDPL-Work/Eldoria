@@ -38,7 +38,8 @@ export function Dashboard({ onTab, onOpenBooking, onNewBooking }) {
     dashboardLoading,
     dashboardError,
     fetchDashboard,
-    fetchStaffRequests
+    fetchStaffRequests,
+    backendStaffRequests
   } = useStore();
 
   // Fetch live dashboard metrics and staff requests on mount and when selectedCity changes
@@ -66,6 +67,9 @@ export function Dashboard({ onTab, onOpenBooking, onNewBooking }) {
   const fallbackUnassigned = all.filter(
     (b) => ['requested', 'confirmed'].includes(b.status) && !b.staffId
   );
+  const fallbackDateExceeded = all.filter(
+    (b) => b.status === 'date_exceeded' || (Boolean(b.date) && b.date < t && !['completed', 'cancelled'].includes(b.status))
+  );
   const fallbackQueue = all
     .filter((b) => ['requested', 'confirmed'].includes(b.status))
     .sort(byDateTime);
@@ -80,6 +84,7 @@ export function Dashboard({ onTab, onOpenBooking, onNewBooking }) {
   const countStaffOnDutyFallback = st.filter((s) => s.onDuty).length;
   const countStaffTotalFallback = st.length;
   const countUnassignedFallback = fallbackUnassigned.length;
+  const countDateExceededFallback = fallbackDateExceeded.length;
 
   const targetCityIds = ['mumbai', 'thane', 'navi-mumbai', 'pune'];
   const fallbackByCityRows = targetCityIds.map((cid) => {
@@ -89,6 +94,9 @@ export function Dashboard({ onTab, onOpenBooking, onNewBooking }) {
     const cOpen = cBookings.filter((b) => !['completed', 'cancelled'].includes(b.status)).length;
     const cVisitsToday = cBookings.filter((b) => b.date === t && b.status !== 'cancelled').length;
     const cUnassigned = cBookings.filter((b) => ['requested', 'confirmed'].includes(b.status) && !b.staffId).length;
+    const cDateExceeded = cBookings.filter(
+      (b) => b.status === 'date_exceeded' || (Boolean(b.date) && b.date < t && !['completed', 'cancelled'].includes(b.status))
+    ).length;
     const cStaff = staffList().filter((s) => (s.city || 'mumbai') === cid);
     const cStaffOnDuty = cStaff.filter((s) => s.onDuty).length;
     const cStaffTotal = cStaff.length;
@@ -100,6 +108,7 @@ export function Dashboard({ onTab, onOpenBooking, onNewBooking }) {
       openBookings: cOpen,
       visitsToday: cVisitsToday,
       unassigned: cUnassigned,
+      dateExceeded: cDateExceeded,
       staffOnDuty: cStaffOnDuty,
       staffTotal: cStaffTotal
     };
@@ -118,13 +127,19 @@ export function Dashboard({ onTab, onOpenBooking, onNewBooking }) {
   const kpiStaffOnDuty = dashboardData?.kpis?.staffOnDuty?.count ?? countStaffOnDutyFallback;
   const kpiStaffSublabel = dashboardData?.kpis?.staffOnDuty?.sublabel ?? `of ${countStaffTotalFallback} staff`;
   const kpiUnassigned = dashboardData?.kpis?.unassigned?.count ?? countUnassignedFallback;
+  const kpiDateExceeded = dashboardData?.kpis?.dateExceeded?.count ?? countDateExceededFallback;
 
   // 3. Resolve Alerts from Backend API
   const helpRequestsItems = dashboardData?.alerts?.helpRequests?.items || fallbackHelpRequests;
   const helpRequestsCount = dashboardData?.alerts?.helpRequests?.count ?? helpRequestsItems.length;
 
-  const pendingAppsItems = dashboardData?.alerts?.staffApplications?.items || fallbackPendingApps;
-  const pendingAppsCount = dashboardData?.alerts?.staffApplications?.count ?? pendingAppsItems.length;
+  const realPendingApps = inCity(applications()).filter((x) => apprOf(x) === 'pending');
+  const pendingAppsItems = Array.isArray(backendStaffRequests)
+    ? realPendingApps
+    : (dashboardData?.alerts?.staffApplications?.items?.filter((x) => (x.approval || 'pending') === 'pending') || fallbackPendingApps);
+  const pendingAppsCount = Array.isArray(backendStaffRequests)
+    ? realPendingApps.length
+    : (dashboardData?.alerts?.staffApplications?.count ?? pendingAppsItems.length);
 
   // 4. Resolve Queue & Staff Availability
   const queue = (dashboardData?.needsAction && Array.isArray(dashboardData.needsAction) && dashboardData.needsAction.length > 0)
@@ -247,128 +262,155 @@ export function Dashboard({ onTab, onOpenBooking, onNewBooking }) {
           </button>
         </div>
       )}
-
-
-
-     {/* 5. CARE DESK HERO BANNER */}
-<section
-  className="relative isolate overflow-hidden rounded-lg
-  bg-[linear-gradient(100deg,#0E386E_0%,#13447E_40%,#0E3360_80%,#0A2447_100%)]
-  p-5 sm:p-6 text-white shadow-md border border-[#1b4d88]/40 select-none"
->
-  {/* Animated ECG Background */}
-  <div
-    aria-hidden="true"
-    className="pointer-events-none absolute inset-x-0 top-1/2
-    z-0 -translate-y-1/2 opacity-[0.45]"
-  >
-    <EcgWaveAnimation />
-  </div>
-
-  {/* Optional subtle overlay to preserve text readability */}
-  <div
-    aria-hidden="true"
-    className="pointer-events-none absolute inset-0 z-0
-    bg-gradient-to-r from-[#0E386E]/20 via-transparent to-[#0A2447]/30"
-  />
-
-  {/* Foreground Content */}
-  <div
-    className="relative z-10 flex flex-col sm:flex-row
-    items-start sm:items-center justify-between gap-4 sm:gap-6"
-  >
-    {/* Left: Logo + Greeting */}
-    <div className="flex items-center gap-3.5 sm:gap-4.5">
-      <div
-        className="w-13 h-13 sm:w-14 sm:h-14 rounded-full
-        bg-white shadow-md flex items-center justify-center
-        p-0.5 shrink-0 overflow-hidden"
+      {/* 5. CARE DESK HERO BANNER */}
+      <section
+        className="relative isolate overflow-hidden rounded-lg
+        bg-[linear-gradient(100deg,#0E386E_0%,#13447E_40%,#0E3360_80%,#0A2447_100%)]
+        p-4 sm:p-6 text-white shadow-md border border-[#1b4d88]/40 select-none"
       >
-        <img
-          src="/eldoria-logo.png"
-          alt="Eldoria+ Care at Home"
-          className="w-full h-full object-contain"
+        {/* Animated ECG Background - increased visibility on mobile */}
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-x-0 top-1/2
+          z-0 -translate-y-1/2 opacity-[0.75] sm:opacity-[0.55]"
+        >
+          <EcgWaveAnimation />
+        </div>
+
+        {/* Optional subtle overlay to preserve text readability */}
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-0 z-0
+          bg-gradient-to-r from-[#0E386E]/20 via-transparent to-[#0A2447]/30"
         />
-      </div>
 
-      <div>
-        <p className="text-slate-300 text-xs sm:text-[13px] font-medium leading-none">
-          {bannerGreeting} · {bannerDate}
-        </p>
+        {/* Foreground Content */}
+        <div
+          className="relative z-10 flex flex-col sm:flex-row
+          items-start sm:items-center justify-between gap-3 sm:gap-6"
+        >
+          {/* Left: Logo + Greeting */}
+          <div className="flex items-center gap-3 sm:gap-4.5 min-w-0">
+            <div
+              className="w-11 h-11 sm:w-14 sm:h-14 rounded-full
+              bg-white shadow-md flex items-center justify-center
+              p-0.5 shrink-0 overflow-hidden"
+            >
+              <img
+                src="/eldoria-logo.png"
+                alt="Eldoria+ Care at Home"
+                className="w-full h-full object-contain"
+              />
+            </div>
 
-        <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight leading-tight mt-1.5">
-          {bannerTitle}
-        </h1>
+            <div className="min-w-0">
+              <p className="text-slate-300 text-[11px] sm:text-[13px] font-medium leading-none">
+                {bannerGreeting} · {bannerDate}
+              </p>
 
-        <p className="text-[#f59e0b] font-bold text-xs sm:text-sm mt-1 leading-snug">
-          {bannerSubtitle}
-        </p>
-      </div>
-    </div>
+              <h1 className="text-xl sm:text-3xl font-extrabold text-white tracking-tight leading-tight mt-1 sm:mt-1.5">
+                {bannerTitle}
+              </h1>
 
-    {/* Right: New Booking Button */}
-    <button
-      type="button"
-      onClick={onNewBooking}
-      className="bg-[#f59e0b] hover:bg-[#e69107]
-      text-[#0c1f36] font-bold text-xs sm:text-sm
-      px-4 py-2.5 rounded-lg flex items-center gap-2
-      shadow-xs transition shrink-0 cursor-pointer"
-    >
-      <span className="text-lg leading-none font-extrabold">
-        +
-      </span>
+              <p className="text-[#f59e0b] font-bold text-xs sm:text-sm mt-0.5 sm:mt-1 leading-snug">
+                {bannerSubtitle}
+              </p>
+            </div>
+          </div>
 
-      <span>New booking</span>
-    </button>
-  </div>
-</section>
-      {/* 6. KPI CARDS - Smooth linear gradient top border as shown in reference image */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5 sm:gap-4">
+          {/* Right: New Booking Button (Aligned to right on mobile with refined compact size) */}
+          <div className="w-full sm:w-auto flex justify-end">
+            <button
+              type="button"
+              onClick={onNewBooking}
+              className="bg-[#f59e0b] hover:bg-[#e69107]
+              text-[#0c1f36] font-bold text-xs sm:text-sm
+              px-3.5 py-2 sm:px-4 sm:py-2.5 rounded-lg flex items-center gap-1.5
+              shadow-xs transition shrink-0 cursor-pointer active:scale-95"
+            >
+              <span className="text-base sm:text-lg leading-none font-black">+</span>
+              <span>New booking</span>
+            </button>
+          </div>
+        </div>
+      </section>
+      {/* 6. KPI CARDS - 5 aligned metrics with linear gradient top borders */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3 sm:gap-3.5">
         {/* KPI 1: New requests */}
-        <div className="relative w-full bg-white rounded-xl border border-slate-200/90 overflow-hidden p-4.5 sm:p-5 shadow-2xs flex flex-col justify-between min-h-[120px]">
+        <div
+          onClick={() => onTab?.('bookings?status=requested')}
+          className="relative w-full bg-white rounded-xl border border-slate-200/90 overflow-hidden p-4 sm:p-4.5 shadow-2xs flex flex-col justify-between min-h-[118px] cursor-pointer hover:border-amber-300 hover:shadow-xs transition select-none"
+          title="View new requests"
+        >
           {/* Top Gradient Accent Border */}
           <div className="absolute top-0 left-0 right-0 h-[3.5px] bg-[linear-gradient(90deg,#0A2342_0%,#112E53_18%,#6B5528_38%,#BD8212_60%,#F59E0B_100%)]" />
-          <span className="text-xs sm:text-[13px] font-semibold text-slate-500 block pt-0.5">New requests</span>
+          <span className="text-xs sm:text-[13px] font-semibold text-slate-500 block pt-0.5 truncate">New requests</span>
           <div className="text-3xl sm:text-4xl font-extrabold text-[#A15C07] tabular-nums my-1 leading-none">
             {kpiNewReq}
           </div>
-          <span className="text-xs text-slate-400 block">Awaiting confirmation</span>
+          <span className="text-xs text-slate-400 block truncate">Awaiting confirmation</span>
         </div>
 
         {/* KPI 2: Visits today */}
-        <div className="relative w-full bg-white rounded-xl border border-slate-200/90 overflow-hidden p-4.5 sm:p-5 shadow-2xs flex flex-col justify-between min-h-[120px]">
+        <div
+          onClick={() => onTab?.('bookings?status=today')}
+          className="relative w-full bg-white rounded-xl border border-slate-200/90 overflow-hidden p-4 sm:p-4.5 shadow-2xs flex flex-col justify-between min-h-[118px] cursor-pointer hover:border-slate-300 hover:shadow-xs transition select-none"
+          title="View today's visits"
+        >
           {/* Top Gradient Accent Border */}
           <div className="absolute top-0 left-0 right-0 h-[3.5px] bg-[linear-gradient(90deg,#0A2342_0%,#112E53_18%,#6B5528_38%,#BD8212_60%,#F59E0B_100%)]" />
-          <span className="text-xs sm:text-[13px] font-semibold text-slate-500 block pt-0.5">Visits today</span>
+          <span className="text-xs sm:text-[13px] font-semibold text-slate-500 block pt-0.5 truncate">Visits today</span>
           <div className="text-3xl sm:text-4xl font-extrabold text-slate-900 tabular-nums my-1 leading-none">
             {kpiVisitsToday}
           </div>
-          <span className="text-xs text-slate-400 block">
+          <span className="text-xs text-slate-400 block truncate">
             {kpiVisitsSublabel}
           </span>
         </div>
 
         {/* KPI 3: Staff on duty */}
-        <div className="relative w-full bg-white rounded-xl border border-slate-200/90 overflow-hidden p-4.5 sm:p-5 shadow-2xs flex flex-col justify-between min-h-[120px]">
+        <div
+          onClick={() => onTab?.('staff')}
+          className="relative w-full bg-white rounded-xl border border-slate-200/90 overflow-hidden p-4 sm:p-4.5 shadow-2xs flex flex-col justify-between min-h-[118px] cursor-pointer hover:border-slate-300 hover:shadow-xs transition select-none"
+          title="View staff availability"
+        >
           {/* Top Gradient Accent Border */}
           <div className="absolute top-0 left-0 right-0 h-[3.5px] bg-[linear-gradient(90deg,#0A2342_0%,#112E53_18%,#6B5528_38%,#BD8212_60%,#F59E0B_100%)]" />
-          <span className="text-xs sm:text-[13px] font-semibold text-slate-500 block pt-0.5">Staff on duty</span>
+          <span className="text-xs sm:text-[13px] font-semibold text-slate-500 block pt-0.5 truncate">Staff on duty</span>
           <div className="text-3xl sm:text-4xl font-extrabold text-slate-900 tabular-nums my-1 leading-none">
             {kpiStaffOnDuty}
           </div>
-          <span className="text-xs text-slate-400 block">{kpiStaffSublabel}</span>
+          <span className="text-xs text-slate-400 block truncate">{kpiStaffSublabel}</span>
         </div>
 
         {/* KPI 4: Unassigned */}
-        <div className="relative w-full bg-white rounded-xl border border-slate-200/90 overflow-hidden p-4.5 sm:p-5 shadow-2xs flex flex-col justify-between min-h-[120px]">
+        <div
+          onClick={() => onTab?.('bookings?status=requested')}
+          className="relative w-full bg-white rounded-xl border border-slate-200/90 overflow-hidden p-4 sm:p-4.5 shadow-2xs flex flex-col justify-between min-h-[118px] cursor-pointer hover:border-rose-300 hover:shadow-xs transition select-none"
+          title="View unassigned bookings"
+        >
           {/* Top Gradient Accent Border */}
           <div className="absolute top-0 left-0 right-0 h-[3.5px] bg-[linear-gradient(90deg,#0A2342_0%,#112E53_18%,#6B5528_38%,#BD8212_60%,#F59E0B_100%)]" />
-          <span className="text-xs sm:text-[13px] font-semibold text-slate-500 block pt-0.5">Unassigned</span>
+          <span className="text-xs sm:text-[13px] font-semibold text-slate-500 block pt-0.5 truncate">Unassigned</span>
           <div className="text-3xl sm:text-4xl font-extrabold text-[#991B1B] tabular-nums my-1 leading-none">
             {kpiUnassigned}
           </div>
-          <span className="text-xs text-slate-400 block">Need a nurse or caregiver</span>
+          <span className="text-xs text-slate-400 block truncate">Need a nurse or caregiver</span>
+        </div>
+
+        {/* KPI 5: Date exceeded */}
+        <div
+          onClick={() => onTab?.('bookings?status=date_exceeded')}
+          className="relative w-full bg-white rounded-xl border border-slate-200/90 overflow-hidden p-4 sm:p-4.5 shadow-2xs flex flex-col justify-between min-h-[118px] cursor-pointer hover:border-rose-300 hover:shadow-xs transition select-none"
+          title="View date exceeded bookings"
+        >
+          {/* Top Gradient Accent Border */}
+          <div className="absolute top-0 left-0 right-0 h-[3.5px] bg-[linear-gradient(90deg,#0A2342_0%,#112E53_18%,#6B5528_38%,#BD8212_60%,#F59E0B_100%)]" />
+          <span className="text-xs sm:text-[13px] font-semibold text-slate-500 block pt-0.5 truncate">Date exceeded</span>
+          <div className="text-3xl sm:text-4xl font-extrabold text-[#991B1B] tabular-nums my-1 leading-none">
+            {kpiDateExceeded}
+          </div>
+          <span className="text-xs text-slate-400 block truncate">Needs reschedule</span>
         </div>
       </div>
 

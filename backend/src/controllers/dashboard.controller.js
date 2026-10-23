@@ -96,7 +96,7 @@ const getDashboardData = async (req, res) => {
     });
 
     const approvedStaff = allStaff.filter((s) => s.approval === 'approved');
-    const pendingStaffApps = allStaff.filter((s) => s.approval === 'pending' || s.applied === true);
+    const pendingStaffApps = allStaff.filter((s) => s.approval === 'pending');
 
     // 4. Fetch Enquiries / Help Requests
     const enquiries = await Enquiry.findAll({
@@ -124,6 +124,11 @@ const getDashboardData = async (req, res) => {
       (b) => ['requested', 'confirmed'].includes(b.status) && !b.staffId
     );
     const countUnassigned = unassignedBookings.length;
+
+    const dateExceededBookings = bookings.filter(
+      (b) => b.status === 'date_exceeded' || (Boolean(b.date) && b.date < todayStr && !['completed', 'cancelled'].includes(b.status))
+    );
+    const countDateExceeded = dateExceededBookings.length;
 
     // 6. Needs Action Queue (status IN requested, confirmed)
     const queueBookings = bookings.filter((b) => ['requested', 'confirmed'].includes(b.status));
@@ -294,6 +299,11 @@ const getDashboardData = async (req, res) => {
           count: countUnassigned,
           label: 'Unassigned',
           sublabel: 'Need a nurse or caregiver'
+        },
+        dateExceeded: {
+          count: countDateExceeded,
+          label: 'Date exceeded',
+          sublabel: 'Needs reschedule'
         }
       },
       alerts,

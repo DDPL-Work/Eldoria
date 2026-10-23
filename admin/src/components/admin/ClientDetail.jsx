@@ -8,6 +8,7 @@ import { clientAPI } from '../../services/api';
 import {
   fmtDate,
   fmtTs,
+  todayISO,
   telHref,
   waHref,
   ST,
@@ -183,12 +184,20 @@ export function ClientDetail({ clientId, onBack, onShowToast }) {
   });
 
   const seenCodes = new Set();
-  const clientBookings = [...directApiBookings, ...matchingStoreBookings].filter((b) => {
-    const key = b.code || b.id;
-    if (!key || seenCodes.has(key)) return false;
-    seenCodes.add(key);
-    return true;
-  });
+  const todayStr = todayISO();
+  const clientBookings = [...directApiBookings, ...matchingStoreBookings]
+    .map((b) => {
+      if (b && b.date && b.date < todayStr && !['completed', 'cancelled'].includes(b.status)) {
+        return { ...b, status: 'date_exceeded' };
+      }
+      return b;
+    })
+    .filter((b) => {
+      const key = b.code || b.id;
+      if (!key || seenCodes.has(key)) return false;
+      seenCodes.add(key);
+      return true;
+    });
 
   const activeBookingsCount = clientBookings.filter((b) => ACTIVE.includes(b.status)).length;
   const completedBookingsCount = clientBookings.filter((b) => b.status === 'completed').length;

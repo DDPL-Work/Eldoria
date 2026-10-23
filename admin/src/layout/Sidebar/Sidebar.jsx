@@ -5,7 +5,7 @@ import { useStore } from "../../context/StoreContext";
 import { useUI } from "../../context/UIContext";
 
 export function Sidebar({ currentTab, onSelectTab, mobileOpen, onCloseMobile, collapsed, onToggleCollapse }) {
-  const { inCity, bookingsAll, unread, enqAll, applications, apprOf, dashboardData } = useStore();
+  const { inCity, bookingsAll, unread, enqAll, applications, apprOf, dashboardData, backendStaffRequests } = useStore();
   const ui = useUI();
 
   const isCollapsed = collapsed !== undefined ? collapsed : ui?.sidebarCollapsed ?? false;
@@ -15,7 +15,10 @@ export function Sidebar({ currentTab, onSelectTab, mobileOpen, onCloseMobile, co
   const newReq = dashboardData?.kpis?.newRequests?.count ?? inCity(bookingsAll()).filter((b) => b.status === "requested").length;
   const unreadAlerts = unread("admin");
   const newEnq = dashboardData?.alerts?.helpRequests?.count ?? inCity(enqAll(), (e) => e.city).filter((e) => e.status === "new").length;
-  const pendingApps = dashboardData?.alerts?.staffApplications?.count ?? inCity(applications()).filter((x) => apprOf(x) === "pending").length;
+  const realPendingApps = inCity(applications()).filter((x) => apprOf(x) === "pending").length;
+  const pendingApps = Array.isArray(backendStaffRequests)
+    ? realPendingApps
+    : (dashboardData?.alerts?.staffApplications?.count ?? realPendingApps);
 
   const counts = {
     bookings: newReq,
@@ -149,33 +152,45 @@ export function Sidebar({ currentTab, onSelectTab, mobileOpen, onCloseMobile, co
         </div>
       </aside>
 
-      {/* Mobile Drawer Backdrop & Sidebar */}
-      {mobileOpen && (
+      {/* Mobile Drawer Backdrop & Sidebar with Smooth Transitions */}
+      <div
+        className={`fixed inset-0 z-50 lg:hidden transition-all duration-300 ease-in-out ${
+          mobileOpen ? "visible pointer-events-auto" : "invisible pointer-events-none"
+        }`}
+        aria-hidden={!mobileOpen}
+      >
+        {/* Backdrop overlay with fade transition */}
         <div
-          className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs lg:hidden"
+          className={`fixed inset-0 bg-black/60 backdrop-blur-xs transition-opacity duration-300 ease-in-out ${
+            mobileOpen ? "opacity-100" : "opacity-0"
+          }`}
           onClick={onCloseMobile}
+        />
+
+        {/* Sliding Drawer from Left with smooth transform */}
+        <aside
+          className={`relative z-10 w-64 max-w-[80vw] h-full bg-[#0c1f36] p-4 text-white overflow-y-auto shadow-2xl border-r border-[#152a42] transform transition-transform duration-300 ease-in-out will-change-transform ${
+            mobileOpen ? "translate-x-0" : "-translate-x-full"
+          }`}
+          onClick={(e) => e.stopPropagation()}
+          aria-label="Mobile admin navigation"
         >
-          <aside
-            className="w-64 max-w-[80vw] h-full bg-[#0c1f36] p-4 text-white overflow-y-auto shadow-2xl border-r border-[#152a42]"
-            onClick={(e) => e.stopPropagation()}
-            aria-label="Mobile admin navigation"
-          >
-            <div className="flex items-center justify-between mb-4 pb-3 border-b border-[#182d49]">
-              <span className="text-white font-bold text-sm tracking-wide">Menu</span>
-              <button
-                type="button"
-                onClick={onCloseMobile}
-                className="text-slate-400 hover:text-white p-1 rounded-lg"
-              >
-                ✕
-              </button>
-            </div>
-            <div className="flex flex-col h-[calc(100%-60px)] justify-between">
-              {renderNavItems(false)}
-            </div>
-          </aside>
-        </div>
-      )}
+          <div className="flex items-center justify-between mb-4 pb-3 border-b border-[#182d49]">
+            <span className="text-white font-bold text-sm tracking-wide">Menu</span>
+            <button
+              type="button"
+              onClick={onCloseMobile}
+              className="text-slate-400 hover:text-white p-1 rounded-lg transition-colors cursor-pointer"
+              aria-label="Close menu"
+            >
+              ✕
+            </button>
+          </div>
+          <div className="flex flex-col h-[calc(100%-60px)] justify-between">
+            {renderNavItems(false)}
+          </div>
+        </aside>
+      </div>
     </>
   );
 }

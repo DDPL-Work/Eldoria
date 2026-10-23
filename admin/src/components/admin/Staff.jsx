@@ -66,7 +66,7 @@ export function Staff({ onShowToast }) {
 
   // Map backend staff requests into display staff items with fallback to store
   const list = useMemo(() => {
-    if (backendStaffRequests && backendStaffRequests.length > 0) {
+    if (Array.isArray(backendStaffRequests)) {
       const items = backendStaffRequests.map((s) => {
         const u = s.user || {};
         let skillsStr = '';

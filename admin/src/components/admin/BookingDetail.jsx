@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import {
   RiRefreshLine,
   RiDashboardLine,
@@ -6,6 +6,13 @@ import {
   RiLungsLine,
   RiHeartPulseLine,
   RiThermometerLine,
+  RiMapPinLine,
+  RiUserLine,
+  RiStarFill,
+  RiFocus3Line,
+  RiArrowDownSLine,
+  RiSearchLine,
+  RiCloseLine,
 } from 'react-icons/ri';
 import { Icon } from '../../constants/icons';
 import { DatabaseLoader } from '../common/DatabaseLoader';
@@ -15,6 +22,7 @@ import { openDocument } from '../../services/documentViewer';
 import {
   fmtDate,
   fmtTs,
+  todayISO,
   telHref,
   waHref,
   priceLabel,
@@ -74,11 +82,35 @@ export function BookingDetail({ bookingId, onBack, onShowToast }) {
   const [expandRadius, setExpandRadius] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
   const [staffForAssignModal, setStaffForAssignModal] = useState(null);
+  const [selectedAreaFilter, setSelectedAreaFilter] = useState('all');
+  const [isStaffDropdownOpen, setIsStaffDropdownOpen] = useState(false);
+  const [staffSearchQuery, setStaffSearchQuery] = useState('');
+  const staffDropdownRef = useRef(null);
+  const staffListRef = useRef(null);
 
-  // Handle ESC key to smoothly close modals
+  // Handle click outside to close custom staff dropdown (dropdown remains open during scrolling)
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (staffDropdownRef.current && !staffDropdownRef.current.contains(e.target)) {
+        setIsStaffDropdownOpen(false);
+      }
+    };
+
+    if (isStaffDropdownOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [isStaffDropdownOpen]);
+
+  // Handle ESC key to smoothly close modals and dropdowns
   useEffect(() => {
     const handleKeyDown = (e) => {
       if (e.key === 'Escape') {
+        if (isStaffDropdownOpen) {
+          setIsStaffDropdownOpen(false);
+        }
         if (staffForAssignModal && !actionLoading) {
           setStaffForAssignModal(null);
         }
@@ -90,7 +122,7 @@ export function BookingDetail({ bookingId, onBack, onShowToast }) {
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [staffForAssignModal, confirmCancel, actionLoading]);
+  }, [isStaffDropdownOpen, staffForAssignModal, confirmCancel, actionLoading]);
 
   // Fetch live booking details by ID or code on mount
   useEffect(() => {
@@ -138,9 +170,17 @@ export function BookingDetail({ bookingId, onBack, onShowToast }) {
     (!rawB.history || rawB.history.length <= 2) &&
     !rawB.assignedBy;
 
-  const b = isClientUnconfirmed
+  const bInitial = isClientUnconfirmed
     ? { ...rawB, status: 'requested', confirmedBy: null, confirmedAt: null }
     : rawB;
+
+  const b =
+    bInitial &&
+    bInitial.date &&
+    bInitial.date < todayISO() &&
+    !['completed', 'cancelled'].includes(bInitial.status)
+      ? { ...bInitial, status: 'date_exceeded' }
+      : bInitial;
 
   // Loading state when initial detail hasn't arrived
   if (bookingDetailLoading && !b) {
@@ -211,10 +251,144 @@ export function BookingDetail({ bookingId, onBack, onShowToast }) {
 
   const availableStaffList = safeArray(availableStaff);
   const backendStaffList = safeArray(backendStaffRequests);
-  const allStaff = safeArray(staffList());
-  const bc = b.city || bCity(b);
-  const localStaff = allStaff.filter((x) => (x.city || DEFAULT_CITIES[0].id) === bc);
-  const otherStaff = allStaff.filter((x) => (x.city || DEFAULT_CITIES[0].id) !== bc);
+  const allStaffRaw = safeArray(staffList());
+  const bc = String(b.city || bCity(b) || DEFAULT_CITIES[0].id).toLowerCase().trim();
+  const bookingArea = (b.area || '').trim();
+
+  // Helper to normalize text and match area strings intelligently
+  const isAreaMatch = (staffArea, targetArea) => {
+    if (!staffArea || !targetArea) return false;
+    const sNorm = String(staffArea).toLowerCase().replace(/[^\w\s]/g, ' ').trim();
+    const tNorm = String(targetArea).toLowerCase().replace(/[^\w\s]/g, ' ').trim();
+    if (!sNorm || !tNorm) return false;
+    if (sNorm.includes(tNorm) || tNorm.includes(sNorm)) return true;
+
+    const stopWords = new Set([
+      'east', 'west', 'north', 'south', 'central', 'road', 'rd',
+      'nagar', 'line', 'sector', 'block', 'phase', 'ext', 'extension'
+    ]);
+    const sTokens = sNorm.split(/\s+/).filter((t) => t.length > 2 && !stopWords.has(t));
+    const tTokens = tNorm.split(/\s+/).filter((t) => t.length > 2 && !stopWords.has(t));
+
+    return sTokens.some((stk) =>
+      tTokens.some((ttk) => stk === ttk || stk.includes(ttk) || ttk.includes(stk))
+    );
+  };
+
+  // Combine store staff and approved backend staff
+  const allStaff = useMemo(() => {
+    const map = new Map();
+    allStaffRaw.forEach((s) => {
+      if (s) {
+        const id = String(s.id || s.staffId);
+        map.set(id, {
+          ...s,
+          id,
+          name: s.name || 'Staff Member',
+          city: String(s.city || 'mumbai').toLowerCase().trim(),
+          area: (s.area || '').trim(),
+          role: s.qualification || s.role || 'Caregiver',
+          onDuty: s.onDuty !== false
+        });
+      }
+    });
+
+    backendStaffList.forEach((s) => {
+      if (s && (s.approval === 'approved' || !s.approval || s.approval === 'active')) {
+        const id = String(s.staffId || s.id);
+        const u = s.user || {};
+        const existing = map.get(id) || {};
+        map.set(id, {
+          ...existing,
+          ...s,
+          id,
+          backendId: s.id,
+          staffId: s.staffId || id,
+          name: u.name || s.name || existing.name || 'Staff Member',
+          city: String(s.city || existing.city || 'mumbai').toLowerCase().trim(),
+          area: (s.area || existing.area || '').trim(),
+          role: s.qualification || s.role || existing.role || 'Caregiver',
+          onDuty: Boolean(s.onDuty ?? existing.onDuty ?? true),
+        });
+      }
+    });
+    return Array.from(map.values()).sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+  }, [allStaffRaw, backendStaffList]);
+
+  const localStaff = useMemo(
+    () => allStaff.filter((x) => String(x.city || DEFAULT_CITIES[0].id).toLowerCase().trim() === bc),
+    [allStaff, bc]
+  );
+
+  const otherStaff = useMemo(
+    () => allStaff.filter((x) => String(x.city || DEFAULT_CITIES[0].id).toLowerCase().trim() !== bc),
+    [allStaff, bc]
+  );
+
+  // Distinct sorted areas for local city (e.g. Mumbai)
+  const distinctAreas = useMemo(() => {
+    const set = new Set();
+    localStaff.forEach((s) => {
+      const a = (s.area || '').trim();
+      if (a) set.add(a);
+    });
+    return Array.from(set).sort((a, b) => a.localeCompare(b));
+  }, [localStaff]);
+
+  // Local staff matching booking's area
+  const matchingAreaStaff = useMemo(() => {
+    if (!bookingArea) return [];
+    return localStaff.filter((s) => isAreaMatch(s.area, bookingArea));
+  }, [localStaff, bookingArea]);
+
+  // Group local staff by area, with booking's matching area prioritized
+  const areaGroupedStaff = useMemo(() => {
+    const cleanSearch = staffSearchQuery.trim().toLowerCase();
+    const groups = {};
+    localStaff.forEach((person) => {
+      // 1. Text search
+      if (cleanSearch) {
+        const matchName = String(person.name || '').toLowerCase().includes(cleanSearch);
+        const matchRole = String(person.role || '').toLowerCase().includes(cleanSearch);
+        const matchArea = String(person.area || '').toLowerCase().includes(cleanSearch);
+        if (!matchName && !matchRole && !matchArea) return;
+      }
+
+      // 2. Area filter pill (when not searching text)
+      if (!cleanSearch && selectedAreaFilter && selectedAreaFilter !== 'all') {
+        const matchesFilter =
+          selectedAreaFilter === bookingArea
+            ? isAreaMatch(person.area, bookingArea)
+            : (person.area || '').trim() === selectedAreaFilter;
+        if (!matchesFilter) return;
+      }
+
+      const areaKey = (person.area || '').trim() || 'Central / Other areas';
+      if (!groups[areaKey]) groups[areaKey] = [];
+      groups[areaKey].push(person);
+    });
+
+    return Object.entries(groups).sort(([areaA], [areaB]) => {
+      const matchA = bookingArea && isAreaMatch(areaA, bookingArea);
+      const matchB = bookingArea && isAreaMatch(areaB, bookingArea);
+      if (matchA && !matchB) return -1;
+      if (!matchA && matchB) return 1;
+      return areaA.localeCompare(areaB);
+    });
+  }, [localStaff, selectedAreaFilter, bookingArea, staffSearchQuery]);
+
+  const filteredOtherStaff = useMemo(() => {
+    if (selectedAreaFilter !== 'all') return [];
+    const cleanSearch = staffSearchQuery.trim().toLowerCase();
+    if (!cleanSearch) return otherStaff;
+    return otherStaff.filter((person) => {
+      const matchName = String(person.name || '').toLowerCase().includes(cleanSearch);
+      const matchRole = String(person.role || '').toLowerCase().includes(cleanSearch);
+      const matchArea = String(person.area || '').toLowerCase().includes(cleanSearch);
+      const matchCity = String(person.city || '').toLowerCase().includes(cleanSearch);
+      return matchName || matchRole || matchArea || matchCity;
+    });
+  }, [otherStaff, staffSearchQuery, selectedAreaFilter]);
 
   const actorName = (by) => {
     if (!by) return '';
@@ -241,9 +415,9 @@ export function BookingDetail({ bookingId, onBack, onShowToast }) {
   const nextStepMap = {
     requested: ['confirmed', 'Confirm request'],
     confirmed: null,
-    assigned: ['on_the_way', 'Mark on the way'],
-    on_the_way: ['in_progress', 'Mark checked in'],
-    in_progress: ['completed', 'Mark completed']
+    assigned: null, // Controlled by caregiver from the Staff App
+    on_the_way: null, // Controlled by caregiver from the Staff App
+    in_progress: null, // Controlled by caregiver from the Staff App
   };
   const next = nextStepMap[b.status];
 
@@ -1237,7 +1411,7 @@ export function BookingDetail({ bookingId, onBack, onShowToast }) {
             )}
 
             {st && (
-              <div className="p-3 rounded-xl bg-slate-50 border border-slate-200/90 space-y-1.5 text-xs">
+              <div className="p-3 rounded-lg bg-slate-50 border border-slate-200/90 space-y-1.5 text-xs">
                 <div className="flex items-center justify-between">
                   <span className="font-bold text-slate-900 text-xs sm:text-[13px]">{st.name}</span>
                   <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-[#E4ECF7] text-[#0E2F5A]">
@@ -1356,58 +1530,322 @@ export function BookingDetail({ bookingId, onBack, onShowToast }) {
                   </div>
                 )}
 
-                {/* Manual Dropdown Selector */}
-                <select
-                  value=""
-                  disabled={actionLoading}
-                  onChange={(e) => {
-                    const sid = e.target.value;
-                    if (sid) {
-                      const staffObj = findStaffMember(sid);
-                      setStaffForAssignModal(staffObj);
-                      e.target.value = '';
-                    }
-                  }}
-                  className="w-full h-10 px-3 rounded-lg border border-slate-300 bg-white text-xs sm:text-[13px] text-slate-800 font-medium focus:outline-none focus:ring-1 focus:ring-[#0A2342] cursor-pointer disabled:opacity-60"
-                >
-                  <option value="">
-                    {b.staffId ? 'Change assigned staff…' : 'Select staff to assign…'}
-                  </option>
-                  {availableStaffList.length > 0 && (
-                    <optgroup label="Recommended from Matching API">
-                      {availableStaffList.map((candidate) => {
-                        const cid = candidate.staffId || candidate.id;
-                        const cname = candidate.user?.name || candidate.name || cid;
-                        const crole = candidate.qualification || candidate.role || 'Caregiver';
-                        const score = candidate.matchMeta?.matchScore || candidate.score || 85;
-                        return (
-                          <option key={`match-${cid}`} value={cid}>
-                            ⭐ {cname} · {crole} ({score}% match)
-                          </option>
-                        );
-                      })}
-                    </optgroup>
+                {/* Custom Area-Aware Staff Selector with React Icons */}
+                <div className="relative" ref={staffDropdownRef}>
+                  <button
+                    type="button"
+                    disabled={actionLoading}
+                    onClick={() => setIsStaffDropdownOpen((prev) => !prev)}
+                    className={`w-full h-10 px-3.5 rounded-lg border bg-white text-xs sm:text-[13px] font-medium flex items-center justify-between gap-2 transition cursor-pointer disabled:opacity-60 shadow-xs ${
+                      isStaffDropdownOpen
+                        ? 'border-[#0E2F5A] ring-2 ring-[#0E2F5A]/15 text-[#0E2F5A]'
+                        : 'border-slate-300 text-slate-800 hover:border-slate-400'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2 truncate">
+                      <RiUserLine size={15} className="text-[#0E2F5A] shrink-0" />
+                      <span className="truncate">
+                        {b.staffId ? 'Change assigned staff…' : 'Select staff to assign…'}
+                      </span>
+                    </div>
+                    <RiArrowDownSLine
+                      size={18}
+                      className={`text-slate-400 transition-transform duration-200 shrink-0 ${
+                        isStaffDropdownOpen ? 'rotate-180 text-[#0E2F5A]' : ''
+                      }`}
+                    />
+                  </button>
+
+
+
+
+                  {/* Dropdown Menu Popup - anchored to the right (right-0), z-30 to stay below sticky header (z-40) */}
+                  {isStaffDropdownOpen && (
+                    <div
+                      className="absolute right-0 top-full mt-1.5 w-[380px] sm:w-[460px] md:w-[480px] max-w-[85vw] bg-white rounded-lg shadow-md border border-slate-200 z-30 overflow-hidden flex flex-col overscroll-contain"
+                      onWheel={(e) => {
+                        e.stopPropagation();
+                        if (staffListRef.current && !staffListRef.current.contains(e.target)) {
+                          staffListRef.current.scrollTop += e.deltaY;
+                        }
+                      }}
+                    >
+                      {/* Search Bar */}
+                      <div className="p-2.5 border-b border-slate-100 bg-slate-50/70 flex items-center gap-2">
+                        <RiSearchLine size={15} className="text-slate-400 shrink-0 ml-1" />
+                        <input
+                          type="text"
+                          placeholder="Search staff by name or area..."
+                          value={staffSearchQuery}
+                          onChange={(e) => setStaffSearchQuery(e.target.value)}
+                          className="w-full bg-transparent border-0 text-xs text-slate-800 placeholder-slate-400 focus:outline-none"
+                          autoFocus
+                        />
+                        {staffSearchQuery && (
+                          <button
+                            type="button"
+                            onClick={() => setStaffSearchQuery('')}
+                            className="p-1 text-slate-400 hover:text-slate-600 rounded cursor-pointer"
+                          >
+                            <RiCloseLine size={14} />
+                          </button>
+                        )}
+                      </div>
+
+                      {/* Area Quick Filter Pills */}
+                      {/* {distinctAreas.length > 0 && !staffSearchQuery && (
+                        <div className="px-3 py-2 bg-slate-50/60 border-b border-slate-100 flex items-center gap-1.5 flex-wrap text-xs">
+                          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider shrink-0">Area:</span>
+                          <button
+                            type="button"
+                            onClick={() => setSelectedAreaFilter('all')}
+                            className={`px-2 py-0.5 rounded text-[10px] font-semibold transition cursor-pointer ${
+                              selectedAreaFilter === 'all'
+                                ? 'bg-[#0E2F5A] text-white shadow-2xs'
+                                : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'
+                            }`}
+                          >
+                            All ({localStaff.length})
+                          </button>
+                          {bookingArea && matchingAreaStaff.length > 0 && (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setSelectedAreaFilter((prev) => (prev === bookingArea ? 'all' : bookingArea))
+                              }
+                              className={`px-2 py-0.5 rounded text-[10px] font-bold transition cursor-pointer inline-flex items-center gap-1 ${
+                                selectedAreaFilter === bookingArea
+                                  ? 'bg-amber-500 text-white shadow-2xs'
+                                  : 'bg-amber-50 text-amber-900 border border-amber-300 hover:bg-amber-100'
+                              }`}
+                              title={`Filter staff in ${bookingArea}`}
+                            >
+                              <RiFocus3Line size={11} />
+                              <span>{bookingArea} ({matchingAreaStaff.length})</span>
+                            </button>
+                          )}
+                          {distinctAreas
+                            .filter((a) => !bookingArea || !isAreaMatch(a, bookingArea))
+                            .slice(0, 4)
+                            .map((a) => {
+                              const count = localStaff.filter((s) => (s.area || '').trim() === a).length;
+                              const isActive = selectedAreaFilter === a;
+                              return (
+                                <button
+                                  key={a}
+                                  type="button"
+                                  onClick={() => setSelectedAreaFilter(isActive ? 'all' : a)}
+                                  className={`px-2 py-0.5 rounded text-[10px] font-medium transition cursor-pointer ${
+                                    isActive
+                                      ? 'bg-[#0E2F5A] text-white'
+                                      : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'
+                                  }`}
+                                >
+                                  {a} ({count})
+                                </button>
+                              );
+                            })}
+                        </div>
+                      )}
+                       */}
+
+                      {/* Staff List Container with overscroll containment */}
+                      <div
+                        ref={staffListRef}
+                        className="max-h-[min(300px,50vh)] overflow-y-auto divide-y divide-slate-100/90 text-xs overscroll-contain"
+                      >
+                        {/* 1. Recommended from Matching API */}
+                        {availableStaffList.length > 0 && !staffSearchQuery && selectedAreaFilter === 'all' && (
+                          <div>
+                            <div className="px-3 py-1.5 bg-amber-50/70 border-b border-amber-100/80 flex items-center gap-1.5 text-[11px] font-bold text-amber-900">
+                              <RiStarFill size={12} className="text-amber-500 shrink-0" />
+                              <span>Recommended from Matching API</span>
+                            </div>
+                            {availableStaffList.map((candidate) => {
+                              const cid = candidate.staffId || candidate.id;
+                              const cname = candidate.user?.name || candidate.name || cid;
+                              const crole = candidate.qualification || candidate.role || 'Caregiver';
+                              const score = candidate.matchMeta?.matchScore || candidate.score || 85;
+                              return (
+                                <button
+                                  key={`match-${cid}`}
+                                  type="button"
+                                  onClick={() => {
+                                    const staffObj = findStaffMember(cid);
+                                    setStaffForAssignModal(staffObj);
+                                    setIsStaffDropdownOpen(false);
+                                  }}
+                                  className="w-full text-left px-3.5 py-2.5 hover:bg-amber-50/40 bg-white transition cursor-pointer flex items-center justify-between gap-3 border-b border-slate-100 last:border-b-0"
+                                >
+                                  <div className="min-w-0 flex-1">
+                                    <div className="flex items-center gap-2">
+                                      <RiUserLine size={13} className="text-[#0E2F5A] shrink-0" />
+                                      <span className="font-semibold text-xs text-slate-900 truncate">{cname}</span>
+                                      <span className="text-slate-300">·</span>
+                                      <span className="text-xs text-slate-600 font-medium shrink-0">{crole}</span>
+                                      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 shrink-0">
+                                        {score}% match
+                                      </span>
+                                    </div>
+                                    {candidate.area && (
+                                      <div className="flex items-center gap-1 text-[11px] text-slate-500 mt-0.5">
+                                        <RiMapPinLine size={11} className="text-slate-400 shrink-0" />
+                                        <span className="truncate">{candidate.area}</span>
+                                      </div>
+                                    )}
+                                  </div>
+                                  <RiStarFill size={14} className="text-amber-400 shrink-0" />
+                                </button>
+                              );
+                            })}
+                          </div>
+                        )}
+
+                        {/* 2. Priority: Staff in Booking's Matching Area */}
+                        {selectedAreaFilter === 'all' && !staffSearchQuery && matchingAreaStaff.length > 0 && (
+                          <div>
+                            <div className="px-3 py-1.5 bg-emerald-50/80 border-b border-emerald-100 flex items-center gap-1.5 text-[11px] font-bold text-emerald-900">
+                              <RiFocus3Line size={13} className="text-emerald-600 shrink-0" />
+                              <span>Matching Booking Area: {bookingArea} ({cityName(bc)})</span>
+                            </div>
+                            {matchingAreaStaff.map((person) => (
+                              <button
+                                key={`match-area-${person.id}`}
+                                type="button"
+                                onClick={() => {
+                                  const staffObj = findStaffMember(person.id);
+                                  setStaffForAssignModal(staffObj);
+                                  setIsStaffDropdownOpen(false);
+                                }}
+                                className="w-full text-left px-3.5 py-2.5 hover:bg-emerald-50/30 bg-white transition cursor-pointer flex items-center justify-between gap-3 border-b border-slate-100 last:border-b-0"
+                              >
+                                <div className="min-w-0 flex-1">
+                                  <div className="flex items-center gap-2">
+                                    <RiUserLine size={13} className="text-emerald-700 shrink-0" />
+                                    <span className="font-bold text-xs text-slate-900 truncate">{person.name}</span>
+                                    <span className="text-slate-300">·</span>
+                                    <span className="text-xs text-slate-600 font-medium shrink-0">{person.role}</span>
+                                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 shrink-0">
+                                      Area Match
+                                    </span>
+                                  </div>
+                                  <div className="flex items-center gap-1 text-[11px] text-emerald-800 font-medium mt-0.5">
+                                    <RiMapPinLine size={11} className="text-emerald-600 shrink-0" />
+                                    <span className="truncate">{person.area || bookingArea}</span>
+                                  </div>
+                                </div>
+                                {person.onDuty ? (
+                                  <span className="text-[10px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200/80 px-2 py-0.5 rounded shrink-0">
+                                    On duty
+                                  </span>
+                                ) : (
+                                  <span className="text-[10px] font-medium text-slate-500 bg-slate-100 px-2 py-0.5 rounded shrink-0">
+                                    Off duty
+                                  </span>
+                                )}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+
+                        {/* 3. All in City Grouped by Area */}
+                        {areaGroupedStaff.map(([areaName, staffInArea]) => {
+                          const isMatching = bookingArea && isAreaMatch(areaName, bookingArea);
+                          return (
+                            <div key={`area-${areaName}`}>
+                              <div className="px-3 py-1.5 bg-slate-50 border-b border-slate-100 flex items-center gap-1.5 text-[11px] font-bold text-slate-700">
+                                <RiMapPinLine size={12} className="text-[#0E2F5A] shrink-0" />
+                                <span>
+                                  {cityName(bc)} · {areaName}
+                                  {isMatching ? ' (Matches Booking Area)' : ''}
+                                </span>
+                              </div>
+                              {staffInArea.map((person) => (
+                                <button
+                                  key={person.id}
+                                  type="button"
+                                  onClick={() => {
+                                    const staffObj = findStaffMember(person.id);
+                                    setStaffForAssignModal(staffObj);
+                                    setIsStaffDropdownOpen(false);
+                                  }}
+                                  className="w-full text-left px-3.5 py-2.5 hover:bg-slate-50 bg-white transition cursor-pointer flex items-center justify-between gap-3 border-b border-slate-100 last:border-b-0"
+                                >
+                                  <div className="min-w-0 flex-1">
+                                    <div className="flex items-center gap-2">
+                                      <RiUserLine size={13} className="text-[#0E2F5A] shrink-0" />
+                                      <span className="font-semibold text-xs text-slate-900 truncate">{person.name}</span>
+                                      <span className="text-slate-300">·</span>
+                                      <span className="text-xs text-slate-600 font-medium shrink-0">{person.role}</span>
+                                    </div>
+                                    <div className="flex items-center gap-1 text-[11px] text-slate-500 mt-0.5">
+                                      <RiMapPinLine size={11} className="text-slate-400 shrink-0" />
+                                      <span className="truncate">{person.area || 'All areas'}</span>
+                                    </div>
+                                  </div>
+                                  {person.onDuty ? (
+                                    <span className="text-[10px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200/80 px-2 py-0.5 rounded shrink-0">
+                                      On duty
+                                    </span>
+                                  ) : (
+                                    <span className="text-[10px] font-medium text-slate-500 bg-slate-100 px-2 py-0.5 rounded shrink-0">
+                                      Off duty
+                                    </span>
+                                  )}
+                                </button>
+                              ))}
+                            </div>
+                          );
+                        })}
+
+                        {/* 4. Other Cities */}
+                        {filteredOtherStaff.length > 0 && (
+                          <div>
+                            <div className="px-3 py-1.5 bg-slate-50 border-b border-slate-100 flex items-center gap-1.5 text-[11px] font-bold text-slate-500">
+                              <RiMapPinLine size={12} className="text-slate-400 shrink-0" />
+                              <span>Other cities</span>
+                            </div>
+                            {filteredOtherStaff.map((person) => (
+                              <button
+                                key={person.id}
+                                type="button"
+                                onClick={() => {
+                                  const staffObj = findStaffMember(person.id);
+                                  setStaffForAssignModal(staffObj);
+                                  setIsStaffDropdownOpen(false);
+                                }}
+                                className="w-full text-left px-3.5 py-2.5 hover:bg-slate-50 bg-white transition cursor-pointer flex items-center justify-between gap-3 border-b border-slate-100 last:border-b-0"
+                              >
+                                <div className="min-w-0 flex-1">
+                                  <div className="flex items-center gap-2">
+                                    <RiUserLine size={13} className="text-slate-400 shrink-0" />
+                                    <span className="font-semibold text-xs text-slate-800 truncate">{person.name}</span>
+                                    <span className="text-slate-300">·</span>
+                                    <span className="text-xs text-slate-500 shrink-0">{person.role}</span>
+                                  </div>
+                                  <div className="flex items-center gap-1 text-[11px] text-slate-400 mt-0.5">
+                                    <RiMapPinLine size={11} className="shrink-0" />
+                                    <span>
+                                      {cityName(person.city || DEFAULT_CITIES[0].id)}
+                                      {person.area ? ` · ${person.area}` : ''}
+                                    </span>
+                                  </div>
+                                </div>
+                              </button>
+                            ))}
+                          </div>
+                        )}
+
+                        {/* Empty search state */}
+                        {areaGroupedStaff.length === 0 && filteredOtherStaff.length === 0 && (
+                          <div className="p-4 text-center text-xs text-slate-400">
+                            No staff found matching "{staffSearchQuery}"
+                          </div>
+                        )}
+                      </div>
+                    </div>
                   )}
-                  {localStaff.length > 0 && (
-                    <optgroup label={`All in ${cityName(bc)}`}>
-                      {localStaff.map((person) => (
-                        <option key={person.id} value={person.id}>
-                          {person.name} · {person.role}
-                          {person.onDuty ? '' : ' (off duty)'}
-                        </option>
-                      ))}
-                    </optgroup>
-                  )}
-                  {otherStaff.length > 0 && (
-                    <optgroup label="Other cities">
-                      {otherStaff.map((person) => (
-                        <option key={person.id} value={person.id}>
-                          {person.name} · {person.role} ({cityName(person.city || DEFAULT_CITIES[0].id)})
-                        </option>
-                      ))}
-                    </optgroup>
-                  )}
-                </select>
+                </div>
               </div>
             )}
 
@@ -1453,7 +1891,7 @@ export function BookingDetail({ bookingId, onBack, onShowToast }) {
           {/* Card 2: WhatsApp the client */}
           <div className="bg-white rounded-lg p-5 border border-slate-200/90 shadow-2xs space-y-3">
             <div className="text-xs sm:text-sm font-bold text-slate-900">WhatsApp the client</div>
-            <div className="p-3 rounded-xl bg-[#F0F4F9] text-[11px] sm:text-xs text-slate-600 font-normal leading-relaxed">
+            <div className="p-3 rounded-lg bg-[#F0F4F9] text-[11px] sm:text-xs text-slate-600 font-normal leading-relaxed">
               {msg}
             </div>
             <div className="flex items-center gap-2">

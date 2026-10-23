@@ -1455,10 +1455,20 @@ const getBookings = async (req, res) => {
     const pageSize = Math.max(1, parseInt(limit, 10) || 10);
     const offset = (pageNumber - 1) * pageSize;
 
-    const bookingWhere = {};
+    const todayStr = new Date().toISOString().split("T")[0];
 
     if (status && status !== "all") {
-      bookingWhere.status = status;
+      if (status === "date_exceeded") {
+        bookingWhere[Op.or] = [
+          { status: "date_exceeded" },
+          {
+            date: { [Op.lt]: todayStr },
+            status: { [Op.notIn]: ["completed", "cancelled"] },
+          },
+        ];
+      } else {
+        bookingWhere.status = status;
+      }
     }
 
     if (city && city !== "all") {
@@ -1525,10 +1535,18 @@ const getBookings = async (req, res) => {
 
     const totalPages = Math.ceil(count / pageSize);
 
+    const normalizedBookings = (bookings || []).map((b) => {
+      const bObj = b.toJSON ? b.toJSON() : { ...b };
+      if (bObj.date && bObj.date < todayStr && !["completed", "cancelled"].includes(bObj.status)) {
+        bObj.status = "date_exceeded";
+      }
+      return bObj;
+    });
+
     return successResponse(
       res,
       {
-        bookings,
+        bookings: normalizedBookings,
         pagination: {
           total: count,
           currentPage: pageNumber,
@@ -1586,9 +1604,15 @@ const getBookingById = async (req, res) => {
       return errorResponse(res, `Booking '${id}' not found`, 404);
     }
 
+    const todayStr = new Date().toISOString().split("T")[0];
+    const bObj = booking.toJSON ? booking.toJSON() : { ...booking };
+    if (bObj.date && bObj.date < todayStr && !["completed", "cancelled"].includes(bObj.status)) {
+      bObj.status = "date_exceeded";
+    }
+
     return successResponse(
       res,
-      booking,
+      bObj,
       "Booking details retrieved successfully",
     );
   } catch (error) {

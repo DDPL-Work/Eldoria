@@ -1,5 +1,12 @@
 import { useState, useRef, useEffect, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
+import {
+  RiUserLine,
+  RiPhoneLine,
+  RiMapPinLine,
+  RiLightbulbLine,
+  RiCloseLine,
+} from 'react-icons/ri';
 import { Icon } from '../../constants/icons';
 import { FormCityDropdown } from '../common/FormCityDropdown';
 import { useStore } from '../../context/StoreContext';
@@ -649,7 +656,7 @@ export function NewBooking({ onBack, onBookingCreated, fromEnqId }) {
                     className="p-1 text-slate-400 hover:text-slate-600 rounded cursor-pointer transition text-xs leading-none"
                     title="Clear client name"
                   >
-                    ✕
+                    <RiCloseLine size={15} />
                   </button>
                 )}
                 <button
@@ -668,11 +675,11 @@ export function NewBooking({ onBack, onBookingCreated, fromEnqId }) {
 
             {/* Dropdown Menu */}
             {isClientDropdownOpen && (
-              <div className="absolute left-0 top-full mt-1.5 w-full min-w-[280px] sm:min-w-[340px] bg-white rounded-xl shadow-2xl border border-slate-200 z-50 overflow-hidden flex flex-col animate-in fade-in zoom-in-95 duration-100">
+              <div className="absolute left-0 top-full mt-1.5 w-full min-w-[280px] sm:min-w-[340px] bg-white rounded-lg shadow-md border border-slate-200 z-50 overflow-hidden flex flex-col animate-in fade-in zoom-in-95 duration-100">
                 {/* Header bar */}
                 <div className="px-3 py-2 bg-slate-50 border-b border-slate-100 flex items-center justify-between text-[11px] font-semibold text-slate-500">
                   <div className="flex items-center gap-1.5">
-                    <Icon name="users" size={13} className="text-[#0E2F5A]" />
+                    <RiUserLine size={13} className="text-[#0E2F5A]" />
                     <span>Select Client or Type Manually</span>
                   </div>
                   <span>{filteredClients.length} match{filteredClients.length === 1 ? '' : 'es'}</span>
@@ -708,29 +715,28 @@ export function NewBooking({ onBack, onBookingCreated, fromEnqId }) {
                           key={client.id || client.name + client.phone}
                           type="button"
                           onClick={() => handleSelectClient(client)}
-                          className={`w-full text-left px-3.5 py-2.5 transition cursor-pointer flex flex-col gap-0.5 ${
+                          className={`w-full text-left px-3.5 py-2.5 transition cursor-pointer flex flex-col gap-1 ${
                             isSelected
                               ? 'bg-[#E4ECF7] text-[#0E2F5A]'
                               : 'hover:bg-slate-50 text-slate-800'
                           }`}
                         >
-                          <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-2">
                             <span className="font-semibold text-xs sm:text-[13px] text-slate-900 truncate">
                               {client.name}
                             </span>
-                            {client.clientId && (
-                              <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 shrink-0">
-                                {client.clientId}
+                          </div>
+                          <div className="flex items-center flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-slate-500">
+                            {client.phone && (
+                              <span className="inline-flex items-center gap-1 font-mono text-slate-600">
+                                <RiPhoneLine size={12} className="text-slate-400 shrink-0" />
+                                <span>{client.phone}</span>
                               </span>
                             )}
-                          </div>
-                          <div className="flex items-center gap-2 text-[11px] text-slate-500 truncate">
-                            {client.phone && (
-                              <span className="font-mono">📞 {client.phone}</span>
-                            )}
                             {client.city && (
-                              <span className="truncate">
-                                • 📍 {client.city}{client.area ? `, ${client.area}` : ''}
+                              <span className="inline-flex items-center gap-1 truncate text-slate-500">
+                                <RiMapPinLine size={12} className="text-slate-400 shrink-0" />
+                                <span className="truncate">{client.city}{client.area ? `, ${client.area}` : ''}</span>
                               </span>
                             )}
                           </div>
@@ -742,13 +748,17 @@ export function NewBooking({ onBack, onBookingCreated, fromEnqId }) {
 
                 {/* Footer hint */}
                 <div className="px-3 py-1.5 bg-slate-50/80 border-t border-slate-100 text-[10px] text-slate-400 flex items-center justify-between">
-                  <span>💡 Click client to auto-fill phone & location</span>
+                  <span className="inline-flex items-center gap-1.5">
+                    <RiLightbulbLine size={12} className="text-amber-500 shrink-0" />
+                    <span>Click client to auto-fill phone & location</span>
+                  </span>
                   <button
                     type="button"
                     onClick={() => setIsClientDropdownOpen(false)}
-                    className="hover:text-slate-600 font-medium cursor-pointer"
+                    className="hover:text-slate-600 font-medium cursor-pointer inline-flex items-center gap-0.5"
                   >
-                    Close ✕
+                    <span>Close</span>
+                    <RiCloseLine size={13} />
                   </button>
                 </div>
               </div>
