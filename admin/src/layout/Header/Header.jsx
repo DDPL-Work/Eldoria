@@ -3,12 +3,26 @@ import { Icon } from "../../constants/icons";
 import { useStore } from "../../context/StoreContext";
 import { useAuth } from "../../context/AuthContext";
 import { useNavigate } from "react-router-dom";
+import { fmtTs } from "../../constants/data";
 
 export function Header({onOpenAlerts, onOpenMobileMenu,  }) {
-  const { unread, cityName, selectedCity } = useStore();
+  const { unread, notesFor, cityName, selectedCity } = useStore();
   const { logout, user } = useAuth();
   const navigate = useNavigate();
-  const unreadAlerts = unread("admin");
+  const unreadAlerts = unread ? unread("admin") : 0;
+  const alertsList = notesFor ? notesFor("admin") : [];
+
+  const adminName = user?.name || user?.fullName || 'Admin Desk';
+  const adminEmail = user?.email || 'admin@eldoria.care';
+
+  const getInitials = (name) => {
+    if (!name) return 'AD';
+    const parts = name.trim().split(/\s+/);
+    if (parts.length >= 2) {
+      return (parts[0][0] + parts[1][0]).toUpperCase();
+    }
+    return name.slice(0, 2).toUpperCase();
+  };
 
   const [notifOpen, setNotifOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
@@ -121,7 +135,7 @@ export function Header({onOpenAlerts, onOpenMobileMenu,  }) {
           </div> */}
 
           {/* Divider */}
-          <div className="hidden sm:block h-6 w-px bg-[#182D49] mx-1" />
+          {/* <div className="hidden sm:block h-6 w-px bg-[#182D49] mx-1" /> */}
 
           {/* Notification Bell with Badge & Interactive Dropdown */}
           <div className="relative" ref={notifRef}>
@@ -139,9 +153,9 @@ export function Header({onOpenAlerts, onOpenMobileMenu,  }) {
               )}
             </button>
 
-            {/* Notification Dropdown */}
+            {/* 1. Desktop Notification Dropdown (screens >= sm) */}
             {notifOpen && (
-              <div className="absolute right-0 mt-2 w-80 bg-white text-slate-800 rounded-lg shadow-lg border border-slate-200 py-3 z-50 animate-in fade-in zoom-in-95 duration-150">
+              <div className="hidden sm:block absolute right-0 mt-2 w-80 bg-white text-slate-800 rounded-lg shadow-lg border border-slate-200 py-3 z-50 animate-in fade-in zoom-in-95 duration-150">
                 <div className="px-4 pb-2 border-b border-slate-100 flex items-center justify-between">
                   <span className="font-extrabold text-slate-900 text-xs uppercase tracking-wider">
                     Notifications
@@ -151,18 +165,25 @@ export function Header({onOpenAlerts, onOpenMobileMenu,  }) {
                   </span>
                 </div>
                 <div className="divide-y divide-slate-100 max-h-64 overflow-y-auto">
-                  <div className="px-4 py-2.5 hover:bg-slate-50 transition cursor-pointer">
-                    <p className="font-bold text-xs text-slate-900">New Booking ELD-20436</p>
-                    <p className="text-[11px] text-slate-500 mt-0.5">Sameer Khan booked Injection Support in Mumbai</p>
-                  </div>
-                  <div className="px-4 py-2.5 hover:bg-slate-50 transition cursor-pointer">
-                    <p className="font-bold text-xs text-slate-900">Staff Application: Neha Sawant</p>
-                    <p className="text-[11px] text-slate-500 mt-0.5">GNM Nurse · 6 yrs experience waiting for review</p>
-                  </div>
-                  <div className="px-4 py-2.5 hover:bg-slate-50 transition cursor-pointer">
-                    <p className="font-bold text-xs text-slate-900">Help Request: Priya Mehta</p>
-                    <p className="text-[11px] text-slate-500 mt-0.5">Unsure what care is needed for stroke recovery</p>
-                  </div>
+                  {alertsList.length === 0 ? (
+                    <div className="px-4 py-6 text-center text-slate-400">
+                      <p className="text-xs font-semibold">No notifications</p>
+                    </div>
+                  ) : (
+                    alertsList.slice(0, 5).map((n) => (
+                      <div
+                        key={n.id}
+                        onClick={() => {
+                          setNotifOpen(false);
+                          onOpenAlerts();
+                        }}
+                        className="px-4 py-2.5 hover:bg-slate-50 transition cursor-pointer"
+                      >
+                        <p className="font-bold text-xs text-slate-900">{n.title || n.text}</p>
+                        {n.sub && <p className="text-[11px] text-slate-500 mt-0.5">{n.sub}</p>}
+                      </div>
+                    ))
+                  )}
                 </div>
                 <div className="pt-2 px-3 border-t border-slate-100 text-center">
                   <button
@@ -178,6 +199,101 @@ export function Header({onOpenAlerts, onOpenMobileMenu,  }) {
                 </div>
               </div>
             )}
+
+            {/* 2. Mobile Right-Slide Drawer with Smooth Transitions (screens < sm) */}
+            <div
+              className={`fixed inset-0 z-50 sm:hidden transition-all duration-300 ease-in-out ${
+                notifOpen ? "visible pointer-events-auto" : "invisible pointer-events-none"
+              }`}
+              aria-hidden={!notifOpen}
+            >
+              {/* Backdrop Overlay with Fade */}
+              <div
+                className={`fixed inset-0 bg-black/60 backdrop-blur-xs transition-opacity duration-300 ease-in-out ${
+                  notifOpen ? "opacity-100" : "opacity-0"
+                }`}
+                onClick={() => setNotifOpen(false)}
+              />
+
+              {/* Sliding Drawer from Right */}
+              <aside
+                className={`fixed top-0 right-0 z-10 w-80 max-w-[85vw] h-full bg-white text-slate-800 shadow-2xl flex flex-col transform transition-transform duration-300 ease-in-out will-change-transform ${
+                  notifOpen ? "translate-x-0" : "translate-x-full"
+                }`}
+                onClick={(e) => e.stopPropagation()}
+                aria-label="Mobile notifications"
+              >
+                {/* Header */}
+                <div className="p-4 bg-[#0B1E36] text-white flex items-center justify-between border-b border-[#182D49] shrink-0">
+                  <div className="flex items-center gap-2">
+                    <Icon name="bell" size={17} strokeWidth={2.2} className="text-[#F59E0B]" />
+                    <span className="font-extrabold text-sm tracking-wide">Notifications</span>
+                    {unreadAlerts > 0 && (
+                      <span className="bg-[#F59E0B] text-[#0B1E36] font-extrabold text-[10px] px-2 py-0.5 rounded-full leading-none">
+                        {unreadAlerts} unread
+                      </span>
+                    )}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setNotifOpen(false)}
+                    className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-[#162D4A] transition cursor-pointer"
+                    aria-label="Close notifications"
+                  >
+                    ✕
+                  </button>
+                </div>
+
+                {/* Notifications List */}
+                <div className="flex-1 overflow-y-auto p-2.5 divide-y divide-slate-100">
+                  {alertsList.length === 0 ? (
+                    <div className="py-20 px-4 text-center text-slate-400 space-y-2.5">
+                      <div className="w-12 h-12 mx-auto rounded-full bg-slate-100 flex items-center justify-center text-slate-400">
+                        <Icon name="bell" size={22} strokeWidth={1.8} />
+                      </div>
+                      <p className="font-bold text-sm text-slate-700">No notifications</p>
+                      <p className="text-xs text-slate-400 max-w-[200px] mx-auto leading-relaxed">
+                        New requests, cancellations and updates will appear here.
+                      </p>
+                    </div>
+                  ) : (
+                    alertsList.map((n) => (
+                      <div
+                        key={n.id}
+                        onClick={() => {
+                          setNotifOpen(false);
+                          onOpenAlerts();
+                        }}
+                        className="p-3 hover:bg-slate-50 rounded-xl transition cursor-pointer text-left"
+                      >
+                        <p className="font-bold text-xs text-slate-900 leading-snug">{n.title || n.text}</p>
+                        {n.sub && <p className="text-[11px] text-slate-500 mt-1 leading-relaxed">{n.sub}</p>}
+                        {n.at && (
+                          <span className="text-[10px] text-slate-400 block mt-1 font-medium">
+                            {fmtTs(n.at)}
+                          </span>
+                        )}
+                      </div>
+                    ))
+                  )}
+                </div>
+
+                {/* Footer View All Button */}
+                <div className="p-3.5 border-t border-slate-100 bg-slate-50/70 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setNotifOpen(false);
+                      onOpenAlerts();
+                    }}
+                    className="w-full py-2.5 px-4 rounded-xl bg-[#0B1E36] hover:bg-[#162D4A] text-white text-xs font-bold transition flex items-center justify-center gap-1.5 shadow-xs cursor-pointer"
+                  >
+                    <span>View all notifications</span>
+                    <span>→</span>
+                  </button>
+                </div>
+              </aside>
+            </div>
           </div>
 
           {/* Profile Section (Advanced Avatar + Name + Status) */}
@@ -190,23 +306,27 @@ export function Header({onOpenAlerts, onOpenMobileMenu,  }) {
             >
               <div className="relative">
                 <div className="w-7 h-7 rounded-full bg-linear-to-tr from-[#F59E0B] to-[#FBBF24] text-[#0B1E36] font-extrabold text-xs flex items-center justify-center shadow-xs">
-                  AD
+                  {getInitials(adminName)}
                 </div>
                 <span className="absolute bottom-0 right-0 w-2 h-2 rounded-full bg-emerald-400 ring-1 ring-[#0B1E36]" />
               </div>
-              <div className="text-left hidden lg:block pr-1 leading-tight">
-                <span className="text-xs font-bold text-white block">Admin Desk</span>
-                <span className="text-[10px] text-slate-400 font-medium block">Care Manager</span>
+              <div className="text-left hidden lg:block pr-1 leading-tight max-w-[170px]">
+                <span className="text-xs font-bold text-white block truncate" title={adminName}>
+                  {adminName}
+                </span>
+                <span className="text-[10px] text-slate-400 font-medium block truncate" title={adminEmail}>
+                  {adminEmail}
+                </span>
               </div>
-              <Icon name="down" size={12} className="text-slate-400 hidden sm:block" />
+              <Icon name="down" size={12} className="text-slate-400 hidden sm:block shrink-0" />
             </button>
 
             {/* Profile Dropdown */}
             {profileOpen && (
               <div className="absolute right-0 mt-2 w-56 bg-white text-slate-800 rounded-lg shadow-lg border border-slate-200 py-2 z-50 animate-in fade-in zoom-in-95 duration-150">
                 <div className="px-4 py-2 border-b border-slate-100">
-                  <p className="font-extrabold text-xs text-slate-900">{user?.name || 'Care Desk Manager'}</p>
-                  <p className="text-[11px] text-slate-500 font-medium truncate">{user?.email || 'admin@eldoria.care'}</p>
+                  <p className="font-extrabold text-xs text-slate-900 truncate" title={adminName}>{adminName}</p>
+                  <p className="text-[11px] text-slate-500 font-medium truncate" title={adminEmail}>{adminEmail}</p>
                   {user?.phone && (
                     <p className="text-[10px] text-slate-400 font-mono mt-0.5">+91 {user.phone}</p>
                   )}

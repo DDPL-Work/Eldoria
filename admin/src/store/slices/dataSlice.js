@@ -29,6 +29,8 @@ const getInitialData = () => {
       bookings: {}, // Strict: no fake/demo bookings in state
       staff: {}, // Strict: no fake/demo staff in state
       cities: {}, // Strict: no fake/demo cities in state
+      enquiries: {}, // Strict: no fake/demo enquiries in state
+      notifications: {}, // Strict: no fake/demo notifications in state
     };
   } catch {
     return {

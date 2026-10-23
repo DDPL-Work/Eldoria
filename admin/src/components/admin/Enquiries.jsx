@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { RiRefreshLine } from 'react-icons/ri';
 import { Icon } from '../../constants/icons';
 import { StatusBadge } from '../common/StatusBadge';
@@ -9,6 +9,14 @@ import { useUI } from '../../context/UIContext';
 import { enquiryAPI } from '../../services/api';
 import { fmtTs } from '../../constants/data';
 import { Pagination } from '../common/Pagination';
+
+const FILTER_TABS = [
+  ['contacted', 'Contacted'],
+  ['new', 'New'],
+  ['converted', 'Converted'],
+  ['closed', 'Closed'],
+  ['all', 'All'],
+];
 
 export function Enquiries({ onOpenEnquiry, onShowToast: onShowToastProp }) {
   const { showToast } = useUI ? useUI() : {};
@@ -31,6 +39,19 @@ export function Enquiries({ onOpenEnquiry, onShowToast: onShowToastProp }) {
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
   const [updatingId, setUpdatingId] = useState(null);
+  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+  const mobileFilterRef = useRef(null);
+
+  // Close mobile filter dropdown on outside click
+  useEffect(() => {
+    function handleClickOutside(event) {
+      if (mobileFilterRef.current && !mobileFilterRef.current.contains(event.target)) {
+        setIsDropdownOpen(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   // Reset page when filter or city changes
   useEffect(() => {
@@ -61,14 +82,9 @@ export function Enquiries({ onOpenEnquiry, onShowToast: onShowToastProp }) {
   };
 
   const all = useMemo(() => {
-    let rawList = [];
-    if (backendEnquiries && backendEnquiries.length > 0) {
-      rawList = backendEnquiries;
-    } else {
-      rawList = enqAll();
-    }
+    const rawList = Array.isArray(backendEnquiries) ? backendEnquiries : [];
     return inCity(rawList, (e) => e.city);
-  }, [backendEnquiries, enqAll, inCity]);
+  }, [backendEnquiries, inCity]);
 
   const filterFn = useMemo(() => {
     return (
@@ -171,37 +187,112 @@ export function Enquiries({ onOpenEnquiry, onShowToast: onShowToastProp }) {
         and turn the request into a booking.
       </p>
 
-      {/* Filter Chips */}
-      <div className="flex items-center gap-2 overflow-x-auto no-scrollbar py-0.5">
-        {[
-          ['open', 'Open'],
-          ['new', 'New'],
-          ['converted', 'Booked'],
-          ['closed', 'Closed'],
-          ['all', 'All'],
-        ].map(([k, l]) => (
-          <button
-            key={k}
-            type="button"
-            onClick={() => setFilter(k)}
-            aria-pressed={filter === k}
-            className={`px-3.5 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition cursor-pointer flex items-center gap-1.5 ${
-              filter === k
-                ? 'bg-[#0E2F5A] text-white shadow-2xs'
-                : 'bg-white border border-slate-200/90 text-slate-700 hover:bg-slate-50'
-            }`}
-          >
-            <span>{l}</span>
-            <span
-              className={`text-[11px] font-bold ${
-                filter === k ? 'text-white/80' : 'text-slate-400'
-              }`}
-            >
-              {countFor(k)}
-            </span>
-          </button>
-        ))}
-      </div>
+      {/* 4. Filter Section: Mobile Dropdown (< sm) & Desktop Tabs (>= sm) */}
+      {(() => {
+        const currentTabItem = FILTER_TABS.find(([k]) => k === filter);
+        const currentLabel = currentTabItem ? currentTabItem[1] : (filter === 'open' ? 'Open' : 'All');
+        const currentCount = countFor(filter);
+
+        return (
+          <>
+            {/* Mobile Dropdown View (screens < sm) */}
+            <div className="relative sm:hidden w-full" ref={mobileFilterRef}>
+              <button
+                type="button"
+                onClick={() => setIsDropdownOpen(!isDropdownOpen)}
+                className="w-full flex items-center justify-between px-3.5 py-2.5 bg-white border border-slate-200/90 rounded-xl text-xs font-semibold text-slate-800 shadow-2xs transition active:bg-slate-50 cursor-pointer"
+                aria-haspopup="listbox"
+                aria-expanded={isDropdownOpen}
+              >
+                <div className="flex items-center gap-2">
+                  <span className="text-slate-400 font-medium text-[11px]">Filter:</span>
+                  <span className="font-bold text-slate-900">{currentLabel}</span>
+                  <span className="bg-[#E4ECF7] text-[#0E2F5A] font-extrabold text-[11px] px-2 py-0.5 rounded-full">
+                    {currentCount}
+                  </span>
+                </div>
+                <svg
+                  className={`w-4 h-4 text-slate-400 transition-transform duration-200 ${
+                    isDropdownOpen ? 'rotate-180 text-[#0E2F5A]' : ''
+                  }`}
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                </svg>
+              </button>
+
+              {isDropdownOpen && (
+                <div
+                  className="absolute left-0 top-full mt-1.5 w-full bg-white rounded-xl shadow-xl border border-slate-200 z-30 py-1.5 animate-in fade-in zoom-in-95 duration-100 overflow-hidden"
+                  role="listbox"
+                >
+                  {FILTER_TABS.map(([k, l]) => {
+                    const isSelected = filter === k;
+                    const count = countFor(k);
+                    return (
+                      <button
+                        key={k}
+                        type="button"
+                        role="option"
+                        aria-selected={isSelected}
+                        onClick={() => {
+                          setFilter(k);
+                          setIsDropdownOpen(false);
+                        }}
+                        className={`w-full text-left px-4 py-2.5 text-xs transition cursor-pointer flex items-center justify-between ${
+                          isSelected
+                            ? 'bg-[#E4ECF7] text-[#0E2F5A] font-bold'
+                            : 'text-slate-700 hover:bg-slate-50 font-medium'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2">
+                          <span>{l}</span>
+                          {isSelected && <span className="text-xs text-[#0E2F5A] font-extrabold">✓</span>}
+                        </div>
+                        <span
+                          className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${
+                            isSelected ? 'bg-white text-[#0E2F5A]' : 'bg-slate-100 text-slate-500'
+                          }`}
+                        >
+                          {count}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* Desktop Filter Tabs (screens >= sm) */}
+            <div className="hidden sm:flex items-center gap-2 overflow-x-auto no-scrollbar py-0.5">
+              {FILTER_TABS.map(([k, l]) => (
+                <button
+                  key={k}
+                  type="button"
+                  onClick={() => setFilter(k)}
+                  aria-pressed={filter === k}
+                  className={`px-3.5 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition cursor-pointer flex items-center gap-1.5 ${
+                    filter === k
+                      ? 'bg-[#0E2F5A] text-white shadow-2xs'
+                      : 'bg-white border border-slate-200/90 text-slate-700 hover:bg-slate-50'
+                  }`}
+                >
+                  <span>{l}</span>
+                  <span
+                    className={`text-[11px] font-bold ${
+                      filter === k ? 'text-white/80' : 'text-slate-400'
+                    }`}
+                  >
+                    {countFor(k)}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </>
+        );
+      })()}
 
       {/* Grid of Request Cards / Empty State / DatabaseLoader */}
       {enquiriesLoading && all.length === 0 ? (

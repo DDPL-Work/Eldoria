@@ -1073,7 +1073,16 @@ const updateBookingStatus = async (req, res) => {
     const { id } = req.params;
     const { status: nextStatus, note, visit, tasks, cancelReason } = req.body;
 
-    const validStatuses = ["requested", "confirmed", "assigned", "on_the_way", "in_progress", "completed", "cancelled"];
+    const validStatuses = [
+      "requested",
+      "confirmed",
+      "assigned",
+      "on_the_way",
+      "in_progress",
+      "completed",
+      "cancelled",
+      "date_exceeded",
+    ];
     if (!nextStatus || !validStatuses.includes(nextStatus)) {
       await transaction.rollback();
       return errorResponse(

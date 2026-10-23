@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { RiRefreshLine } from 'react-icons/ri';
 import { Icon } from '../../constants/icons';
 import { StatusBadge } from '../common/StatusBadge';
@@ -11,8 +12,8 @@ import bookingErrorImg from '../../assets/booking-error.png';
 import { Pagination } from '../common/Pagination';
 
 const FILTER_OPTIONS = [
-  { id: 'active', label: 'Active' },
   { id: 'requested', label: 'New requests' },
+  { id: 'active', label: 'Active' },
   { id: 'date_exceeded', label: 'Date exceeded' },
   { id: 'today', label: 'Today' },
   { id: 'completed', label: 'Completed' },
@@ -38,7 +39,15 @@ export function Bookings({ onOpenBooking, onNewBooking }) {
     fetchBookings
   } = useStore();
 
-  const [filter, setFilter] = useState('active');
+  const [searchParams, setSearchParams] = useSearchParams();
+  const urlStatus = searchParams.get('status');
+  const [filter, setFilter] = useState(urlStatus || 'requested');
+
+  useEffect(() => {
+    if (urlStatus && urlStatus !== filter) {
+      setFilter(urlStatus);
+    }
+  }, [urlStatus]);
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const filterDropdownRef = useRef(null);
   const [query, setQuery] = useState('');
@@ -91,41 +100,34 @@ export function Bookings({ onOpenBooking, onNewBooking }) {
     loadBookings();
   }, [loadBookings]);
 
-
-
   const q = query.trim().toLowerCase();
 
   const filterFn = {
     active: (b) => ACTIVE.includes(b.status),
-    requested: (b) => b.status === 'requested',
-    date_exceeded: (b) => b.status === 'date_exceeded',
+    // New requests: any booking whose status is 'requested', OR any active booking with no staff assigned yet
+    requested: (b) => b.status === 'requested' || (!b.staffId && !b.assignedStaff && b.status === 'confirmed'),
+    date_exceeded: (b) => b.status === 'date_exceeded' || (Boolean(b.date) && b.date < todayISO() && !['completed', 'cancelled'].includes(b.status)),
     today: (b) => b.date === todayISO(),
     completed: (b) => b.status === 'completed',
     cancelled: (b) => b.status === 'cancelled',
     all: () => true
   }[filter] || (() => true);
 
-  // Helper to distinguish client-app created bookings vs care desk admin bookings
-  const isClientAppBooking = (b) => {
-    if (!b) return false;
-    const firstHist = Array.isArray(b.history) && b.history.length > 0 ? b.history[0] : null;
-    if (firstHist && firstHist.by === 'client') return true;
-    if (b.source?.toLowerCase() === 'app' && (!b.confirmedBy || b.confirmedBy === 'client')) return true;
-    return false;
-  };
-
-  // Strictly real backend bookings from API — client-app requests default to 'requested',
-  // while admin-created bookings with status 'confirmed' remain 'confirmed' in list.
+  // Normalize booking status & sort by newest first
   const seenCodes = new Set();
+  const todayStr = todayISO();
   const rawList = (Array.isArray(backendBookings) ? backendBookings : [])
     .map((b) => {
-      if (
-        isClientAppBooking(b) &&
-        !b.staffId &&
-        !b.assignedStaff &&
-        b.status === 'confirmed' &&
-        (!b.history || b.history.length <= 2)
-      ) {
+      // If scheduled date has passed without completion or cancellation, normalize to 'date_exceeded'
+      if (b.date && b.date < todayStr && !['completed', 'cancelled'].includes(b.status)) {
+        return { ...b, status: 'date_exceeded' };
+      }
+      // If staff is already assigned, ensure status is 'assigned' so it doesn't linger in requested
+      if ((b.staffId || b.assignedStaff) && b.status === 'requested') {
+        return { ...b, status: 'assigned' };
+      }
+      // If no staff is assigned yet and status is confirmed, treat as pending request waiting for staff
+      if (!b.staffId && !b.assignedStaff && b.status === 'confirmed') {
         return { ...b, status: 'requested' };
       }
       return b;
@@ -136,6 +138,14 @@ export function Bookings({ onOpenBooking, onNewBooking }) {
       if (key && seenCodes.has(key)) return false;
       if (key) seenCodes.add(key);
       return true;
+    })
+    .sort((a, b) => {
+      const parseTime = (item) => {
+        if (item.createdAt) return new Date(item.createdAt).getTime();
+        if (item.date) return new Date(item.date).getTime();
+        return 0;
+      };
+      return parseTime(b) - parseTime(a);
     });
 
   const list = inCity(rawList)
@@ -247,6 +257,7 @@ export function Bookings({ onOpenBooking, onNewBooking }) {
                     aria-selected={isSelected}
                     onClick={() => {
                       setFilter(opt.id);
+                      setSearchParams({ status: opt.id });
                       setIsFilterOpen(false);
                     }}
                     className={`w-full text-left px-3.5 py-2 text-xs sm:text-[13px] transition cursor-pointer flex items-center justify-between ${

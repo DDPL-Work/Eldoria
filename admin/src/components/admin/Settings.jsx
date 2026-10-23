@@ -407,7 +407,7 @@ export function Settings({ onShowToast }) {
       </form>
 
       {/* Staff Confirmation Toggle */}
-      <section className="bg-white rounded-lg p-6 border border-slate-200/80 shadow-2xs flex items-center justify-between gap-4">
+      {/* <section className="bg-white rounded-lg p-6 border border-slate-200/80 shadow-2xs flex items-center justify-between gap-4">
         <div className="space-y-1 max-w-xl">
           <h2 className="text-sm font-bold text-slate-900">
             Caregivers can confirm &amp; assign bookings
@@ -433,7 +433,7 @@ export function Settings({ onShowToast }) {
             }`}
           />
         </button>
-      </section>
+      </section> */}
 
       {/* =====================Backup and Restore =======================================*/}
       {/* <section className="bg-white rounded-lg p-6 border border-slate-200/80 shadow-2xs space-y-3">

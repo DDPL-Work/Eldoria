@@ -767,7 +767,7 @@ export function useStore() {
   const applications = useCallback(
     () => {
       let list = [];
-      if (backendStaffRequests && backendStaffRequests.length > 0) {
+      if (Array.isArray(backendStaffRequests)) {
         list = backendStaffRequests
           .map(normalizeStaffRequest)
           .filter(Boolean);
@@ -804,7 +804,7 @@ export function useStore() {
   );
 
   const enqAll = useCallback(() => {
-    if (backendEnquiries && backendEnquiries.length > 0) {
+    if (Array.isArray(backendEnquiries)) {
       return [...backendEnquiries].sort((a, b) => {
         const tA = new Date(a.createdAt || 0).getTime() || 0;
         const tB = new Date(b.createdAt || 0).getTime() || 0;
