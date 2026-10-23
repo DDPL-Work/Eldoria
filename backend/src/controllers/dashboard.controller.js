@@ -109,9 +109,6 @@ const getDashboardData = async (req, res) => {
     const newReqBookings = bookings.filter((b) => b.status === 'requested');
     const countNewReq = newReqBookings.length;
 
-    const dateExceededBookings = bookings.filter((b) => b.status === 'date_exceeded');
-    const countDateExceeded = dateExceededBookings.length;
-
     const visitsToday = bookings.filter((b) => b.date === todayStr && b.status !== 'cancelled');
     const countTodayVisits = visitsToday.length;
     const countTodayCompleted = visitsToday.filter((b) => b.status === 'completed').length;
