@@ -1457,15 +1457,20 @@ const getBookings = async (req, res) => {
 
     const todayStr = new Date().toISOString().split("T")[0];
 
+    const bookingWhere = {};
+    const andConditions = [];
+
     if (status && status !== "all") {
       if (status === "date_exceeded") {
-        bookingWhere[Op.or] = [
-          { status: "date_exceeded" },
-          {
-            date: { [Op.lt]: todayStr },
-            status: { [Op.notIn]: ["completed", "cancelled"] },
-          },
-        ];
+        andConditions.push({
+          [Op.or]: [
+            { status: "date_exceeded" },
+            {
+              date: { [Op.lt]: todayStr },
+              status: { [Op.notIn]: ["completed", "cancelled"] },
+            },
+          ],
+        });
       } else {
         bookingWhere.status = status;
       }
@@ -1494,16 +1499,22 @@ const getBookings = async (req, res) => {
     // Search query across code, clientName, clientPhone, patientName, address, serviceName, notes
     if (search && search.trim()) {
       const searchTerm = `%${search.trim()}%`;
-      bookingWhere[Op.or] = [
-        { code: { [Op.like]: searchTerm } },
-        { clientName: { [Op.like]: searchTerm } },
-        { clientPhone: { [Op.like]: searchTerm } },
-        { patientName: { [Op.like]: searchTerm } },
-        { address: { [Op.like]: searchTerm } },
-        { serviceName: { [Op.like]: searchTerm } },
-        { notes: { [Op.like]: searchTerm } },
-        { staffId: { [Op.like]: searchTerm } },
-      ];
+      andConditions.push({
+        [Op.or]: [
+          { code: { [Op.like]: searchTerm } },
+          { clientName: { [Op.like]: searchTerm } },
+          { clientPhone: { [Op.like]: searchTerm } },
+          { patientName: { [Op.like]: searchTerm } },
+          { address: { [Op.like]: searchTerm } },
+          { serviceName: { [Op.like]: searchTerm } },
+          { notes: { [Op.like]: searchTerm } },
+          { staffId: { [Op.like]: searchTerm } },
+        ],
+      });
+    }
+
+    if (andConditions.length > 0) {
+      bookingWhere[Op.and] = andConditions;
     }
 
     const { count, rows: bookings } = await Booking.findAndCountAll({
