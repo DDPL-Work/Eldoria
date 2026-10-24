@@ -5,6 +5,8 @@ let targetDbInstance = null;
 let isTargetAvailable = null;
 let isReplicating = false;
 
+let targetMigrationsEnsured = false;
+
 /**
  * Initializes model definitions on the secondary/target connection.
  * If running on Local -> Target is Aiven Cloud.
@@ -14,6 +16,16 @@ const getTargetDb = () => {
   if (targetDbInstance) return targetDbInstance;
 
   const targetSequelize = isLocal ? getAivenSequelize() : getLocalSequelize();
+
+  if (!targetMigrationsEnsured) {
+    targetMigrationsEnsured = true;
+    try {
+      const { migrateUp } = require('../database/migrations/runner');
+      migrateUp(targetSequelize).catch((err) => {
+        console.warn('⚠️ Target DB migration check warning:', err.message);
+      });
+    } catch (_) {}
+  }
   const db = {
     sequelize: targetSequelize,
     Admin: require('../database/models/admin.model')(targetSequelize),

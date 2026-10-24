@@ -8,6 +8,8 @@ const ALLOWED_MIME_TYPES = [
   'image/png',
   'image/webp',
   'image/gif',
+  'application/octet-stream',
+  'binary',
 ];
 
 const ALLOWED_EXTENSIONS = ['.pdf', '.jpg', '.jpeg', '.png', '.webp', '.gif'];
@@ -24,21 +26,15 @@ const isValidDocumentType = (mimetype = '', originalname = '') => {
   const mime = (mimetype || '').toLowerCase().trim();
   const ext = path.extname(originalname || '').toLowerCase().trim();
 
-  // If extension is present, it MUST be in ALLOWED_EXTENSIONS (rejects .exe, .php, etc.)
-  if (ext && !ALLOWED_EXTENSIONS.includes(ext)) {
-    return false;
-  }
-
-  // If mimetype is present, it MUST be in ALLOWED_MIME_TYPES
-  if (mime && !ALLOWED_MIME_TYPES.includes(mime)) {
-    return false;
-  }
-
-  // At least one must be explicitly valid
-  const isMimeAllowed = mime ? ALLOWED_MIME_TYPES.includes(mime) : false;
   const isExtAllowed = ext ? ALLOWED_EXTENSIONS.includes(ext) : false;
+  const isMimeAllowed = mime ? ALLOWED_MIME_TYPES.includes(mime) : false;
 
-  return isMimeAllowed || isExtAllowed;
+  // If extension is explicitly forbidden (e.g. .exe, .php, etc.), reject
+  if (ext && !isExtAllowed) {
+    return false;
+  }
+
+  return isExtAllowed || isMimeAllowed;
 };
 
 /**
@@ -360,12 +356,38 @@ const uploadMedicalFilesToCloudinary = async (req, options = {}) => {
       fileUrl = `data:${mimetype};base64,${file.buffer.toString('base64')}`;
     }
 
+    const rawKey = file.fieldname || 'document';
+    const cleanKey = rawKey.replace(/^files[\.\[_]/, '').replace(/\]$/, '') || rawKey;
+
+    // Check if user provided custom friendly title in body (e.g. files.bpReport: "BP Report" or bpReport: "BP Report")
+    let docTitle = '';
+    if (req.body) {
+      if (typeof req.body[rawKey] === 'string' && req.body[rawKey].trim()) {
+        docTitle = req.body[rawKey].trim();
+      } else if (typeof req.body[cleanKey] === 'string' && req.body[cleanKey].trim()) {
+        docTitle = req.body[cleanKey].trim();
+      } else if (req.body.files && typeof req.body.files === 'object' && typeof req.body.files[cleanKey] === 'string') {
+        docTitle = req.body.files[cleanKey].trim();
+      }
+    }
+
+    if (!docTitle && cleanKey && cleanKey !== 'file' && cleanKey !== 'files') {
+      docTitle = cleanKey
+        .replace(/([A-Z])/g, ' $1')
+        .replace(/^./, (str) => str.toUpperCase())
+        .trim();
+    }
+
     uploadedFiles.push({
       id: `med_${Date.now().toString(36)}_${Math.random().toString(36).substring(2, 7)}`,
-      name: originalname,
+      name: docTitle || originalname,
+      fileName: originalname,
+      key: cleanKey,
+      category: cleanKey,
       type: mimetype,
       size: file.size || 0,
       url: fileUrl,
+      fileUrl: fileUrl,
       data: fileUrl,
       publicId,
       uploadedAt: new Date().toISOString(),

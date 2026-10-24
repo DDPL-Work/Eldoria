@@ -76,6 +76,7 @@ router.post(
 );
 
 router.get("/booking/:id", verifyToken, requireAdmin, getBookingById);
+router.get("/bookings/:id", verifyToken, requireAdmin, getBookingById);
 router.get(
   "/booking/:id/report",
   verifyToken,

@@ -32,6 +32,7 @@ router.post("/client/login", clientVerifyOtp);
 router.get("/profile", verifyToken, getProfile);
 router.get("/profile/:id", verifyToken, getProfile);
 
+router.patch("/profile", verifyToken, updateProfile);
 router.patch("/profile/:id", verifyToken, updateProfile);
 
 

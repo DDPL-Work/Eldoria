@@ -179,6 +179,9 @@ export const authAPI = {
   changePhone: (data) => api.patch('/admin/change-phone', data),
 };
 
+api.auth = authAPI;
+api.authAPI = authAPI;
+
 
 /**========================= Admin Operational Endpoints =============================*/
 

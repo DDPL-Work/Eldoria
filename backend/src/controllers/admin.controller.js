@@ -6,6 +6,10 @@ const {
   checkAndMarkDateExceededBookings,
   getDateExceededBookings: fetchDateExceededBookings,
 } = require("../services/bookingExpiry.service");
+const {
+  processStaffAvailabilitySlots,
+  hasAvailabilitySlotsInput,
+} = require("../helpers/availabilitySlots.helper");
 
 
 /**
@@ -1078,6 +1082,9 @@ const createAdminStaff = async (req, res) => {
         skills: parsedSkills,
         language: parsedLanguages,
         availability: parsedAvailability,
+        availabilitySlots: hasAvailabilitySlotsInput(req.body)
+          ? processStaffAvailabilitySlots(req.body, [])
+          : [],
         emergencyName: emergencyName ? String(emergencyName).trim() : null,
         emergencyPhone: emergencyPhone ? String(emergencyPhone).replace(/[^\d+]/g, "").trim() : null,
         emergencyRelation: emergencyRelation ? String(emergencyRelation).trim() : null,
@@ -1319,6 +1326,10 @@ const getClientByClientId = async (req, res) => {
         plan: bJson.plan,
         date: bJson.date,
         time: bJson.time,
+        startDate: bJson.startDate || bJson.date,
+        endDate: bJson.endDate || bJson.startDate || bJson.date,
+        startTime: bJson.startTime || bJson.time,
+        endTime: bJson.endTime || null,
         status: bJson.status,
         price: bJson.price,
         source: bJson.source,
@@ -1466,7 +1477,10 @@ const getBookings = async (req, res) => {
           [Op.or]: [
             { status: "date_exceeded" },
             {
-              date: { [Op.lt]: todayStr },
+              [Op.or]: [
+                { endDate: { [Op.ne]: null, [Op.lt]: todayStr } },
+                { endDate: null, date: { [Op.lt]: todayStr } },
+              ],
               status: { [Op.notIn]: ["completed", "cancelled"] },
             },
           ],
@@ -1548,7 +1562,23 @@ const getBookings = async (req, res) => {
 
     const normalizedBookings = (bookings || []).map((b) => {
       const bObj = b.toJSON ? b.toJSON() : { ...b };
-      if (bObj.date && bObj.date < todayStr && !["completed", "cancelled"].includes(bObj.status)) {
+      bObj.startDate = bObj.startDate || bObj.date || null;
+      bObj.endDate = bObj.endDate || bObj.startDate || bObj.date || null;
+
+      let sTime = (bObj.startTime || "").trim();
+      let eTime = (bObj.endTime || "").trim();
+      if ((!sTime || !eTime) && bObj.time && typeof bObj.time === "string" && (bObj.time.includes("-") || bObj.time.includes("–") || bObj.time.includes("—"))) {
+        const parts = bObj.time.split(/[-–—]/).map((t) => t.trim());
+        if (parts.length >= 2) {
+          if (!sTime) sTime = parts[0];
+          if (!eTime) eTime = parts[1];
+        }
+      }
+      bObj.startTime = sTime || bObj.time || null;
+      bObj.endTime = eTime || null;
+
+      const cmpDate = bObj.endDate || bObj.date;
+      if (cmpDate && cmpDate < todayStr && !["completed", "cancelled"].includes(bObj.status)) {
         bObj.status = "date_exceeded";
       }
       return bObj;
@@ -1617,7 +1647,25 @@ const getBookingById = async (req, res) => {
 
     const todayStr = new Date().toISOString().split("T")[0];
     const bObj = booking.toJSON ? booking.toJSON() : { ...booking };
-    if (bObj.date && bObj.date < todayStr && !["completed", "cancelled"].includes(bObj.status)) {
+
+    // Guarantee that startDate, endDate, startTime, and endTime are always populated and clean
+    bObj.startDate = bObj.startDate || bObj.date || null;
+    bObj.endDate = bObj.endDate || bObj.startDate || bObj.date || null;
+
+    let sTime = (bObj.startTime || "").trim();
+    let eTime = (bObj.endTime || "").trim();
+    if ((!sTime || !eTime) && bObj.time && typeof bObj.time === "string" && (bObj.time.includes("-") || bObj.time.includes("–") || bObj.time.includes("—"))) {
+      const parts = bObj.time.split(/[-–—]/).map((t) => t.trim());
+      if (parts.length >= 2) {
+        if (!sTime) sTime = parts[0];
+        if (!eTime) eTime = parts[1];
+      }
+    }
+    bObj.startTime = sTime || bObj.time || null;
+    bObj.endTime = eTime || null;
+
+    const cmpDate = bObj.endDate || bObj.date;
+    if (cmpDate && cmpDate < todayStr && !["completed", "cancelled"].includes(bObj.status)) {
       bObj.status = "date_exceeded";
     }
 

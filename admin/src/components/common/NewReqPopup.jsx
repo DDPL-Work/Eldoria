@@ -94,10 +94,17 @@ export function NewReqPopup({ onOpenBooking, delay = 3500 }) {
   };
 
   // Format date and time cleanly
-  const dateFormatted = fmtDate(current.date);
+  const sDate = current.startDate || current.date;
+  const eDate = current.endDate || sDate;
+  const dateFormatted = eDate && eDate !== sDate
+    ? `${fmtDate(sDate)} – ${fmtDate(eDate)}`
+    : fmtDate(sDate);
+  const timeFormatted = current.startTime && current.endTime
+    ? `${current.startTime} – ${current.endTime}`
+    : (current.time || current.startTime || '');
   const formattedWhen = dateFormatted
-    ? `${dateFormatted}${current.time ? `, ${current.time}` : ''}`
-    : (current.time || 'Scheduled visit');
+    ? `${dateFormatted}${timeFormatted ? `, ${timeFormatted}` : ''}`
+    : (timeFormatted || 'Scheduled visit');
 
   const cityDisplay = current.city || cityName(bCity(current)) || '';
 
