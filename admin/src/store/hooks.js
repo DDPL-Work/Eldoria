@@ -285,6 +285,17 @@ export const normalizeStaffRequest = (req) => {
     try { availability = JSON.parse(req.availability); } catch { availability = req.availability.split(',').map((s) => s.trim()).filter(Boolean); }
   }
 
+  let availabilitySlots = [];
+  if (Array.isArray(req.availabilitySlots)) availabilitySlots = req.availabilitySlots;
+  else if (typeof req.availabilitySlots === 'string') {
+    try {
+      const parsed = JSON.parse(req.availabilitySlots);
+      if (Array.isArray(parsed)) availabilitySlots = parsed;
+    } catch {
+      availabilitySlots = [];
+    }
+  }
+
   let files = req.files || {};
   while (typeof files === 'string') {
     try {
@@ -449,6 +460,7 @@ export const normalizeStaffRequest = (req) => {
     skills,
     languages,
     availability,
+    availabilitySlots,
     emergency: {
       name: req.emergencyName || '',
       phone: req.emergencyPhone || '',

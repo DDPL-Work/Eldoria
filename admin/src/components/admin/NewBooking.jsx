@@ -106,7 +106,8 @@ export function NewBooking({ onBack, onBookingCreated, fromEnqId }) {
 
   const [customSource, setCustomSource] = useState(false);
   const [customRelation, setCustomRelation] = useState(false);
-  const [customTime, setCustomTime] = useState(false);
+  const [customStartTime, setCustomStartTime] = useState(false);
+  const [customEndTime, setCustomEndTime] = useState(false);
   const [customPlan, setCustomPlan] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -148,6 +149,10 @@ export function NewBooking({ onBack, onBookingCreated, fromEnqId }) {
       relation: '',
       service: initialSvc,
       plan: initialPlan,
+      startDate: todayISO(),
+      endDate: todayISO(),
+      startTime: '',
+      endTime: '',
       date: todayISO(),
       time: '',
       address: enq?.address || '',
@@ -437,12 +442,29 @@ export function NewBooking({ onBack, onBookingCreated, fromEnqId }) {
       setForm((prev) => ({ ...prev, err: 'Please enter patient name.' }));
       return;
     }
-    if (!form.date) {
-      setForm((prev) => ({ ...prev, err: 'Please select a booking date.' }));
+    const startDateVal = form.startDate || form.date;
+    const endDateVal = form.endDate || startDateVal;
+    const startTimeVal = form.startTime.trim() || form.time.trim();
+    const endTimeVal = form.endTime.trim();
+
+    if (!startDateVal) {
+      setForm((prev) => ({ ...prev, err: 'Please select a start date.' }));
       return;
     }
-    if (!form.time.trim()) {
-      setForm((prev) => ({ ...prev, err: 'Please select or enter a service time slot.' }));
+    if (!endDateVal) {
+      setForm((prev) => ({ ...prev, err: 'Please select an end date.' }));
+      return;
+    }
+    if (endDateVal < startDateVal) {
+      setForm((prev) => ({ ...prev, err: 'End date cannot be earlier than start date.' }));
+      return;
+    }
+    if (!startTimeVal) {
+      setForm((prev) => ({ ...prev, err: 'Please select or enter a start time.' }));
+      return;
+    }
+    if (!endTimeVal) {
+      setForm((prev) => ({ ...prev, err: 'Please select or enter an end time.' }));
       return;
     }
     if (!form.service) {
@@ -469,6 +491,8 @@ export function NewBooking({ onBack, onBookingCreated, fromEnqId }) {
     const now = Date.now();
     const sObj = form.service ? svc(form.service) : { name: 'Service' };
 
+    const formattedTime = endTimeVal ? `${startTimeVal} - ${endTimeVal}` : startTimeVal;
+
     const bookingPayload = {
       city: form.city.trim().toLowerCase(),
       area: form.area.trim(),
@@ -481,8 +505,12 @@ export function NewBooking({ onBack, onBookingCreated, fromEnqId }) {
       patientAge: form.patientAge.trim(),
       relation: form.relation.trim() || 'Other',
       plan: form.plan.trim() || 'Single visit',
-      date: form.date,
-      time: form.time.trim(),
+      startDate: startDateVal,
+      endDate: endDateVal,
+      startTime: startTimeVal,
+      endTime: endTimeVal,
+      date: startDateVal,
+      time: formattedTime,
       address: form.address.trim(),
       notes: form.notes.trim(),
       source: form.source.trim() || 'Call',
@@ -537,6 +565,10 @@ export function NewBooking({ onBack, onBookingCreated, fromEnqId }) {
         });
       }
 
+      const scheduleDisplay = endDateVal && endDateVal !== startDateVal
+        ? `${fmtDate(startDateVal)} – ${fmtDate(endDateVal)}, ${formattedTime}`
+        : `${fmtDate(startDateVal)}, ${formattedTime}`;
+
       if (staffCanConfirm()) {
         staffList()
           .filter((st) => (st.city || DEFAULT_CITIES[0].id) === form.city)
@@ -544,9 +576,7 @@ export function NewBooking({ onBack, onBookingCreated, fromEnqId }) {
             notify(
               'staff:' + st.id,
               'New visit request ' + finalCode,
-              `${sObj.name} for ${form.patientName.trim()} · ${fmtDate(form.date)}, ${
-                form.time
-              } · request received`,
+              `${sObj.name} for ${form.patientName.trim()} · ${scheduleDisplay} · request received`,
               finalId
             )
           );
@@ -555,7 +585,7 @@ export function NewBooking({ onBack, onBookingCreated, fromEnqId }) {
       notify(
         'client:' + p,
         'Booking request received',
-        `Your ${sObj.name} booking request ${finalCode} for ${form.patientName.trim()} has been received for ${fmtDate(form.date)}, ${form.time}.`,
+        `Your ${sObj.name} booking request ${finalCode} for ${form.patientName.trim()} has been received for ${scheduleDisplay}.`,
         finalId
       );
 
@@ -936,41 +966,72 @@ export function NewBooking({ onBack, onBookingCreated, fromEnqId }) {
             )}
           </div>
 
-          {/* 9. Date */}
+          {/* 9. Start Date */}
           <div>
             <label className={labelCls}>
-              Date <span className="text-rose-500 font-bold">*</span>
+              Start Date <span className="text-rose-500 font-bold">*</span>
             </label>
             <input
               type="date"
               required
-              value={form.date}
-              onChange={(e) => setForm({ ...form, date: e.target.value })}
+              value={form.startDate || form.date}
+              onChange={(e) => {
+                const val = e.target.value;
+                setForm((prev) => {
+                  const shouldSyncEnd = !prev.endDate || prev.endDate < val || prev.endDate === (prev.startDate || prev.date);
+                  return {
+                    ...prev,
+                    startDate: val,
+                    endDate: shouldSyncEnd ? val : prev.endDate,
+                    date: val,
+                  };
+                });
+              }}
               className={inputCls}
             />
           </div>
 
-          {/* 10. Time */}
+          {/* 10. End Date (can be same as start date for 1-day service) */}
+          <div>
+            <div className="flex items-center justify-between mb-1.5 h-5">
+              <label className="text-xs sm:text-[13px] font-medium text-slate-600 truncate">
+                End Date <span className="text-rose-500 font-bold">*</span>
+              </label>
+              <span className="text-[10px] text-slate-400 font-normal">
+                Same for 1-day
+              </span>
+            </div>
+            <input
+              type="date"
+              required
+              min={form.startDate || form.date}
+              value={form.endDate || form.startDate || form.date}
+              onChange={(e) => setForm({ ...form, endDate: e.target.value })}
+              className={inputCls}
+            />
+          </div>
+
+          {/* 11. Start Time */}
           <div>
             <label className={labelCls}>
-              Time <span className="text-rose-500 font-bold">*</span>
+              Start Time <span className="text-rose-500 font-bold">*</span>
             </label>
-            {customTime ? (
+            {customStartTime ? (
               <div className="relative">
                 <input
                   type="text"
                   required
-                  placeholder="e.g. 10:30 AM or 4:00 PM"
-                  value={form.time}
-                  onChange={(e) => setForm({ ...form, time: e.target.value })}
+                  placeholder="e.g. 9:00 AM"
+                  value={form.startTime}
+                  onChange={(e) => setForm({ ...form, startTime: e.target.value })}
                   className={`${inputCls} pr-8`}
                   autoFocus
                 />
                 <button
                   type="button"
                   onClick={() => {
-                    setCustomTime(false);
-                    setForm({ ...form, time: '' });
+                    setCustomStartTime(false);
+                    setForm({ ...form, startTime: '' });
                   }}
                   className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700 text-xs cursor-pointer p-1"
                   title="Choose from slots"
@@ -980,19 +1041,19 @@ export function NewBooking({ onBack, onBookingCreated, fromEnqId }) {
               </div>
             ) : (
               <select
-                value={form.time}
+                value={form.startTime}
                 required
                 onChange={(e) => {
                   if (e.target.value === '__custom__') {
-                    setCustomTime(true);
-                    setForm({ ...form, time: '' });
+                    setCustomStartTime(true);
+                    setForm({ ...form, startTime: '' });
                   } else {
-                    setForm({ ...form, time: e.target.value });
+                    setForm({ ...form, startTime: e.target.value });
                   }
                 }}
                 className={`${inputCls} cursor-pointer`}
               >
-                <option value="">Select time slot…</option>
+                <option value="">Select start time…</option>
                 <option value="__custom__">+ Custom time…</option>
                 {SLOTS.map((t) => (
                   <option key={t} value={t}>
@@ -1003,8 +1064,61 @@ export function NewBooking({ onBack, onBookingCreated, fromEnqId }) {
             )}
           </div>
 
-          {/* 11. Service (Wider input spanning 3 columns so full name displays) */}
-          <div className="col-span-1 sm:col-span-2 md:col-span-2 lg:col-span-3">
+          {/* 12. End Time */}
+          <div>
+            <label className={labelCls}>
+              End Time <span className="text-rose-500 font-bold">*</span>
+            </label>
+            {customEndTime ? (
+              <div className="relative">
+                <input
+                  type="text"
+                  required
+                  placeholder="e.g. 5:00 PM"
+                  value={form.endTime}
+                  onChange={(e) => setForm({ ...form, endTime: e.target.value })}
+                  className={`${inputCls} pr-8`}
+                  autoFocus
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCustomEndTime(false);
+                    setForm({ ...form, endTime: '' });
+                  }}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700 text-xs cursor-pointer p-1"
+                  title="Choose from slots"
+                >
+                  ✕
+                </button>
+              </div>
+            ) : (
+              <select
+                value={form.endTime}
+                required
+                onChange={(e) => {
+                  if (e.target.value === '__custom__') {
+                    setCustomEndTime(true);
+                    setForm({ ...form, endTime: '' });
+                  } else {
+                    setForm({ ...form, endTime: e.target.value });
+                  }
+                }}
+                className={`${inputCls} cursor-pointer`}
+              >
+                <option value="">Select end time…</option>
+                <option value="__custom__">+ Custom time…</option>
+                {SLOTS.map((t) => (
+                  <option key={t} value={t}>
+                    {t}
+                  </option>
+                ))}
+              </select>
+            )}
+          </div>
+
+          {/* 13. Service (Wider input spanning 2 columns) */}
+          <div className="col-span-1 sm:col-span-2 md:col-span-2 lg:col-span-2">
             <label className={labelCls}>
               Service <span className="text-rose-500 font-bold">*</span>
             </label>
@@ -1036,8 +1150,8 @@ export function NewBooking({ onBack, onBookingCreated, fromEnqId }) {
             )}
           </div>
 
-          {/* 12. Plan / Option (Spanning 2 columns) */}
-          <div className="col-span-1 sm:col-span-1 md:col-span-1 lg:col-span-2">
+          {/* 14. Plan / Option (1 column) */}
+          <div className="col-span-1 sm:col-span-1 md:col-span-1 lg:col-span-1">
             <label className={labelCls}>Plan / option</label>
             {customPlan ? (
               <div className="relative">

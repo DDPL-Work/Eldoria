@@ -122,17 +122,27 @@ const getDashboardData = async (req, res) => {
     );
     const countUnassigned = unassignedBookings.length;
 
-    const dateExceededBookings = bookings.filter(
-      (b) => b.status === 'date_exceeded' || (Boolean(b.date) && b.date < todayStr && !['completed', 'cancelled'].includes(b.status))
-    );
+    const dateExceededBookings = bookings.filter((b) => {
+      const cmpDate = b.endDate || b.date;
+      return (
+        b.status === 'date_exceeded' ||
+        (Boolean(cmpDate) && cmpDate < todayStr && !['completed', 'cancelled'].includes(b.status))
+      );
+    });
     const countDateExceeded = dateExceededBookings.length;
 
     // 6. Needs Action Queue (status IN requested, confirmed)
     const queueBookings = bookings.filter((b) => ['requested', 'confirmed'].includes(b.status));
 
     const needsAction = queueBookings.slice(0, 15).map((b) => {
-      const isToday = b.date === todayStr;
-      const whenFormatted = isToday ? `Today, ${b.time}` : `${b.date}, ${b.time}`;
+      const sDate = b.startDate || b.date;
+      const eDate = b.endDate || sDate;
+      const sTime = b.startTime || b.time;
+      const eTime = b.endTime || null;
+      const isToday = sDate === todayStr;
+      const datePart = (eDate && eDate !== sDate) ? `${sDate} to ${eDate}` : (isToday ? 'Today' : sDate);
+      const timePart = eTime ? `${sTime} - ${eTime}` : sTime;
+      const whenFormatted = timePart ? `${datePart}, ${timePart}` : datePart;
 
       return {
         id: b.id,
@@ -151,6 +161,10 @@ const getDashboardData = async (req, res) => {
         address: b.address,
         date: b.date,
         time: b.time,
+        startDate: sDate,
+        endDate: eDate,
+        startTime: sTime,
+        endTime: eTime,
         isToday,
         whenFormatted,
         source: b.source || 'App',

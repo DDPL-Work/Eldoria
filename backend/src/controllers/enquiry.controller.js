@@ -637,12 +637,24 @@ const bookEnquiryRecommendation = async (req, res) => {
     // Generate unique Booking Code
     const bookingCode = await generateBookingId(clientName, bookingCity, transaction);
 
-    const bookingDate = body.date
-      ? String(body.date).trim()
-      : new Date().toISOString().split("T")[0];
-    const bookingTime = body.time
-      ? String(body.time).trim()
-      : mapTimingToSlot(enquiry.timing);
+    const finalStartDate = (body.startDate || body.date
+      ? String(body.startDate || body.date).trim()
+      : new Date().toISOString().split("T")[0]);
+    const finalEndDate = (body.endDate
+      ? String(body.endDate).trim()
+      : finalStartDate);
+    const finalStartTime = (body.startTime || body.time
+      ? String(body.startTime || body.time).trim()
+      : mapTimingToSlot(enquiry.timing));
+    const finalEndTime = (body.endTime
+      ? String(body.endTime).trim()
+      : null);
+
+    if (finalEndDate < finalStartDate) {
+      await transaction.rollback();
+      return errorResponse(res, "End date cannot be earlier than start date.", 400);
+    }
+    const formattedBookingTime = finalEndTime ? `${finalStartTime} - ${finalEndTime}` : finalStartTime;
 
     const initialTasks = Array.isArray(serviceRecord?.tasks) && serviceRecord.tasks.length > 0
       ? serviceRecord.tasks.map((taskLabel) => ({
@@ -684,8 +696,12 @@ const bookEnquiryRecommendation = async (req, res) => {
         city: bookingCity,
         area: body.area ? String(body.area).trim() : (enquiry.area || null),
         address: body.address ? String(body.address).trim() : (enquiry.address || enquiry.area || "Home address"),
-        date: bookingDate,
-        time: bookingTime,
+        date: finalStartDate,
+        startDate: finalStartDate,
+        endDate: finalEndDate,
+        time: formattedBookingTime,
+        startTime: finalStartTime,
+        endTime: finalEndTime,
         status: isActorAdmin ? "confirmed" : "requested",
         staffId: body.staffId || null,
         source: isActorAdmin ? "Admin (Enquiry Conversion)" : "App (Enquiry One-Tap)",

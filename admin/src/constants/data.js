@@ -25,7 +25,23 @@ export const DEFAULT_CITIES = [
 
 
 export const PLANS = ['Single visit', '12-hr shift', '24-hr live-in'];
-export const SLOTS = ['7:00 AM', '9:00 AM', '11:00 AM', '2:00 PM', '5:00 PM', '8:00 PM'];
+export const SLOTS = [
+  '7:00 AM',
+  '8:00 AM',
+  '9:00 AM',
+  '10:00 AM',
+  '11:00 AM',
+  '12:00 PM',
+  '1:00 PM',
+  '2:00 PM',
+  '3:00 PM',
+  '4:00 PM',
+  '5:00 PM',
+  '6:00 PM',
+  '7:00 PM',
+  '8:00 PM',
+  '9:00 PM',
+];
 export const RELATIONS = ['Mother', 'Father', 'Self', 'Spouse', 'Grandparent', 'Other'];
 
 export const ST = {
@@ -163,6 +179,21 @@ export function fmtDate(s) {
   tm.setDate(tm.getDate() + 1);
   if (dateStr === iso(tm) || iso(d) === iso(tm)) return 'Tomorrow';
   return `${DOW[d.getDay()] || ''} ${d.getDate()} ${MON[d.getMonth()] || ''}`.trim();
+}
+
+export function fmtBookingSchedule(b) {
+  if (!b) return '';
+  const sDate = b.startDate || b.date;
+  const eDate = b.endDate || sDate;
+  const sTime = b.startTime || b.time;
+  const eTime = b.endTime;
+
+  const datePart = (eDate && eDate !== sDate)
+    ? `${fmtDate(sDate)} – ${fmtDate(eDate)}`
+    : fmtDate(sDate);
+
+  const timePart = (sTime && eTime) ? `${sTime} – ${eTime}` : (sTime || '');
+  return timePart ? `${datePart}, ${timePart}` : datePart;
 }
 
 export function fmtTs(ts) {

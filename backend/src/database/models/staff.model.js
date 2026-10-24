@@ -68,6 +68,12 @@ module.exports = (sequelize) => {
         allowNull: false,
         defaultValue: [],
       },
+      availabilitySlots: {
+        type: DataTypes.JSON,
+        allowNull: true,
+        defaultValue: [],
+        comment: "Date-wise availability time slots defined by staff from calendar",
+      },
       emergencyName: {
         type: DataTypes.STRING,
         allowNull: true,

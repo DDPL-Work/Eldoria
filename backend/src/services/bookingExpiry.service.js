@@ -66,12 +66,21 @@ const checkAndMarkDateExceededBookings = async (options = {}) => {
 
     const todayStr = getTodayDateStr();
     const where = {
-      date: { [Op.lt]: todayStr },
-      status: "requested",
-      [Op.or]: [
-        { staffId: null },
-        { staffId: "" },
+      [Op.and]: [
+        {
+          [Op.or]: [
+            { endDate: { [Op.ne]: null, [Op.lt]: todayStr } },
+            { endDate: null, date: { [Op.lt]: todayStr } },
+          ],
+        },
+        {
+          [Op.or]: [
+            { staffId: null },
+            { staffId: "" },
+          ],
+        },
       ],
+      status: "requested",
       confirmedAt: null,
     };
 

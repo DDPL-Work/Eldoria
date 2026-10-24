@@ -157,10 +157,11 @@ const createClientBooking = async (req, res) => {
   try {
     const body = req.body || {};
     const {
-      service: legacyService,
+      clientId: directClientId,
       serviceId: directServiceId,
-      category: legacyCategory,
+      service: legacyService,
       categoryId: directCategoryId,
+      category: legacyCategory,
       plan,
       patientName,
       patientAge,
@@ -169,28 +170,156 @@ const createClientBooking = async (req, res) => {
       city,
       area,
       address,
-      date,
-      time,
+      startDate,
+      endDate,
+      startTime,
+      endTime,
       notes,
       source,
+      files,
+      clientName: directClientName,
+      clientPhone: directClientPhone,
     } = body;
+
+    const normalizeDateStr = (dateVal) => {
+      if (!dateVal) return "";
+      const s = String(dateVal).trim();
+      const dmyMatch = s.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})$/);
+      if (dmyMatch) {
+        const day = dmyMatch[1].padStart(2, "0");
+        const month = dmyMatch[2].padStart(2, "0");
+        const year = dmyMatch[3];
+        return `${year}-${month}-${day}`;
+      }
+      return s;
+    };
+
+    const finalStartDate = normalizeDateStr(startDate || body.date || "");
+    const finalEndDate = normalizeDateStr(endDate || finalStartDate);
+    const finalStartTime = (startTime || body.time || "").toString().trim();
+    const finalEndTime = (endTime || "").toString().trim();
 
     const serviceInput = (directServiceId || legacyService || "").toString().trim();
     const categoryInput = (directCategoryId || legacyCategory || "").toString().trim();
 
-    // Get client identity from authenticated token or payload
-    const clientName = (req.user?.name || req.body.clientName || "").trim();
-    const clientPhone = (req.user?.phone || req.body.clientPhone || "").trim();
-    const clientId = req.user?.id || req.body.clientId || null;
+    // 1. Verify token presence
+    if (!req.user) {
+      await transaction.rollback();
+      return errorResponse(res, "Authentication token is required to create a booking.", 401);
+    }
+
+    // 2. Resolve client identity strictly using clientId from payload
+    const inputClientId = (directClientId || body.clientId || "").toString().trim();
+
+    if (!inputClientId) {
+      await transaction.rollback();
+      return errorResponse(res, "Client ID is required in the payload (clientId).", 400);
+    }
+
+    // 3. Search for existing client in the Database
+    const isClientNumeric = !isNaN(Number(inputClientId)) && /^\d+$/.test(inputClientId);
+    const clientWhere = isClientNumeric
+      ? { [Op.or]: [{ id: Number(inputClientId) }, { clientId: inputClientId }, { userId: Number(inputClientId) }] }
+      : { clientId: inputClientId };
+
+    let clientRecord = await Client.findOne({
+      where: clientWhere,
+      include: [{ model: User, as: "user", required: false }],
+      transaction,
+    });
+
+    // Fallback: search User table by id if numeric and has client profile
+    if (!clientRecord && isClientNumeric) {
+      const userRecord = await User.findOne({
+        where: { id: Number(inputClientId) },
+        include: [{ model: Client, as: "clientProfile", required: false }],
+        transaction,
+      });
+      if (userRecord && userRecord.clientProfile) {
+        clientRecord = userRecord.clientProfile;
+        clientRecord.user = userRecord;
+      }
+    }
+
+    // 4. Do NOT create a new client if clientId does not exist; return 404
+    if (!clientRecord) {
+      await transaction.rollback();
+      return errorResponse(
+        res,
+        `Client with ID '${inputClientId}' does not exist in the database.`,
+        404
+      );
+    }
+
+    // 5. Retrieve verified User record for phone and name
+    let userRecord = clientRecord.user;
+    if (!userRecord && clientRecord.userId) {
+      userRecord = await User.findByPk(clientRecord.userId, { transaction });
+    }
+
+    // 6. Verify that the authenticated token matches the requested client ID
+    const tokenUserId = req.user?.id ? Number(req.user.id) : null;
+    const tokenClientId = req.user?.clientId ? String(req.user.clientId).trim() : null;
+    const tokenPhone = req.user?.phone ? String(req.user.phone).trim() : null;
+    const isUserAdmin = req.user?.role === "admin";
+
+    const isMatch =
+      isUserAdmin ||
+      (tokenUserId && Number(clientRecord.userId) === tokenUserId) ||
+      (tokenUserId && Number(clientRecord.id) === tokenUserId) ||
+      (tokenClientId && tokenClientId === clientRecord.clientId) ||
+      (tokenClientId && tokenClientId === String(clientRecord.id)) ||
+      (tokenPhone && userRecord?.phone && tokenPhone === String(userRecord.phone).trim());
+
+    if (!isMatch) {
+      await transaction.rollback();
+      return errorResponse(
+        res,
+        "Authentication token does not match the provided client ID.",
+        403
+      );
+    }
+
+    // 7. Retrieve verified clientName, clientPhone, and clientId from Database
+    const clientId = clientRecord.clientId || String(clientRecord.id);
+    const clientName = (userRecord?.name || clientRecord.patientName || directClientName || "").trim();
+    const clientPhone = (userRecord?.phone || directClientPhone || "").trim();
+
+    if (!clientPhone) {
+      await transaction.rollback();
+      return errorResponse(
+        res,
+        `Registered client '${inputClientId}' does not have a valid phone number.`,
+        400
+      );
+    }
+    if (!clientName) {
+      await transaction.rollback();
+      return errorResponse(
+        res,
+        `Registered client '${inputClientId}' does not have a valid name.`,
+        400
+      );
+    }
+
+    // 5. Patient and location details (from payload, with fallback to registered client profile)
+    const finalPatientName = (patientName && patientName.trim())
+      ? patientName.trim()
+      : (clientRecord.patientName ? clientRecord.patientName.trim() : clientName);
+    const finalPatientAge = patientAge
+      ? String(patientAge).trim()
+      : (clientRecord.patientAge ? String(clientRecord.patientAge).trim() : null);
+    const finalPatientGender = patientGender || clientRecord.patientGender || null;
+    const finalRelation = relation || clientRecord.relation || "Mother";
+
+    const bookingCity = (city || clientRecord.city || req.user?.city || "mumbai").toLowerCase().trim();
+    const bookingArea = area ? area.trim() : (clientRecord.area ? clientRecord.area.trim() : null);
+    const bookingAddress = (address && address.trim()) ? address.trim() : (clientRecord.address ? clientRecord.address.trim() : "");
 
     // Validation
-    if (!clientName || !clientPhone) {
+    if (!finalPatientName) {
       await transaction.rollback();
-      return errorResponse(res, "Client name and a valid phone number are required.", 400);
-    }
-    if (!patientName || !patientName.trim()) {
-      await transaction.rollback();
-      return errorResponse(res, "Patient name is required.", 400);
+      return errorResponse(res, "Patient name is required (patientName).", 400);
     }
     if (!serviceInput) {
       await transaction.rollback();
@@ -200,16 +329,22 @@ const createClientBooking = async (req, res) => {
       await transaction.rollback();
       return errorResponse(res, "Category selection ('categoryId' or 'category') is required.", 400);
     }
-    if (!address || !address.trim()) {
+    if (!bookingAddress) {
       await transaction.rollback();
-      return errorResponse(res, "Visit address is required.", 400);
+      return errorResponse(res, "Visit address is required (address).", 400);
     }
-    if (!date || !time) {
+    if (!finalStartDate) {
       await transaction.rollback();
-      return errorResponse(res, "Start date and preferred time are required.", 400);
+      return errorResponse(res, "Start date is required (startDate).", 400);
     }
-
-    const bookingCity = (city || req.user?.city || "mumbai").toLowerCase().trim();
+    if (!finalStartTime) {
+      await transaction.rollback();
+      return errorResponse(res, "Start time is required (startTime).", 400);
+    }
+    if (finalEndDate < finalStartDate) {
+      await transaction.rollback();
+      return errorResponse(res, "End date cannot be earlier than start date.", 400);
+    }
 
     // Fetch service details for tasks and price
     const isServiceNumeric = !isNaN(Number(serviceInput)) && /^\d+$/.test(serviceInput);
@@ -239,11 +374,61 @@ const createClientBooking = async (req, res) => {
     // Generate unique Booking Code
     const bookingCode = await generateBookingId(clientName, bookingCity, transaction);
 
-    // Upload patient medical history documents (prescriptions, discharge summaries, reports) to Cloudinary
-    const medicalFiles = await uploadMedicalFilesToCloudinary(req, {
+    // Parse patient medical files passed in payload (supports [{ fileName, fileUrl }, { name, url }])
+    let payloadFiles = [];
+    if (files) {
+      let parsedFiles = files;
+      if (typeof parsedFiles === "string") {
+        try {
+          parsedFiles = JSON.parse(parsedFiles);
+        } catch (_) {
+          parsedFiles = [];
+        }
+      }
+      if (Array.isArray(parsedFiles)) {
+        payloadFiles = parsedFiles
+          .map((f, idx) => {
+            if (typeof f === "string") {
+              return {
+                id: `file_${Date.now()}_${idx}`,
+                name: `Document_${idx + 1}`,
+                fileName: `Document_${idx + 1}`,
+                url: f,
+                fileUrl: f,
+                type: "application/octet-stream",
+                size: 0,
+                uploadedAt: new Date().toISOString(),
+                uploadedBy: "client",
+              };
+            }
+            const fName = f.fileName || f.name || f.filename || `Document_${idx + 1}`;
+            const fUrl = f.fileUrl || f.url || f.data || "";
+            return {
+              id: f.id || `file_${Date.now()}_${idx}`,
+              name: fName,
+              fileName: fName,
+              url: fUrl,
+              fileUrl: fUrl,
+              type: f.type || f.fileType || "application/octet-stream",
+              size: f.size || 0,
+              uploadedAt: f.uploadedAt || new Date().toISOString(),
+              uploadedBy: "client",
+            };
+          })
+          .filter((f) => Boolean(f.url || f.fileUrl));
+      }
+    }
+
+    // Upload patient medical history documents if provided via multipart/form-data
+    const uploadedFiles = await uploadMedicalFilesToCloudinary(req, {
       folder: "eldoria/medical_history",
       uploadedBy: "client",
     });
+
+    const finalMedicalFiles = [
+      ...payloadFiles,
+      ...(Array.isArray(uploadedFiles) ? uploadedFiles : []),
+    ];
 
     const now = new Date();
     const initialHistory = [
@@ -261,10 +446,10 @@ const createClientBooking = async (req, res) => {
         clientId,
         clientName,
         clientPhone,
-        patientName: patientName.trim(),
-        patientAge: patientAge ? String(patientAge).trim() : null,
-        patientGender: patientGender || null,
-        relation: relation || "Mother",
+        patientName: finalPatientName,
+        patientAge: finalPatientAge,
+        patientGender: finalPatientGender,
+        relation: finalRelation,
         serviceId: finalServiceId,
         service: finalServiceId,
         serviceName: finalServiceName,
@@ -272,17 +457,21 @@ const createClientBooking = async (req, res) => {
         category: finalCategory,
         plan: plan || "Single visit",
         city: bookingCity,
-        area: area ? area.trim() : null,
-        address: address.trim(),
-        date: String(date).trim(),
-        time: String(time).trim(),
+        area: bookingArea,
+        address: bookingAddress,
+        date: finalStartDate,
+        startDate: finalStartDate,
+        endDate: finalEndDate,
+        time: finalEndTime ? `${finalStartTime} - ${finalEndTime}` : finalStartTime,
+        startTime: finalStartTime,
+        endTime: finalEndTime || null,
         status: "requested",
         staffId: null,
         source: source || "App",
         notes: notes ? notes.trim() : null,
         price: servicePrice,
         tasks: initialTasks,
-        files: medicalFiles,
+        files: finalMedicalFiles,
         visit: {},
         history: initialHistory,
         confirmedBy: null,
@@ -337,7 +526,11 @@ const createClientBooking = async (req, res) => {
           },
           admin: {
             title: `New request ${bookingCode}`,
-            body: `${clientName} booked ${finalServiceName} for ${patientName.trim()} in ${bookingCity} · ${date}, ${time}`,
+            body: `${clientName} booked ${finalServiceName} for ${finalPatientName} in ${bookingCity} · ${
+              finalEndDate && finalEndDate !== finalStartDate
+                ? `${finalStartDate} to ${finalEndDate} · ${finalStartTime}${finalEndTime ? ` - ${finalEndTime}` : ''}`
+                : `${finalStartDate} · ${finalStartTime}${finalEndTime ? ` - ${finalEndTime}` : ''}`
+            }`,
           },
         },
       },
@@ -409,7 +602,26 @@ const getClientBookings = async (req, res) => {
       ],
     });
 
-    return successResponse(res, bookings, "Client bookings retrieved successfully");
+    const normalizedBookings = (bookings || []).map((b) => {
+      const bObj = b.toJSON ? b.toJSON() : { ...b };
+      bObj.startDate = bObj.startDate || bObj.date || null;
+      bObj.endDate = bObj.endDate || bObj.startDate || bObj.date || null;
+
+      let sTime = (bObj.startTime || "").trim();
+      let eTime = (bObj.endTime || "").trim();
+      if ((!sTime || !eTime) && bObj.time && typeof bObj.time === "string" && (bObj.time.includes("-") || bObj.time.includes("–") || bObj.time.includes("—"))) {
+        const parts = bObj.time.split(/[-–—]/).map((t) => t.trim());
+        if (parts.length >= 2) {
+          if (!sTime) sTime = parts[0];
+          if (!eTime) eTime = parts[1];
+        }
+      }
+      bObj.startTime = sTime || bObj.time || null;
+      bObj.endTime = eTime || null;
+      return bObj;
+    });
+
+    return successResponse(res, normalizedBookings, "Client bookings retrieved successfully");
   } catch (error) {
     return errorResponse(res, error.message || "Failed to retrieve bookings", 500, error);
   }
@@ -484,10 +696,26 @@ const getClientBookingById = async (req, res) => {
       )}.`;
     }
 
+    const bObj = booking.toJSON ? booking.toJSON() : { ...booking };
+    bObj.startDate = bObj.startDate || bObj.date || null;
+    bObj.endDate = bObj.endDate || bObj.startDate || bObj.date || null;
+
+    let sTime = (bObj.startTime || "").trim();
+    let eTime = (bObj.endTime || "").trim();
+    if ((!sTime || !eTime) && bObj.time && typeof bObj.time === "string" && (bObj.time.includes("-") || bObj.time.includes("–") || bObj.time.includes("—"))) {
+      const parts = bObj.time.split(/[-–—]/).map((t) => t.trim());
+      if (parts.length >= 2) {
+        if (!sTime) sTime = parts[0];
+        if (!eTime) eTime = parts[1];
+      }
+    }
+    bObj.startTime = sTime || bObj.time || null;
+    bObj.endTime = eTime || null;
+
     return successResponse(
       res,
       {
-        booking,
+        booking: bObj,
         assignedStaff: assignedStaffData,
         assignmentNotice: staffAssignmentNotice,
       },
@@ -1316,6 +1544,10 @@ const createAdminBooking = async (req, res) => {
       address,
       date,
       time,
+      startDate,
+      endDate,
+      startTime,
+      endTime,
       notes,
       careNotes,
       description,
@@ -1327,6 +1559,11 @@ const createAdminBooking = async (req, res) => {
       enquiryId,
       fromEnq,
     } = body;
+
+    const finalStartDate = (startDate || date || "").toString().trim();
+    const finalEndDate = (endDate || finalStartDate).toString().trim();
+    const finalStartTime = (startTime || time || "").toString().trim();
+    const finalEndTime = (endTime || "").toString().trim();
 
     const trimmedClientName = (clientName || "").trim();
     const trimmedPatientName = (patientName || "").trim();
@@ -1368,9 +1605,17 @@ const createAdminBooking = async (req, res) => {
       await transaction.rollback();
       return errorResponse(res, "Visit address is required.", 400);
     }
-    if (!date || !time) {
+    if (!finalStartDate) {
       await transaction.rollback();
-      return errorResponse(res, "Date and preferred time are required.", 400);
+      return errorResponse(res, "Start date is required.", 400);
+    }
+    if (!finalStartTime) {
+      await transaction.rollback();
+      return errorResponse(res, "Start time is required.", 400);
+    }
+    if (finalEndDate < finalStartDate) {
+      await transaction.rollback();
+      return errorResponse(res, "End date cannot be earlier than start date.", 400);
     }
 
     const bookingCity = (city || "mumbai").toLowerCase().trim();
@@ -1526,15 +1771,63 @@ const createAdminBooking = async (req, res) => {
       });
     }
 
+    // Parse patient medical files passed in payload (supports [{ fileName, fileUrl }, { name, url }])
+    let payloadFiles = [];
+    if (body.files) {
+      let parsedFiles = body.files;
+      if (typeof parsedFiles === "string") {
+        try {
+          parsedFiles = JSON.parse(parsedFiles);
+        } catch (_) {
+          parsedFiles = [];
+        }
+      }
+      if (Array.isArray(parsedFiles)) {
+        payloadFiles = parsedFiles
+          .map((f, idx) => {
+            if (typeof f === "string") {
+              return {
+                id: `file_${Date.now()}_${idx}`,
+                name: `Document_${idx + 1}`,
+                fileName: `Document_${idx + 1}`,
+                url: f,
+                fileUrl: f,
+                type: "application/octet-stream",
+                size: 0,
+                uploadedAt: new Date().toISOString(),
+                uploadedBy: adminActor,
+              };
+            }
+            const fName = f.fileName || f.name || f.filename || `Document_${idx + 1}`;
+            const fUrl = f.fileUrl || f.url || f.data || "";
+            return {
+              id: f.id || `file_${Date.now()}_${idx}`,
+              name: fName,
+              fileName: fName,
+              url: fUrl,
+              fileUrl: fUrl,
+              type: f.type || f.fileType || "application/octet-stream",
+              size: f.size || 0,
+              uploadedAt: f.uploadedAt || new Date().toISOString(),
+              uploadedBy: adminActor,
+            };
+          })
+          .filter((f) => Boolean(f.url || f.fileUrl));
+      }
+    }
+
     // Upload patient medical history files to Cloudinary; if none provided and converting from enquiry, inherit enquiry files
     let medicalFiles = await uploadMedicalFilesToCloudinary(req, {
       folder: "eldoria/medical_history",
       uploadedBy: adminActor,
     });
 
-    const finalFiles = (medicalFiles && medicalFiles.length > 0)
-      ? medicalFiles
-      : (Array.isArray(enquiryRecord?.files) ? enquiryRecord.files : []);
+    const finalFiles = [
+      ...payloadFiles,
+      ...(Array.isArray(medicalFiles) && medicalFiles.length > 0
+        ? medicalFiles
+        : (Array.isArray(enquiryRecord?.files) ? enquiryRecord.files : [])),
+    ];
 
     // Create the confirmed Booking
     const newBooking = await Booking.create(
@@ -1556,8 +1849,12 @@ const createAdminBooking = async (req, res) => {
         city: bookingCity,
         area: area ? area.trim() : null,
         address: trimmedAddress,
-        date: String(date).trim(),
-        time: String(time).trim(),
+        date: finalStartDate,
+        startDate: finalStartDate,
+        endDate: finalEndDate,
+        time: finalEndTime ? `${finalStartTime} - ${finalEndTime}` : finalStartTime,
+        startTime: finalStartTime,
+        endTime: finalEndTime || null,
         status: initialStatus,
         staffId: assignedStaffId,
         source: source || "Call",
@@ -1645,7 +1942,11 @@ const createAdminBooking = async (req, res) => {
           },
           admin: {
             title: `New booking ${bookingCode}`,
-            body: `${trimmedClientName} booked ${finalServiceName} for ${trimmedPatientName} in ${bookingCity} · ${date}, ${time}`,
+            body: `${trimmedClientName} booked ${finalServiceName} for ${trimmedPatientName} in ${bookingCity} · ${
+              finalEndDate && finalEndDate !== finalStartDate
+                ? `${finalStartDate} to ${finalEndDate} · ${finalStartTime}${finalEndTime ? ` - ${finalEndTime}` : ''}`
+                : `${finalStartDate} · ${finalStartTime}${finalEndTime ? ` - ${finalEndTime}` : ''}`
+            }`,
           },
           staff: assignedStaffId
             ? {

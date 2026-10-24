@@ -5,6 +5,10 @@ const { sequelize, User, Staff, Otp, Client } = require("../database/models");
 const { successResponse, errorResponse } = require("../utills/responseHandler");
 const { logOtpToTerminal } = require("../helpers/otpLogger");
 const { getJwtSecret, JWT_EXPIRES_IN } = require("../configs/jwt.config");
+const {
+  processStaffAvailabilitySlots,
+  hasAvailabilitySlotsInput,
+} = require("../helpers/availabilitySlots.helper");
 
 /**
  * Standardize phone number format (digits only, e.g. 10 digits)
@@ -340,6 +344,7 @@ const verifyOtp = async (req, res) => {
 
     if (user.role === "staff" && staffProfile) {
       responseData.staffProfile = staffProfile;
+      responseData.availabilitySlots = staffProfile.availabilitySlots || [];
     }
 
     if (user.role === "client" && user.clientProfile) {
@@ -562,6 +567,7 @@ const getProfile = async (req, res) => {
       profile: currentProfile,
       staffProfile: fullUser.role === "staff" ? staffProfile : null,
       clientProfile: fullUser.role === "client" ? clientProfile : null,
+      availabilitySlots: fullUser.role === "staff" ? (staffProfile?.availabilitySlots || []) : undefined,
     };
 
     return successResponse(
@@ -660,6 +666,12 @@ const updateProfile = async (req, res) => {
       skills,
       language,
       availability,
+      availabilitySlots,
+      slots,
+      timeSlots,
+      date,
+      dates,
+      replaceSlots,
       onDuty,
       // Client profile specific fields
       pincode,
@@ -775,10 +787,24 @@ const updateProfile = async (req, res) => {
         staffUpdateData.skills = Array.isArray(skills) ? skills : [];
       if (language !== undefined)
         staffUpdateData.language = Array.isArray(language) ? language : [];
-      if (availability !== undefined)
-        staffUpdateData.availability = Array.isArray(availability)
-          ? availability
-          : [];
+      if (hasAvailabilitySlotsInput(req.body)) {
+        const existingSlots = staff?.availabilitySlots || [];
+        staffUpdateData.availabilitySlots = processStaffAvailabilitySlots(
+          req.body,
+          existingSlots,
+          { replace: Boolean(replaceSlots) }
+        );
+      }
+      if (availability !== undefined) {
+        if (Array.isArray(availability)) {
+          const shiftTags = availability.filter((x) => typeof x === "string");
+          if (shiftTags.length > 0) {
+            staffUpdateData.availability = shiftTags;
+          }
+        } else if (typeof availability === "string") {
+          staffUpdateData.availability = [availability];
+        }
+      }
       if (emergencyName !== undefined)
         staffUpdateData.emergencyName = emergencyName;
       if (emergencyPhone !== undefined)
@@ -944,6 +970,7 @@ const updateProfile = async (req, res) => {
       profile: currentProfile,
       staffProfile: updatedUser.role === "staff" ? staffProfile : null,
       clientProfile: updatedUser.role === "client" ? clientProfile : null,
+      availabilitySlots: updatedUser.role === "staff" ? (staffProfile?.availabilitySlots || []) : undefined,
     };
 
     return successResponse(res, responseData, "Profile updated successfully");

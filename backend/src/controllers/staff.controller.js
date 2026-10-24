@@ -10,6 +10,10 @@ const {
   deleteFromCloudinary,
   getAuthenticatedDownloadUrl,
 } = require("../services/cloudinary.service");
+const {
+  processStaffAvailabilitySlots,
+  hasAvailabilitySlotsInput,
+} = require("../helpers/availabilitySlots.helper");
 
 /**
  * Helper to normalize staff uploaded documents:
@@ -379,6 +383,9 @@ const staffRegistration = async (req, res) => {
           : availability
             ? [availability]
             : [],
+        availabilitySlots: hasAvailabilitySlotsInput(req.body)
+          ? processStaffAvailabilitySlots(req.body, [])
+          : [],
         emergencyName: emergencyName || null,
         emergencyPhone: emergencyPhone || null,
         emergencyRelation: emergencyRelation || null,
@@ -631,6 +638,9 @@ const updateStaffApplication = async (req, res) => {
             ? availability
             : [availability]
           : staff.availability,
+        availabilitySlots: hasAvailabilitySlotsInput(req.body)
+          ? processStaffAvailabilitySlots(req.body, staff.availabilitySlots)
+          : staff.availabilitySlots,
         language: language
           ? Array.isArray(language)
             ? language
@@ -740,6 +750,8 @@ const trackApplication = async (req, res) => {
         "submittedAt",
         "approvedAt",
         "rejectedAt",
+        "availability",
+        "availabilitySlots",
         "createdAt",
         "updatedAt",
       ],

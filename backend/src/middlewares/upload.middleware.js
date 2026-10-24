@@ -33,15 +33,18 @@ const upload = multer({
  * - application/json requests (passes through seamlessly for base64 / json payloads)
  */
 const uploadStaffFiles = (req, res, next) => {
-  // If not multipart, let express.json handle the body
   const contentType = req.headers['content-type'] || '';
+  console.log('📥 [UploadStaffFiles] incoming Content-Type:', contentType);
+
   if (!contentType.includes('multipart/form-data')) {
+    console.log('⚠️ [UploadStaffFiles] Content-Type is NOT multipart/form-data. Skipping multer.');
     return next();
   }
 
-  // Use multer's .any() to allow named document keys (photo, idProof, qualification, experience, police, etc.)
+  // Use multer's .any() to allow named document keys
   upload.any()(req, res, (err) => {
     if (err) {
+      console.error('❌ [UploadStaffFiles] Multer error:', err);
       if (err instanceof multer.MulterError) {
         if (err.code === 'LIMIT_FILE_SIZE') {
           return errorResponse(
@@ -65,6 +68,9 @@ const uploadStaffFiles = (req, res, next) => {
       req.files.forEach((file) => {
         req.filesMap[file.fieldname] = file;
       });
+      console.log('✅ [UploadStaffFiles] Successfully parsed', req.files.length, 'file(s):', req.files.map(f => `${f.fieldname} (${f.originalname}, ${f.size} bytes)`));
+    } else {
+      console.log('⚠️ [UploadStaffFiles] Multer completed but req.files is empty ([]). No files received from client.');
     }
 
     next();

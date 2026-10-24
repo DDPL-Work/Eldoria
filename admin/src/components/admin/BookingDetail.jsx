@@ -182,49 +182,8 @@ export function BookingDetail({ bookingId, onBack, onShowToast }) {
       ? { ...bInitial, status: 'date_exceeded' }
       : bInitial;
 
-  // Loading state when initial detail hasn't arrived
-  if (bookingDetailLoading && !b) {
-    return (
-      <div className="p-4 sm:p-6 lg:p-7 w-full max-w-[1400px] mx-auto space-y-4">
-        <button
-          type="button"
-          onClick={onBack}
-          className="h-9 px-3.5 inline-flex items-center gap-1.5 rounded-lg bg-white border border-slate-200 text-xs font-bold text-slate-700 hover:bg-slate-50 transition cursor-pointer shadow-2xs"
-        >
-          <Icon name="back" size={16} />
-          <span>Back</span>
-        </button>
-        <div className="bg-white rounded-2xl border border-slate-200/90 shadow-2xs overflow-hidden">
-          <DatabaseLoader
-            title="Fetching Booking Details from Database..."
-            subtitle="Connecting to Eldoria backend server"
-          />
-        </div>
-      </div>
-    );
-  }
-
-  // Not found fallback
-  if (!b) {
-    return (
-      <div className="p-4 sm:p-6 lg:p-7 w-full max-w-[1400px] mx-auto space-y-4">
-        <button
-          type="button"
-          onClick={onBack}
-          className="h-9 px-3.5 inline-flex items-center gap-1.5 rounded-lg bg-white border border-slate-200 text-xs font-bold text-slate-700 hover:bg-slate-50 transition cursor-pointer shadow-2xs"
-        >
-          <Icon name="back" size={16} />
-          <span>Back</span>
-        </button>
-        <div className="bg-white rounded-2xl p-10 border border-slate-200 text-center text-slate-500 font-bold text-sm shadow-2xs">
-          {bookingDetailError || 'Booking not found'}
-        </div>
-      </div>
-    );
-  }
-
   const s = svcB(b);
-  const st = b.assignedStaff
+  const st = b?.assignedStaff
     ? {
         id: b.assignedStaff.id || b.assignedStaff.staffId,
         name: b.assignedStaff.user?.name || b.assignedStaff.name || 'Staff Member',
@@ -233,7 +192,7 @@ export function BookingDetail({ bookingId, onBack, onShowToast }) {
         city: b.assignedStaff.city,
         area: b.assignedStaff.area
       }
-    : data?.staff?.[b.staffId];
+    : data?.staff?.[b?.staffId];
 
   const safeArray = (arr) => {
     if (!arr) return [];
@@ -252,8 +211,8 @@ export function BookingDetail({ bookingId, onBack, onShowToast }) {
   const availableStaffList = safeArray(availableStaff);
   const backendStaffList = safeArray(backendStaffRequests);
   const allStaffRaw = safeArray(staffList());
-  const bc = String(b.city || bCity(b) || DEFAULT_CITIES[0].id).toLowerCase().trim();
-  const bookingArea = (b.area || '').trim();
+  const bc = String(b?.city || bCity(b) || DEFAULT_CITIES[0].id).toLowerCase().trim();
+  const bookingArea = (b?.area || '').trim();
 
   // Helper to normalize text and match area strings intelligently
   const isAreaMatch = (staffArea, targetArea) => {
@@ -401,16 +360,45 @@ export function BookingDetail({ bookingId, onBack, onShowToast }) {
     return data?.staff?.[by]?.name || by;
   };
 
-  const statusObj = ST[b.status] || { label: b.status, cls: 'bg-[#FEF5E7] text-[#9A5B07]' };
+  const statusObj = ST[b?.status] || { label: b?.status || 'requested', cls: 'bg-[#FEF5E7] text-[#9A5B07]' };
   const statusLabel = statusObj.label.toLowerCase();
 
-  const serviceDisplayName = b.serviceName || s?.name || b.service || 'Service';
+  const serviceDisplayName = b?.serviceName || s?.name || b?.service || 'Service';
 
-  const msg = `Hello ${b.clientName}, your Eldoria ${serviceDisplayName} booking ${b.code} for ${
-    b.patientName
-  } is ${statusLabel} for ${fmtDate(b.date)} at ${b.time}.${
-    st ? ` Your caregiver: ${st.name} (+91 ${st.phone}).` : ''
-  } – Eldoria Care at Home`;
+  let startTimeVal = (b?.startTime || '').trim();
+  let endTimeVal = (b?.endTime || '').trim();
+
+  // If start/end time not set directly, parse from b.time string like "09:00 AM - 09:00 PM"
+  if ((!startTimeVal || !endTimeVal) && b?.time && typeof b.time === 'string' && (b.time.includes('-') || b.time.includes('–') || b.time.includes('—'))) {
+    const timeParts = b.time.split(/[-–—]/).map((t) => t.trim());
+    if (timeParts.length >= 2) {
+      if (!startTimeVal) startTimeVal = timeParts[0];
+      if (!endTimeVal) endTimeVal = timeParts[1];
+    }
+  }
+
+  const startDateRaw = b?.startDate || b?.date || '';
+  const endDateRaw = b?.endDate || b?.startDate || b?.date || '';
+  const startDateDisplay = startDateRaw ? fmtDate(startDateRaw) : '—';
+  const endDateDisplay = endDateRaw ? fmtDate(endDateRaw) : '—';
+
+  const scheduleDateDisplay = b?.endDate && b.endDate !== (b?.startDate || b?.date)
+    ? `${startDateDisplay} – ${endDateDisplay}`
+    : startDateDisplay;
+  const scheduleTimeDisplay = startTimeVal && endTimeVal
+    ? `${startTimeVal} – ${endTimeVal}`
+    : (startTimeVal || endTimeVal || b?.time || '');
+  const scheduleFullDisplay = scheduleTimeDisplay
+    ? `${scheduleDateDisplay}, ${scheduleTimeDisplay}`
+    : scheduleDateDisplay;
+
+  const msg = b
+    ? `Hello ${b.clientName || 'Client'}, your Eldoria ${serviceDisplayName} booking ${b.code || ''} for ${
+        b.patientName || 'Patient'
+      } is ${statusLabel} for ${scheduleFullDisplay}.${
+        st ? ` Your caregiver: ${st.name} (+91 ${st.phone}).` : ''
+      } – Eldoria Care at Home`
+    : '';
 
   const nextStepMap = {
     requested: ['confirmed', 'Confirm request'],
@@ -419,18 +407,18 @@ export function BookingDetail({ bookingId, onBack, onShowToast }) {
     on_the_way: null, // Controlled by caregiver from the Staff App
     in_progress: null, // Controlled by caregiver from the Staff App
   };
-  const next = nextStepMap[b.status];
+  const next = b?.status ? nextStepMap[b.status] : null;
 
   const handleAssignStaff = async (staffIdentifier) => {
     if (!staffIdentifier) return;
-    const bid = b.id || b.code || bookingId;
+    const bid = b?.id || b?.code || bookingId;
     setActionLoading(true);
     try {
       // 1. Call backend API PATCH /api/v1/admin/booking/:id/assign
       const res = await bookingAPI.assignStaff(bid, { staffId: staffIdentifier });
       // 2. Dispatch store state
       assignStaff(bid, staffIdentifier);
-      assign(b.id || bookingId, staffIdentifier, 'admin');
+      assign(b?.id || bookingId, staffIdentifier, 'admin');
       // 3. Refresh live details
       await fetchBookingById(bid);
       onShowToast?.(res?.message || 'Caregiver assigned successfully');
@@ -580,14 +568,14 @@ export function BookingDetail({ bookingId, onBack, onShowToast }) {
   };
 
   const handleUnassignStaff = async () => {
-    const bid = b.id || b.code || bookingId;
+    const bid = b?.id || b?.code || bookingId;
     setActionLoading(true);
     try {
       // 1. Call backend API PATCH /api/v1/admin/booking/:id/unassign
       const res = await bookingAPI.unassignStaff(bid);
       // 2. Dispatch store state
       unassignStaff(bid);
-      unassign(b.id || bookingId);
+      unassign(b?.id || bookingId);
       // 3. Refresh live details
       await fetchBookingById(bid);
       // 4. Re-fetch available staff pool
@@ -747,8 +735,8 @@ export function BookingDetail({ bookingId, onBack, onShowToast }) {
     );
   };
 
-  const idx = FLOW.indexOf(b.status);
-  const when = (sName) => (b.history || []).filter((h) => h.status === sName).slice(-1)[0];
+  const idx = b?.status ? FLOW.indexOf(b.status) : -1;
+  const when = (sName) => (b?.history || []).filter((h) => h.status === sName).slice(-1)[0];
 
   const formatFileSize = (bytes) => {
     if (!bytes || isNaN(bytes)) return '';
@@ -759,6 +747,7 @@ export function BookingDetail({ bookingId, onBack, onShowToast }) {
   };
 
   const getReportsList = () => {
+    if (!b) return [];
     let raw = b.reports;
     if (typeof raw === 'string') {
       try {
@@ -798,6 +787,46 @@ export function BookingDetail({ bookingId, onBack, onShowToast }) {
   const reportsList = getReportsList();
   const report = reportsList.length > 0 ? reportsList[reportsList.length - 1] : null;
 
+  // Loading state when initial detail hasn't arrived
+  if (bookingDetailLoading && !b) {
+    return (
+      <div className="p-4 sm:p-6 lg:p-7 w-full max-w-[1400px] mx-auto space-y-4">
+        <button
+          type="button"
+          onClick={onBack}
+          className="h-9 px-3.5 inline-flex items-center gap-1.5 rounded-lg bg-white border border-slate-200 text-xs font-bold text-slate-700 hover:bg-slate-50 transition cursor-pointer shadow-2xs"
+        >
+          <Icon name="back" size={16} />
+          <span>Back</span>
+        </button>
+        <div className="bg-white rounded-2xl border border-slate-200/90 shadow-2xs overflow-hidden">
+          <DatabaseLoader
+            title="Fetching Booking Details from Database..."
+            subtitle="Connecting to Eldoria backend server"
+          />
+        </div>
+      </div>
+    );
+  }
+
+  // Not found fallback
+  if (!b) {
+    return (
+      <div className="p-4 sm:p-6 lg:p-7 w-full max-w-[1400px] mx-auto space-y-4">
+        <button
+          type="button"
+          onClick={onBack}
+          className="h-9 px-3.5 inline-flex items-center gap-1.5 rounded-lg bg-white border border-slate-200 text-xs font-bold text-slate-700 hover:bg-slate-50 transition cursor-pointer shadow-2xs"
+        >
+          <Icon name="back" size={16} />
+          <span>Back</span>
+        </button>
+        <div className="bg-white rounded-2xl p-10 border border-slate-200 text-center text-slate-500 font-bold text-sm shadow-2xs">
+          {bookingDetailError || 'Booking not found'}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="p-4 sm:p-6 lg:p-4 w-full max-w-[1400px] mx-auto space-y-4">
@@ -893,7 +922,36 @@ export function BookingDetail({ bookingId, onBack, onShowToast }) {
 
             <dt className="text-slate-500 font-medium">When</dt>
             <dd className="font-semibold text-slate-900">
-              {fmtDate(b.date)}, {b.time}
+              {scheduleFullDisplay}
+            </dd>
+
+            <dt className="text-slate-500 font-medium">Start Date</dt>
+            <dd className="font-semibold text-slate-900 flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0 inline-block"></span>
+              <span>{startDateDisplay}</span>
+            </dd>
+
+            <dt className="text-slate-500 font-medium">End Date</dt>
+            <dd className="font-semibold text-slate-900 flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-blue-500 shrink-0 inline-block"></span>
+              <span>{endDateDisplay}</span>
+              {endDateRaw && startDateRaw && endDateRaw === startDateRaw && (
+                <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-slate-100 text-slate-600">
+                  1-Day Visit
+                </span>
+              )}
+            </dd>
+
+            <dt className="text-slate-500 font-medium">Start Time</dt>
+            <dd className="font-semibold text-slate-900 flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0 inline-block"></span>
+              <span>{startTimeVal || b.time || '—'}</span>
+            </dd>
+
+            <dt className="text-slate-500 font-medium">End Time</dt>
+            <dd className="font-semibold text-slate-900 flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-blue-500 shrink-0 inline-block"></span>
+              <span>{endTimeVal || '—'}</span>
             </dd>
 
             <dt className="text-slate-500 font-medium">Area</dt>
@@ -2173,7 +2231,7 @@ export function BookingDetail({ bookingId, onBack, onShowToast }) {
                       Area: <strong className="text-slate-900">{b.area || '—'}</strong>, <span className="capitalize">{b.cityName || cityName(bc)}</span>
                     </span>
                     <span className="text-slate-300">|</span>
-                    <span className="text-slate-600 font-medium text-xs">🕒 {fmtDate(b.date)}, {b.time}</span>
+                    <span className="text-slate-600 font-medium text-xs">🕒 {scheduleFullDisplay}</span>
                   </div>
                   {b.staffId && b.staffId !== staffForAssignModal.id && (
                     <span className="text-[10px] font-bold text-amber-800 bg-amber-50 px-2 py-0.5 rounded border border-amber-200">

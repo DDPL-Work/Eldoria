@@ -61,7 +61,7 @@ router.get("/services/categories", optionalToken, getClientCategories);
 router.get("/services/:id", optionalToken, getPublicServiceById);
 
 // Client Booking flow routes (supports multipart/form-data medical history files upload)
-router.post("/booking/create", optionalToken, uploadStaffFiles, createClientBooking);
+router.post("/booking/create", verifyToken, uploadStaffFiles, createClientBooking);
 router.get("/bookings", optionalToken, getClientBookings);
 
 // Booking status & live tracking routes (with and without :id)

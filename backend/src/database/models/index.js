@@ -144,6 +144,20 @@ db.syncDatabase = async (options = {}) => {
       console.log("✅ Database migrations up-to-date (no pending migrations).");
     }
 
+    // Also ensure migrations are applied on target sync connection (e.g. Aiven Cloud) if sync is enabled
+    try {
+      const { isLocal, getAivenSequelize } = require("../../configs/db.config");
+      const targetSeq = isLocal ? getAivenSequelize() : null;
+      if (targetSeq) {
+        const aivenApplied = await migrateUp(targetSeq);
+        if (aivenApplied.length > 0) {
+          console.log(`✅ Aiven Cloud database migrations applied: ${aivenApplied.join(", ")}`);
+        }
+      }
+    } catch (aivenMigErr) {
+      console.warn("⚠️ Aiven Cloud migration check note:", aivenMigErr.message);
+    }
+
     // Optional model sync if explicitly requested (e.g. { force: true } or { alter: true })
     if (options && (options.force || options.alter)) {
       await sequelize.sync(options);

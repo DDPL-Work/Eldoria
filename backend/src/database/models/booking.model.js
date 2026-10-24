@@ -89,9 +89,25 @@ module.exports = (sequelize) => {
         type: DataTypes.STRING(20), // YYYY-MM-DD
         allowNull: false,
       },
+      startDate: {
+        type: DataTypes.STRING(20), // YYYY-MM-DD
+        allowNull: true,
+      },
+      endDate: {
+        type: DataTypes.STRING(20), // YYYY-MM-DD (can be equal to startDate for single day service)
+        allowNull: true,
+      },
       time: {
-        type: DataTypes.STRING(50), // e.g. '9:00 AM'
+        type: DataTypes.STRING(50), // e.g. '9:00 AM' or '9:00 AM - 5:00 PM'
         allowNull: false,
+      },
+      startTime: {
+        type: DataTypes.STRING(50), // e.g. '9:00 AM'
+        allowNull: true,
+      },
+      endTime: {
+        type: DataTypes.STRING(50), // e.g. '5:00 PM'
+        allowNull: true,
       },
       status: {
         type: DataTypes.ENUM(
@@ -178,6 +194,8 @@ module.exports = (sequelize) => {
         { fields: ["city"] },
         { fields: ["status"] },
         { fields: ["date"] },
+        { fields: ["startDate"] },
+        { fields: ["endDate"] },
         { fields: ["staffId"] },
       ],
     },
