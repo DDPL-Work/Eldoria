@@ -830,12 +830,36 @@ const viewStaffDocument = async (req, res) => {
     const fileKey = req.params.fileKey || req.params.docKey || req.query.fileKey;
 
     if (staffId && fileKey) {
-      const staff = await Staff.findOne({ where: { staffId } });
-      const doc = staff?.files?.[fileKey];
+      const isNumeric = !isNaN(Number(staffId));
+      const lookupCondition = isNumeric
+        ? { [Op.or]: [{ id: Number(staffId) }, { staffId: String(staffId) }] }
+        : { staffId: String(staffId) };
+      const staff = await Staff.findOne({ where: lookupCondition });
+      let staffFiles = staff?.files;
+      if (typeof staffFiles === "string") {
+        try {
+          staffFiles = JSON.parse(staffFiles);
+        } catch (_) {
+          staffFiles = {};
+        }
+      }
+      const keyAliases = {
+        id_proof: "idProof",
+        idproof: "idProof",
+        photo_id: "idProof",
+        qualification_certificate: "qualification",
+        certificate: "qualification",
+        experience_letter: "experience",
+        experienceletter: "experience",
+        police_verification: "police",
+        policeverification: "police",
+      };
+      const resolvedKey = keyAliases[fileKey] || fileKey;
+      const doc = staffFiles?.[fileKey] || staffFiles?.[resolvedKey];
       if (doc) {
         publicId = doc.publicId || publicId;
-        filename = doc.name || filename;
-        if (doc.type === "application/pdf") format = "pdf";
+        filename = doc.name || doc.filename || filename;
+        if (doc.type === "application/pdf" || doc.isPdf) format = "pdf";
         if (!publicId && (doc.data || doc.url)) {
           const match = (doc.data || doc.url).match(/\/upload\/(?:v\d+\/)?([^\.\?]+)(?:\.([a-zA-Z0-9]+))?/);
           if (match) {
@@ -868,6 +892,11 @@ const viewStaffDocument = async (req, res) => {
           publicId = lastDot !== -1 ? part.slice(0, lastDot) : part;
           if (!format && lastDot !== -1) format = part.slice(lastDot + 1);
         }
+      }
+
+      // If url is external or not on Cloudinary, stream/redirect directly
+      if (!publicId && (parsedUrl.startsWith("http://") || parsedUrl.startsWith("https://"))) {
+        return res.redirect(parsedUrl);
       }
     }
 
