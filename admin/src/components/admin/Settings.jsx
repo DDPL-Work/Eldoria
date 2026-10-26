@@ -9,11 +9,11 @@ export function Settings({ onShowToast }) {
   const {
     settings,
     put,
-    staffCanConfirm,
-    loadDemoData,
-    resetAllData,
-    syncExternalData,
-    data
+    // staffCanConfirm,
+    // loadDemoData,
+    // resetAllData,
+    // syncExternalData,
+    // data
   } = useStore();
 
   const { user, fetchProfile, updateProfile } = useAuth();
@@ -63,6 +63,8 @@ export function Settings({ onShowToast }) {
       }));
     }
   }, [user]);
+
+
 
   // Handle Save Admin Profile via PATCH /api/v1/admin/edit/profile
   const handleSaveProfile = async (e) => {
@@ -130,8 +132,8 @@ export function Settings({ onShowToast }) {
     });
   }, [st.phone, st.whatsapp, st.heroVideo]);
 
-  const [confirmReset, setConfirmReset] = useState(false);
-  const [confirmDemo, setConfirmDemo] = useState(false);
+  // const [confirmReset, setConfirmReset] = useState(false);
+  // const [confirmDemo, setConfirmDemo] = useState(false);
 
   const handleSaveContact = (e) => {
     e.preventDefault();
@@ -158,84 +160,86 @@ export function Settings({ onShowToast }) {
 
     onShowToast?.('Settings saved');
   };
+  
 
-  const handleToggleStaffConfirm = () => {
-    const currentVal = staffCanConfirm();
-    put('settings', 'app', {
-      ...st,
-      staffCanConfirm: !currentVal
-    });
-    onShowToast?.(
-      currentVal
-        ? 'Staff can no longer confirm bookings'
-        : 'Staff can now confirm and assign bookings'
-    );
-  };
+  // const handleToggleStaffConfirm = () => {
+  //   const currentVal = staffCanConfirm();
+  //   put('settings', 'app', {
+  //     ...st,
+  //     staffCanConfirm: !currentVal
+  //   });
+  //   onShowToast?.(
+  //     currentVal
+  //       ? 'Staff can no longer confirm bookings'
+  //       : 'Staff can now confirm and assign bookings'
+  //   );
+  // };
 
-  const handleExportBackup = () => {
-    const blob = new Blob(
-      [
-        JSON.stringify(
-          {
-            app: 'eldoria',
-            version: 2,
-            exportedAt: new Date().toISOString(),
-            data
-          },
-          null,
-          2
-        )
-      ],
-      { type: 'application/json' }
-    );
+  // const handleExportBackup = () => {
+  //   const blob = new Blob(
+  //     [
+  //       JSON.stringify(
+  //         {
+  //           app: 'eldoria',
+  //           version: 2,
+  //           exportedAt: new Date().toISOString(),
+  //           data
+  //         },
+  //         null,
+  //         2
+  //       )
+  //     ],
+  //     { type: 'application/json' }
+  //   );
 
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `eldoria-backup-${todayISO()}.json`;
-    document.body.appendChild(a);
-    a.click();
-    setTimeout(() => {
-      URL.revokeObjectURL(url);
-      a.remove();
-    }, 500);
+  //   const url = URL.createObjectURL(blob);
+  //   const a = document.createElement('a');
+  //   a.href = url;
+  //   a.download = `eldoria-backup-${todayISO()}.json`;
+  //   document.body.appendChild(a);
+  //   a.click();
+  //   setTimeout(() => {
+  //     URL.revokeObjectURL(url);
+  //     a.remove();
+  //   }, 500);
 
-    onShowToast?.('Backup downloaded successfully');
-  };
+  //   onShowToast?.('Backup downloaded successfully');
+  // };
 
-  const handleImportBackup = (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  // const handleImportBackup = (e) => {
+  //   const file = e.target.files?.[0];
+  //   if (!file) return;
 
-    const r = new FileReader();
-    r.onload = () => {
-      try {
-        const parsed = JSON.parse(r.result);
-        const importedData = parsed.data || parsed;
-        if (!importedData.bookings && !importedData.staff) {
-          throw new Error('Invalid format');
-        }
-        syncExternalData(importedData);
-        onShowToast?.('Backup restored successfully');
-      } catch (err) {
-        onShowToast?.('The selected file is not a valid Eldoria backup');
-      }
-    };
-    r.readAsText(file);
-    e.target.value = '';
-  };
+  //   const r = new FileReader();
+  //   r.onload = () => {
+  //     try {
+  //       const parsed = JSON.parse(r.result);
+  //       const importedData = parsed.data || parsed;
+  //       if (!importedData.bookings && !importedData.staff) {
+  //         throw new Error('Invalid format');
+  //       }
+  //       syncExternalData(importedData);
+  //       onShowToast?.('Backup restored successfully');
+  //     } catch (err) {
+  //       onShowToast?.('The selected file is not a valid Eldoria backup');
+  //     }
+  //   };
+  //   r.readAsText(file);
+  //   e.target.value = '';
+  // };
 
-  const handleConfirmReset = () => {
-    resetAllData();
-    setConfirmReset(false);
-    onShowToast?.('All data cleared');
-  };
+  // const handleConfirmReset = () => {
+  //   resetAllData();
+  //   setConfirmReset(false);
+  //   onShowToast?.('All data cleared');
+  // };
 
-  const handleConfirmDemo = () => {
-    loadDemoData();
-    setConfirmDemo(false);
-    onShowToast?.('Sample data loaded');
-  };
+  // const handleConfirmDemo = () => {
+  //   loadDemoData();
+  //   setConfirmDemo(false);
+  //   onShowToast?.('Sample data loaded');
+  // };
+
 
   return (
     <div className="p-4 sm:p-6 lg:p-1.5 w-full max-w-4xl mx-auto space-y-4">

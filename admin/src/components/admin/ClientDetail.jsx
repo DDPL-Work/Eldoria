@@ -492,6 +492,8 @@ export function ClientDetail({ clientId, onBack, onShowToast }) {
                 )}
               </dd>
 
+
+
               <dt className="text-slate-500 font-medium">Source</dt>
               <dd className="font-semibold text-slate-900">
                 <span
@@ -506,6 +508,9 @@ export function ClientDetail({ clientId, onBack, onShowToast }) {
                   {client.source || 'App'}
                 </span>
               </dd>
+
+
+
 
               <dt className="text-slate-500 font-medium">Language</dt>
               <dd className="font-semibold text-slate-900">
