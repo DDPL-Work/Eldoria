@@ -1,5 +1,4 @@
 const { Op } = require('sequelize');
-const { Service, Booking, Category, City, sequelize } = require('../database/models');
 const {
   Service,
   Category,
@@ -102,8 +101,6 @@ const formatService = (s) => {
     categoryOrder: s.categoryOrder || 0,
     type: s.type || 'care',
     kind: s.type || 'care', // alias matching frontend KINDS constant ('care', 'equipment', 'doctor')
-    city: s.city || null,
-    cityName: s.cityName || null,
     desc: s.desc || '',
     icon: s.icon || 'cross',
     image: s.image || null,
@@ -142,15 +139,41 @@ const isServiceAvailableInCity = (service, citySlug, cityName) => {
 
 /**
  * Aggregate flat services list into categories matching frontend catsAll() & svcInCat()
+ * Merges registered categories from Category model with categories derived from services
  */
-const groupServicesByCategory = (servicesList = []) => {
+const groupServicesByCategory = (servicesList = [], dbCategories = []) => {
   const catMap = new Map();
 
+  // 1. Populate registered categories first (ensures newly added categories with 0 services are visible)
+  if (Array.isArray(dbCategories)) {
+    dbCategories.forEach((c) => {
+      const catData = c.toJSON ? c.toJSON() : c;
+      const key = catData.categoryId || catData.category || slugify(catData.name);
+      catMap.set(key, {
+        id: key,
+        categoryId: key,
+        name: catData.name,
+        desc: catData.desc || '',
+        icon: catData.icon || 'cross',
+        kind: catData.kind || catData.type || 'care',
+        type: catData.type || catData.kind || 'care',
+        order: catData.order || 0,
+        enabled: catData.enabled !== false,
+        comingSoon: Boolean(catData.comingSoon),
+        servicesCount: 0,
+        liveCount: 0,
+        services: [],
+      });
+    });
+  }
+
+  // 2. Aggregate services into categories
   servicesList.forEach((s) => {
     const key = s.category || 'General';
     if (!catMap.has(key)) {
       catMap.set(key, {
         id: key,
+        categoryId: key,
         name: s.categoryName || s.category,
         desc: s.categoryDesc || '',
         icon: s.categoryIcon || 'cross',
@@ -212,14 +235,6 @@ const getAdminServices = async (req, res) => {
       where.category = category;
     }
 
-    // Filter by city
-    if (req.query.city && req.query.city !== 'all') {
-      where[Op.or] = [
-        { city: req.query.city },
-        { cityName: req.query.city },
-      ];
-    }
-
     // Filter by type / kind
     if (type && type !== 'all') {
       where.type = type;
@@ -249,44 +264,6 @@ const getAdminServices = async (req, res) => {
       ],
     });
 
-    // const formattedServices = rawServices.map(formatService);
-    // const categoriesGrouped = groupServicesByCategory(formattedServices);
-
-    // Enrich categories with standalone Category records from Category table
-    try {
-      if (Category) {
-        const dbCategories = await Category.findAll({
-          order: [['order', 'ASC'], ['name', 'ASC']],
-        });
-        const groupedMap = new Map(categoriesGrouped.map((c) => [String(c.id || c.name).toLowerCase(), c]));
-        dbCategories.forEach((dbCat) => {
-          const key = String(dbCat.categoryId || dbCat.name).toLowerCase();
-          if (!groupedMap.has(key)) {
-            categoriesGrouped.push({
-              id: dbCat.categoryId || dbCat.name,
-              categoryId: dbCat.categoryId,
-              name: dbCat.name,
-              desc: dbCat.desc || '',
-              icon: dbCat.icon || 'cross',
-              kind: dbCat.kind || dbCat.type || 'care',
-              type: dbCat.type || dbCat.kind || 'care',
-              order: dbCat.order || 0,
-              enabled: dbCat.enabled !== false,
-              comingSoon: Boolean(dbCat.comingSoon),
-              servicesCount: 0,
-              liveCount: 0,
-              services: [],
-            });
-          } else {
-            const existing = groupedMap.get(key);
-            if (dbCat.desc && !existing.desc) existing.desc = dbCat.desc;
-            if (dbCat.icon && existing.icon === 'cross') existing.icon = dbCat.icon;
-          }
-        });
-      }
-    } catch (catErr) {
-      console.warn('Standalone Category fetch skipped:', catErr.message);
-    }
     // Also fetch all explicitly created categories from Category table
     const allDbCategories = await Category.findAll({
       order: [
@@ -307,7 +284,6 @@ const getAdminServices = async (req, res) => {
     const totalServices = await Service.count();
     const liveServices = await Service.count({ where: { enabled: true } });
     const hiddenServices = totalServices - liveServices;
-    const distinctCategories = await Service.aggregate('category', 'DISTINCT', { plain: false });
 
     return successResponse(
       res,
@@ -318,7 +294,7 @@ const getAdminServices = async (req, res) => {
           totalServices,
           liveServices,
           hiddenServices,
-          totalCategories: distinctCategories.length,
+          totalCategories: categoriesGrouped.length,
         },
       },
       'Services catalog retrieved successfully'
@@ -393,8 +369,6 @@ const createService = async (req, res) => {
       categoryIcon,
       categoryDesc,
       categoryOrder,
-      // city,
-      cityName,
       type = 'care',
       desc,
       icon = 'cross',
@@ -422,12 +396,6 @@ const createService = async (req, res) => {
     if (!category || !category.trim()) {
       await transaction.rollback();
       return errorResponse(res, 'Category is required', 400);
-    }
-
-    // Validation: City is required
-    if (!city || !String(city).trim()) {
-      await transaction.rollback();
-      return errorResponse(res, 'City is mandatory for creating a service', 400);
     }
 
     const cleanName = name.trim();
@@ -527,24 +495,6 @@ const createService = async (req, res) => {
     const slugBase = slugify(cleanName);
     const serviceSlug = `${slugBase}-${Date.now().toString(36).slice(-4)}`;
 
-    const cleanCity = String(city).trim();
-    let resolvedCityName = cityName ? String(cityName).trim() : null;
-    if (!resolvedCityName && City) {
-      const cityRec = await City.findOne({
-        where: {
-          [Op.or]: [
-            { cityId: cleanCity.toLowerCase() },
-            { name: cleanCity },
-          ],
-        },
-        transaction,
-      });
-      if (cityRec) resolvedCityName = cityRec.name;
-    }
-    if (!resolvedCityName) {
-      resolvedCityName = cleanCity.charAt(0).toUpperCase() + cleanCity.slice(1);
-    }
-
     const newService = await Service.create(
       {
         code,
@@ -556,8 +506,6 @@ const createService = async (req, res) => {
         categoryDesc: categoryDesc?.trim() || null,
         categoryOrder: parseInt(categoryOrder, 10) || 0,
         type: ['care', 'equipment', 'doctor', 'other'].includes(type) ? type : 'care',
-        city: cleanCity,
-        cityName: resolvedCityName,
         desc: desc ? desc.trim() : null,
         icon: icon ? icon.trim() : 'cross',
         image: image || null,
@@ -720,25 +668,6 @@ const updateService = async (req, res) => {
     // Enabled & Coming soon
     if (updates.enabled !== undefined) service.enabled = Boolean(updates.enabled);
     if (updates.comingSoon !== undefined) service.comingSoon = Boolean(updates.comingSoon);
-
-    // City & CityName
-    if (updates.city !== undefined) {
-      const cleanCity = String(updates.city || '').trim();
-      service.city = cleanCity || null;
-      let resolvedCityName = updates.cityName ? String(updates.cityName).trim() : null;
-      if (!resolvedCityName && cleanCity && City) {
-        const cityRec = await City.findOne({
-          where: {
-            [Op.or]: [
-              { cityId: cleanCity.toLowerCase() },
-              { name: cleanCity },
-            ],
-          },
-        });
-        if (cityRec) resolvedCityName = cityRec.name;
-      }
-      service.cityName = resolvedCityName || (cleanCity ? cleanCity.charAt(0).toUpperCase() + cleanCity.slice(1) : null);
-    }
 
     // Order
     if (updates.order !== undefined) {
@@ -912,72 +841,118 @@ const deleteService = async (req, res) => {
 };
 
 // =========================================================================
-// CATEGORY BULK OPERATIONS (Managing Embedded & Dedicated Categories)
+// CATEGORY OPERATIONS (Dedicated & Embedded Categories)
 // =========================================================================
 
 /**
- * 7.5 POST /api/v1/admin/services/categories/create
+ * 8. POST /api/v1/admin/services/categories
+ * POST /api/v1/admin/category/create
  * Create a new service category
  */
 const createCategory = async (req, res) => {
+  const transaction = await sequelize.transaction();
   try {
     const {
       name,
+      category,
       categoryId,
-      id,
       desc,
-      icon,
-      kind,
-      type,
+      icon = 'cross',
+      kind = 'care',
+      type = 'care',
       order,
       enabled = true,
       comingSoon = false,
     } = req.body;
 
+    // Validation: Category name is required
     if (!name || !name.trim()) {
+      await transaction.rollback();
       return errorResponse(res, 'Category name is required', 400);
     }
 
     const cleanName = name.trim();
-    const cleanId = String(categoryId || id || slugify(cleanName)).trim().toLowerCase();
-    const cleanKind = kind || type || 'care';
-    const cleanIcon = icon ? icon.trim() : 'cross';
+    const rawSlug = (categoryId || category || '').trim();
+    const cleanSlug = rawSlug ? slugify(rawSlug) : slugify(cleanName);
+
+    if (!cleanSlug) {
+      await transaction.rollback();
+      return errorResponse(res, 'Could not generate a valid category identifier', 400);
+    }
+
+    const cleanKind = ['care', 'equipment', 'doctor', 'other'].includes(kind || type)
+      ? (kind || type)
+      : 'care';
 
     // Check if category already exists in Category table
-    const existingCategory = await Category.findOne({
+    const existingInCatTable = await Category.findOne({
       where: {
         [Op.or]: [
-          { categoryId: cleanId },
-          { name: cleanName },
+          { categoryId: cleanSlug },
           sequelize.where(sequelize.fn('LOWER', sequelize.col('name')), cleanName.toLowerCase()),
         ],
       },
+      transaction,
     });
 
-    if (existingCategory) {
-      return errorResponse(res, `Category '${cleanName}' already exists`, 409);
+    if (existingInCatTable) {
+      await transaction.rollback();
+      return errorResponse(
+        res,
+        `Category '${cleanName}' already exists (id: '${existingInCatTable.categoryId}')`,
+        409
+      );
     }
 
-    // Calculate order
-    let catOrder = order !== undefined ? parseInt(order, 10) : null;
-    if (catOrder === null || isNaN(catOrder)) {
-      const maxOrder = await Category.max('order');
-      catOrder = (Number(maxOrder) || 0) + 1;
-    }
-
-    const newCategory = await Category.create({
-      categoryId: cleanId,
-      name: cleanName,
-      desc: desc ? desc.trim() : '',
-      icon: cleanIcon,
-      kind: cleanKind,
-      type: cleanKind,
-      order: catOrder,
-      enabled: Boolean(enabled),
-      comingSoon: Boolean(comingSoon),
+    // Also check if any existing Service uses this category slug or name
+    const existingInService = await Service.findOne({
+      where: {
+        [Op.or]: [
+          { category: cleanSlug },
+          sequelize.where(sequelize.fn('LOWER', sequelize.col('categoryName')), cleanName.toLowerCase()),
+        ],
+      },
+      transaction,
     });
 
-    const formattedCat = {
+    if (existingInService) {
+      await transaction.rollback();
+      return errorResponse(
+        res,
+        `A category '${cleanName}' already exists in service catalog (${cleanSlug})`,
+        409
+      );
+    }
+
+    // Determine order if not explicitly specified
+    let catOrder = order;
+    if (catOrder === undefined || catOrder === null || isNaN(parseInt(catOrder, 10))) {
+      const maxCatOrder = await Category.max('order', { transaction }).catch(() => 0);
+      const maxSvcOrder = await Service.max('categoryOrder', { transaction }).catch(() => 0);
+      const currentMax = Math.max(Number(maxCatOrder) || 0, Number(maxSvcOrder) || 0);
+      catOrder = currentMax + 1;
+    } else {
+      catOrder = parseInt(catOrder, 10);
+    }
+
+    const newCategory = await Category.create(
+      {
+        categoryId: cleanSlug,
+        name: cleanName,
+        desc: desc ? desc.trim() : null,
+        icon: icon ? icon.trim() : 'cross',
+        kind: cleanKind,
+        type: cleanKind,
+        order: catOrder,
+        enabled: enabled !== false,
+        comingSoon: Boolean(comingSoon),
+      },
+      { transaction }
+    );
+
+    await transaction.commit();
+
+    const responsePayload = {
       id: newCategory.categoryId,
       categoryId: newCategory.categoryId,
       name: newCategory.name,
@@ -986,27 +961,32 @@ const createCategory = async (req, res) => {
       kind: newCategory.kind || 'care',
       type: newCategory.type || 'care',
       order: newCategory.order || 0,
-      enabled: newCategory.enabled !== false,
+      enabled: Boolean(newCategory.enabled),
       comingSoon: Boolean(newCategory.comingSoon),
       servicesCount: 0,
       liveCount: 0,
       services: [],
+      createdAt: newCategory.createdAt,
+      updatedAt: newCategory.updatedAt,
     };
 
     return successResponse(
       res,
-      formattedCat,
-      `Category '${cleanName}' created successfully`,
+      responsePayload,
+      `Category '${newCategory.name}' created successfully`,
       201
     );
   } catch (error) {
+    if (transaction && !transaction.finished) {
+      await transaction.rollback();
+    }
     return errorResponse(res, error.message || 'Failed to create category', 500, error);
   }
 };
 
 /**
- * 8. PATCH /api/v1/admin/services/categories/:category
- * Bulk update metadata (name, icon, description, type, order) across all services in a category
+ * 9. PATCH /api/v1/admin/services/categories/:category
+ * Update metadata (name, icon, description, type, order) across Category model and services
  */
 const updateCategory = async (req, res) => {
   const transaction = await sequelize.transaction();
@@ -1030,41 +1010,68 @@ const updateCategory = async (req, res) => {
     }
 
     const targetCategory = category.trim();
-    const whereCategory = {
-      [Op.or]: [
-        { category: targetCategory },
-        { categoryName: targetCategory },
-        sequelize.where(sequelize.fn('LOWER', sequelize.col('category')), targetCategory.toLowerCase()),
-        sequelize.where(sequelize.fn('LOWER', sequelize.col('categoryName')), targetCategory.toLowerCase()),
-      ],
-    };
 
-    const count = await Service.count({
-      where: whereCategory,
-      transaction,
-    });
+    // Check presence in Category model or Service model
+    const [catRecord, countInServices] = await Promise.all([
+      Category.findOne({
+        where: {
+          [Op.or]: [
+            { categoryId: targetCategory },
+            sequelize.where(sequelize.fn('LOWER', sequelize.col('name')), targetCategory.toLowerCase()),
+          ],
+        },
+        transaction,
+      }).catch(() => null),
+      Service.count({
+        where: { category: targetCategory },
+        transaction,
+      }),
+    ]);
 
-    const updatePayload = {};
-    if (name && name.trim()) {
-      updatePayload.categoryName = name.trim();
+    if (!catRecord && countInServices === 0) {
+      await transaction.rollback();
+      return errorResponse(res, `Category '${targetCategory}' not found`, 404);
     }
-    if (newCategory && newCategory.trim()) {
-      updatePayload.category = newCategory.trim();
-    }
-    if (desc !== undefined) updatePayload.categoryDesc = desc ? desc.trim() : null;
-    if (icon !== undefined) updatePayload.categoryIcon = icon.trim() || 'cross';
 
+    const finalCatKey = (newCategory || (name ? slugify(name) : '') || targetCategory).trim();
     const cleanKind = kind || type;
-    if (cleanKind && ['care', 'equipment', 'doctor', 'other'].includes(cleanKind)) {
-      updatePayload.type = cleanKind;
-    }
-    if (order !== undefined) updatePayload.categoryOrder = parseInt(order, 10) || 0;
-    if (enabled !== undefined) updatePayload.enabled = Boolean(enabled);
-    if (comingSoon !== undefined) updatePayload.comingSoon = Boolean(comingSoon);
 
-    if (count > 0) {
-      await Service.update(updatePayload, {
-        where: whereCategory,
+    // 1. Update Category table
+    if (catRecord) {
+      const catUpdates = {};
+      if (name !== undefined) catUpdates.name = name.trim();
+      if (newCategory !== undefined) catUpdates.categoryId = finalCatKey;
+      if (desc !== undefined) catUpdates.desc = desc ? desc.trim() : null;
+      if (icon !== undefined) catUpdates.icon = icon.trim() || 'cross';
+      if (cleanKind && ['care', 'equipment', 'doctor', 'other'].includes(cleanKind)) {
+        catUpdates.kind = cleanKind;
+        catUpdates.type = cleanKind;
+      }
+      if (order !== undefined) catUpdates.order = parseInt(order, 10) || 0;
+      if (enabled !== undefined) catUpdates.enabled = Boolean(enabled);
+      if (comingSoon !== undefined) catUpdates.comingSoon = Boolean(comingSoon);
+
+      await catRecord.update(catUpdates, { transaction });
+    }
+
+    // 2. Update all services under this category
+    if (countInServices > 0) {
+      const serviceUpdates = {};
+      if (finalCatKey) {
+        serviceUpdates.category = finalCatKey;
+        serviceUpdates.categoryName = name ? name.trim() : finalCatKey;
+      }
+      if (desc !== undefined) serviceUpdates.categoryDesc = desc ? desc.trim() : null;
+      if (icon !== undefined) serviceUpdates.categoryIcon = icon.trim() || 'cross';
+      if (cleanKind && ['care', 'equipment', 'doctor', 'other'].includes(cleanKind)) {
+        serviceUpdates.type = cleanKind;
+      }
+      if (order !== undefined) serviceUpdates.categoryOrder = parseInt(order, 10) || 0;
+      if (enabled !== undefined) serviceUpdates.enabled = Boolean(enabled);
+      if (comingSoon !== undefined) serviceUpdates.comingSoon = Boolean(comingSoon);
+
+      await Service.update(serviceUpdates, {
+        where: { category: targetCategory },
         transaction,
       });
     }
@@ -1073,18 +1080,20 @@ const updateCategory = async (req, res) => {
 
     return successResponse(
       res,
-      { category: targetCategory, updatedCount: count, payload: updatePayload },
-      `Category '${name || targetCategory}' updated successfully across ${count} service(s)`
+      { category: finalCatKey || targetCategory, updatedServicesCount: countInServices },
+      `Category '${finalCatKey || targetCategory}' updated successfully`
     );
   } catch (error) {
-    await transaction.rollback();
+    if (transaction && !transaction.finished) {
+      await transaction.rollback();
+    }
     return errorResponse(res, error.message || 'Failed to update category', 500, error);
   }
 };
 
 /**
- * 9. PATCH /api/v1/admin/services/categories/:category/status
- * Toggle enabled / comingSoon status for all services in a category (matches `Services.jsx` category toggle switch)
+ * 10. PATCH /api/v1/admin/services/categories/:category/status
+ * Toggle enabled / comingSoon status for a category and its services
  */
 const toggleCategoryStatus = async (req, res) => {
   try {
@@ -1096,42 +1105,53 @@ const toggleCategoryStatus = async (req, res) => {
     }
 
     const targetCategory = category.trim();
-    const whereCategory = {
-      [Op.or]: [
-        { category: targetCategory },
-        { categoryName: targetCategory },
-        sequelize.where(sequelize.fn('LOWER', sequelize.col('category')), targetCategory.toLowerCase()),
-        sequelize.where(sequelize.fn('LOWER', sequelize.col('categoryName')), targetCategory.toLowerCase()),
-      ],
-    };
 
-    const servicesInCat = await Service.findAll({
-      where: whereCategory,
-    });
+    const [catRecord, servicesInCat] = await Promise.all([
+      Category.findOne({
+        where: {
+          [Op.or]: [
+            { categoryId: targetCategory },
+            sequelize.where(sequelize.fn('LOWER', sequelize.col('name')), targetCategory.toLowerCase()),
+          ],
+        },
+      }).catch(() => null),
+      Service.findAll({
+        where: { category: targetCategory },
+      }),
+    ]);
 
-    const updates = {};
-    if (enabled !== undefined) {
-      updates.enabled = Boolean(enabled);
-    } else {
-      // Toggle based on first service
-      const currentLive = servicesInCat.some((s) => s.enabled);
-      updates.enabled = !currentLive;
+    if (!catRecord && servicesInCat.length === 0) {
+      return errorResponse(res, `Category '${targetCategory}' not found`, 404);
     }
 
+    let targetStatus;
+    if (enabled !== undefined) {
+      targetStatus = Boolean(enabled);
+    } else if (catRecord) {
+      targetStatus = !catRecord.enabled;
+    } else {
+      const currentLive = servicesInCat.some((s) => s.enabled);
+      targetStatus = !currentLive;
+    }
+
+    const updates = { enabled: targetStatus };
     if (comingSoon !== undefined) {
       updates.comingSoon = Boolean(comingSoon);
     }
 
+    if (catRecord) {
+      await catRecord.update(updates);
+    }
     if (servicesInCat.length > 0) {
       await Service.update(updates, {
-        where: whereCategory,
+        where: { category: targetCategory },
       });
     }
 
-    const statusLabel = updates.enabled ? 'now live' : 'hidden';
+    const statusLabel = targetStatus ? 'now live' : 'hidden';
     return successResponse(
       res,
-      { category: targetCategory, enabled: updates.enabled },
+      { category: targetCategory, enabled: targetStatus },
       `Category '${targetCategory}' is ${statusLabel}`
     );
   } catch (error) {
@@ -1140,8 +1160,8 @@ const toggleCategoryStatus = async (req, res) => {
 };
 
 /**
- * 10. DELETE /api/v1/admin/services/categories/:category
- * Delete all services in a category with safety check for active bookings
+ * 11. DELETE /api/v1/admin/services/categories/:category
+ * Delete category and its services with safety check for active bookings
  */
 const deleteCategory = async (req, res) => {
   const transaction = await sequelize.transaction();
@@ -1154,67 +1174,74 @@ const deleteCategory = async (req, res) => {
     }
 
     const targetCategory = category.trim();
-    const whereCategory = {
-      [Op.or]: [
-        { category: targetCategory },
-        { categoryName: targetCategory },
-        sequelize.where(sequelize.fn('LOWER', sequelize.col('category')), targetCategory.toLowerCase()),
-        sequelize.where(sequelize.fn('LOWER', sequelize.col('categoryName')), targetCategory.toLowerCase()),
-      ],
-    };
 
-    const servicesInCat = await Service.findAll({
-      where: whereCategory,
-      transaction,
-    });
+    const [catRecord, servicesInCat] = await Promise.all([
+      Category.findOne({
+        where: {
+          [Op.or]: [
+            { categoryId: targetCategory },
+            sequelize.where(sequelize.fn('LOWER', sequelize.col('name')), targetCategory.toLowerCase()),
+          ],
+        },
+        transaction,
+      }).catch(() => null),
+      Service.findAll({
+        where: { category: targetCategory },
+        transaction,
+      }),
+    ]);
 
-    if (servicesInCat.length === 0) {
-      await transaction.commit();
-      return successResponse(
-        res,
-        { category: targetCategory, deletedCount: 0 },
-        `Category '${targetCategory}' deleted successfully`
-      );
-    }
-
-    const codes = servicesInCat.map((s) => s.code);
-    const names = servicesInCat.map((s) => s.name);
-
-    // Check active bookings in any of these services
-    const activeBookingsCount = await Booking.count({
-      where: {
-        [Op.or]: [
-          { service: { [Op.in]: codes } },
-          { serviceName: { [Op.in]: names } },
-        ],
-        status: { [Op.in]: ACTIVE_BOOKING_STATUSES },
-      },
-      transaction,
-    });
-
-    if (activeBookingsCount > 0) {
+    if (!catRecord && servicesInCat.length === 0) {
       await transaction.rollback();
-      return errorResponse(
-        res,
-        `Cannot delete category '${targetCategory}' because it contains services with ${activeBookingsCount} active booking(s). Please hide the category instead.`,
-        400
-      );
+      return errorResponse(res, `Category '${targetCategory}' not found`, 404);
     }
 
-    await Service.destroy({
-      where: { category: targetCategory },
-      transaction,
-    });
+    // Safety check: active bookings in services of this category
+    if (servicesInCat.length > 0) {
+      const codes = servicesInCat.map((s) => s.code);
+      const names = servicesInCat.map((s) => s.name);
+
+      const activeBookingsCount = await Booking.count({
+        where: {
+          [Op.or]: [
+            { service: { [Op.in]: codes } },
+            { serviceName: { [Op.in]: names } },
+          ],
+          status: { [Op.in]: ACTIVE_BOOKING_STATUSES },
+        },
+        transaction,
+      });
+
+      if (activeBookingsCount > 0) {
+        await transaction.rollback();
+        return errorResponse(
+          res,
+          `Cannot delete category '${targetCategory}' because it contains services with ${activeBookingsCount} active booking(s). Please hide the category instead.`,
+          400
+        );
+      }
+
+      await Service.destroy({
+        where: { category: targetCategory },
+        transaction,
+      });
+    }
+
+    if (catRecord) {
+      await catRecord.destroy({ transaction });
+    }
 
     await transaction.commit();
 
     return successResponse(
       res,
-      { category: targetCategory, deletedCount: servicesInCat.length },
+      { category: targetCategory, deletedServicesCount: servicesInCat.length },
       `Category '${targetCategory}' and its ${servicesInCat.length} service(s) deleted successfully`
     );
   } catch (error) {
-    await transaction.rollback();
+    if (transaction && !transaction.finished) {
+      await transaction.rollback();
+    }
     return errorResponse(res, error.message || 'Failed to delete category', 500, error);
   }
 };
@@ -1765,10 +1792,19 @@ const getPublicCategories = async (req, res) => {
       ],
     });
 
-    const grouped = groupServicesByCategory(liveServices.map(formatService));
+    const liveDbCategories = await Category.findAll({
+      where: { enabled: true },
+      order: [
+        ['order', 'ASC'],
+        ['name', 'ASC'],
+      ],
+    }).catch(() => []);
+
+    const grouped = groupServicesByCategory(liveServices.map(formatService), liveDbCategories);
 
     const categories = grouped.map((c) => ({
       id: c.id,
+      categoryId: c.categoryId || c.id,
       name: c.name,
       desc: c.desc,
       icon: c.icon,

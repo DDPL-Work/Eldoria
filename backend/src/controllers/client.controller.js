@@ -5,6 +5,7 @@ const { sequelize, User, Client, Otp } = require("../database/models");
 const { successResponse, errorResponse } = require("../utills/responseHandler");
 const { generateClientId } = require("../helpers/generateClientID");
 const { logOtpToTerminal } = require("../helpers/otpLogger");
+const { getJwtSecret, JWT_EXPIRES_IN } = require("../configs/jwt.config");
 
 /**
  * Standardize phone number format (digits only, e.g. 10 digits)
@@ -55,9 +56,9 @@ const clientSendOtp = async (req, res) => {
       );
     }
 
-    // Generate 6-digit OTP code
-    const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
-    const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes expiry
+    // Generate cryptographically secure 6-digit OTP code (SEC-05)
+    const otpCode = crypto.randomInt(100000, 1000000).toString();
+    const expiresAt = new Date(Date.now() + 3 * 60 * 1000); // 3 minutes expiry
 
     // Invalidate previous unverified client OTPs for this phone
     await Otp.update(
@@ -88,16 +89,16 @@ const clientSendOtp = async (req, res) => {
       otp: otpCode,
       purpose: "login",
       role: "client",
-      expiresInMinutes: 10,
+      expiresInMinutes: 3,
     });
 
     return successResponse(
       res,
       {
         phone: cleanPhone,
-        expiresInSeconds: 600,
-        // In non-production, include OTP for easy API testing
-        otp: process.env.NODE_ENV === "production" ? undefined : otpCode,
+        expiresInSeconds: 180,
+        // Only return OTP in API body during local development or test
+        otp: (process.env.NODE_ENV === "development" || process.env.NODE_ENV === "test") ? otpCode : undefined,
       },
       `OTP sent successfully to ${cleanPhone}`,
     );
@@ -129,11 +130,10 @@ const clientVerifyOtp = async (req, res) => {
     const cleanPhone = normalizePhone(phone);
     const cleanOtp = String(otp).trim();
 
-    // Find the latest valid OTP for this phone
-    const otpRecord = await Otp.findOne({
+    // Find the latest active unverified OTP for this phone
+    const activeOtp = await Otp.findOne({
       where: {
         phone: cleanPhone,
-        otp: cleanOtp,
         isVerified: false,
         expiresAt: {
           [Op.gt]: new Date(),
@@ -142,13 +142,48 @@ const clientVerifyOtp = async (req, res) => {
       order: [["id", "DESC"]],
     });
 
-    if (!otpRecord) {
+    if (!activeOtp) {
       return errorResponse(
         res,
         "Invalid or expired OTP. Please enter the correct OTP or request a new one.",
         400,
       );
     }
+
+    // Check brute force lockout (SEC-06)
+    if (activeOtp.attempts >= 5) {
+      await activeOtp.update({ isVerified: true });
+      return errorResponse(
+        res,
+        "Maximum verification attempts exceeded. This OTP has been invalidated for security. Please request a new OTP.",
+        429,
+      );
+    }
+
+    if (activeOtp.otp !== cleanOtp) {
+      const nextAttempts = (activeOtp.attempts || 0) + 1;
+      const isBurned = nextAttempts >= 5;
+      await activeOtp.update({
+        attempts: nextAttempts,
+        isVerified: isBurned,
+      });
+
+      if (isBurned) {
+        return errorResponse(
+          res,
+          "Maximum verification attempts exceeded. This OTP has been invalidated for security. Please request a new OTP.",
+          429,
+        );
+      }
+
+      return errorResponse(
+        res,
+        `Invalid OTP. You have ${5 - nextAttempts} attempt(s) remaining.`,
+        400,
+      );
+    }
+
+    const otpRecord = activeOtp;
 
     // Mark OTP as verified
     otpRecord.isVerified = true;
@@ -186,9 +221,8 @@ const clientVerifyOtp = async (req, res) => {
         )
         .digest("hex");
 
-      const jwtSecret =
-        process.env.JWT_SECRET || "eldoria_super_secret_jwt_key_2026";
-      const jwtExpiresIn = process.env.JWT_EXPIRES_IN || "7d";
+      const jwtSecret = getJwtSecret();
+      const jwtExpiresIn = JWT_EXPIRES_IN;
 
       const token = jwt.sign(
         {
@@ -446,9 +480,8 @@ const clientRegistration = async (req, res) => {
       .update(`${newUser.id}:${newUser.phone}:${salt}:${Date.now()}`)
       .digest("hex");
 
-    const jwtSecret =
-      process.env.JWT_SECRET || "eldoria_super_secret_jwt_key_2026";
-    const jwtExpiresIn = process.env.JWT_EXPIRES_IN || "7d";
+    const jwtSecret = getJwtSecret();
+    const jwtExpiresIn = JWT_EXPIRES_IN;
 
     const token = jwt.sign(
       {

@@ -479,10 +479,14 @@ export function Bookings({ onOpenBooking, onNewBooking }) {
                       {/* WHEN Column */}
                       <td className="py-3.5 px-4 align-middle whitespace-nowrap">
                         <div className="text-xs font-semibold text-slate-800 leading-snug whitespace-nowrap">
-                          {whenDate}
+                          {b.endDate && b.endDate !== (b.startDate || b.date)
+                            ? `${whenDate} – ${fmtDate(b.endDate)}`
+                            : whenDate}
                         </div>
                         <div className="text-[11px] text-slate-400 mt-0.5 leading-snug whitespace-nowrap">
-                          {b.time}
+                          {b.startTime && b.endTime
+                            ? `${b.startTime} – ${b.endTime}`
+                            : (b.time || b.startTime || '—')}
                         </div>
                       </td>
 

@@ -1,4 +1,9 @@
 import React, { useState, useEffect } from 'react';
+import {
+  RiCalendarLine,
+  RiTimeLine,
+  RiCalendarEventLine,
+} from 'react-icons/ri';
 import { Icon } from '../../constants/icons';
 import { DatabaseLoader } from '../common/DatabaseLoader';
 import { useStore } from '../../context/StoreContext';
@@ -13,6 +18,168 @@ import {
   waHref,
   ageOf
 } from '../../constants/data';
+
+/**
+ * Safely parses availability shifts (e.g. morning, evening, night, 24hr)
+ */
+const parseAvailabilityShifts = (raw) => {
+  if (!raw) return [];
+  if (Array.isArray(raw)) return raw.filter(Boolean);
+  if (typeof raw === 'string') {
+    try {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) return parsed.filter(Boolean);
+    } catch {
+      return raw.split(',').map((s) => s.trim()).filter(Boolean);
+    }
+  }
+  return [];
+};
+
+/**
+ * Maps shift keys to readable user-friendly names
+ */
+const formatShiftName = (shift) => {
+  if (!shift || typeof shift !== 'string') return '';
+  const s = shift.trim().toLowerCase();
+  const shiftMap = {
+    morning: 'Morning Shift',
+    afternoon: 'Afternoon Shift',
+    evening: 'Evening Shift',
+    night: 'Night Shift',
+    day: 'Day Shift',
+    '24hr': '24-Hour Care',
+    '24_hours': '24-Hour Care',
+    '24 hours': '24-Hour Care',
+    '24 hour': '24-Hour Care',
+    full_time: 'Full Time',
+    part_time: 'Part Time',
+    fulltime: 'Full Time',
+    parttime: 'Part Time',
+  };
+  if (shiftMap[s]) return shiftMap[s];
+  return shift.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+};
+
+/**
+ * Safely parses date-wise availability slots
+ */
+const parseAvailabilitySlots = (rawCandidate, rawFallback) => {
+  let list = rawCandidate || rawFallback || [];
+  if (typeof list === 'string') {
+    try {
+      const parsed = JSON.parse(list);
+      list = parsed;
+    } catch {
+      list = [];
+    }
+  }
+
+  // Handle single date object format: { date: "27-10-2026", slots: [...] }
+  if (list && typeof list === 'object' && !Array.isArray(list)) {
+    if (list.date || list.slots) {
+      list = [list];
+    } else {
+      list = [];
+    }
+  }
+
+  if (!Array.isArray(list) || list.length === 0) {
+    const candidateObj = typeof rawCandidate === 'object' ? rawCandidate : null;
+    const fallbackObj = typeof rawFallback === 'object' ? rawFallback : null;
+    const directObj = candidateObj || fallbackObj;
+    if (directObj && directObj.date && directObj.slots) {
+      list = [{ date: directObj.date, slots: directObj.slots }];
+    } else {
+      list = [];
+    }
+  }
+
+  return list
+    .filter((item) => item && (item.date || item.slots || item.timeSlots))
+    .map((item) => {
+      let rawSlots = item.slots !== undefined ? item.slots : item.timeSlots;
+      if (typeof rawSlots === 'string') {
+        try {
+          const parsed = JSON.parse(rawSlots);
+          rawSlots = parsed;
+        } catch {
+          rawSlots = rawSlots.split(',').map((s) => s.trim()).filter(Boolean);
+        }
+      }
+      if (!Array.isArray(rawSlots)) {
+        rawSlots = rawSlots ? [rawSlots] : [];
+      }
+
+      const formattedSlots = rawSlots
+        .map((s) => {
+          if (!s) return null;
+          if (typeof s === 'string') return s.trim();
+          if (typeof s === 'object') {
+            if (s.time) return String(s.time).trim();
+            if (s.startTime && s.endTime) return `${s.startTime.trim()} - ${s.endTime.trim()}`;
+            return String(s.startTime || s.endTime || '').trim();
+          }
+          return String(s).trim();
+        })
+        .filter(Boolean);
+
+      return {
+        date: item.date || item.displayDate || '',
+        displayDate: item.displayDate || item.date || '',
+        slots: formattedSlots,
+      };
+    })
+    .filter((item) => item.date || item.slots.length > 0);
+};
+
+/**
+ * Formats slot date strings into readable calendar dates with day of week
+ */
+const formatSlotDate = (rawDate) => {
+  if (!rawDate) return { mainDate: '—', dayOfWeek: '', fullDateStr: '—' };
+  const str = String(rawDate).trim();
+  let year, month, day;
+
+  const dmyMatch = str.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})$/);
+  if (dmyMatch) {
+    day = parseInt(dmyMatch[1], 10);
+    month = parseInt(dmyMatch[2], 10) - 1;
+    year = parseInt(dmyMatch[3], 10);
+  } else {
+    const ymdMatch = str.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})/);
+    if (ymdMatch) {
+      year = parseInt(ymdMatch[1], 10);
+      month = parseInt(ymdMatch[2], 10) - 1;
+      day = parseInt(ymdMatch[3], 10);
+    }
+  }
+
+  if (year && month !== undefined && day) {
+    const d = new Date(year, month, day);
+    if (!isNaN(d.getTime())) {
+      const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+      const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      const dayOfWeek = dayNames[d.getDay()];
+      const dayPad = String(day).padStart(2, '0');
+      const monthPad = String(month + 1).padStart(2, '0');
+      return {
+        mainDate: `${dayPad} ${monthNames[month]} ${year}`,
+        displayDate: `${dayPad}-${monthPad}-${year}`,
+        dayOfWeek,
+        fullDateStr: `${dayOfWeek}, ${dayPad} ${monthNames[month]} ${year}`,
+      };
+    }
+  }
+
+  return {
+    mainDate: str,
+    displayDate: str,
+    dayOfWeek: '',
+    fullDateStr: str,
+  };
+};
+
 
 export function ApplicationDetail({ appId, onBack, onPreviewFile, onShowToast }) {
   const {
@@ -142,6 +309,16 @@ export function ApplicationDetail({ appId, onBack, onPreviewFile, onShowToast })
       setPermLoading(false);
     }
   };
+
+  // Safely extract availability shifts and calendar date slots
+  const availabilityShiftsList = parseAvailabilityShifts(
+    a?.availability || a?.raw?.availability || currentStaffRequest?.availability
+  );
+
+  const availabilitySlotsList = parseAvailabilitySlots(
+    a?.availabilitySlots || a?.raw?.availabilitySlots,
+    currentStaffRequest?.availabilitySlots
+  );
 
   if (dataLoading && !a) {
     return (
@@ -470,26 +647,46 @@ export function ApplicationDetail({ appId, onBack, onPreviewFile, onShowToast })
           </h1>
         </div>
 
-        {/* Status Pill Badge */}
-        <span
-          className={`px-3 py-1 rounded-full text-xs font-bold whitespace-nowrap ${
-            st === 'pending'
-              ? 'bg-[#FEF3C7] text-[#92400E]'
+        {/* Header Right Actions: On Duty status + Approval status badge */}
+        <div className="flex items-center gap-2">
+          {a.onDuty !== undefined && (
+            <span
+              className={`px-2.5 py-1 rounded-full text-xs font-bold whitespace-nowrap flex items-center gap-1.5 ${
+                a.onDuty
+                  ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+                  : 'bg-slate-100 text-slate-600 border border-slate-200'
+              }`}
+            >
+              <span
+                className={`w-1.5 h-1.5 rounded-full ${
+                  a.onDuty ? 'bg-emerald-500 animate-pulse' : 'bg-slate-400'
+                }`}
+              />
+              <span>{a.onDuty ? 'On Duty' : 'Off Duty'}</span>
+            </span>
+          )}
+
+          {/* Status Pill Badge */}
+          <span
+            className={`px-3 py-1 rounded-full text-xs font-bold whitespace-nowrap ${
+              st === 'pending'
+                ? 'bg-[#FEF3C7] text-[#92400E]'
+                : st === 'approved'
+                ? 'bg-[#DCFCE7] text-[#166534]'
+                : st === 'changes'
+                ? 'bg-[#E0F2FE] text-[#075985]'
+                : 'bg-[#FEE2E2] text-[#991B1B]'
+            }`}
+          >
+            {st === 'pending'
+              ? 'Under review'
               : st === 'approved'
-              ? 'bg-[#DCFCE7] text-[#166534]'
+              ? 'Approved'
               : st === 'changes'
-              ? 'bg-[#E0F2FE] text-[#075985]'
-              : 'bg-[#FEE2E2] text-[#991B1B]'
-          }`}
-        >
-          {st === 'pending'
-            ? 'Under review'
-            : st === 'approved'
-            ? 'Approved'
-            : st === 'changes'
-            ? 'Changes requested'
-            : 'Not approved'}
-        </span>
+              ? 'Changes requested'
+              : 'Not approved'}
+          </span>
+        </div>
       </div>
 
       {/* 2. Main 2-Column Split Layout with Compact Gap */}
@@ -637,9 +834,117 @@ export function ApplicationDetail({ appId, onBack, onPreviewFile, onShowToast })
                 <div className="text-slate-400 font-medium">Languages</div>
                 <div className="font-bold text-slate-800">{(a.languages || []).join(', ') || '—'}</div>
 
-                <div className="text-slate-400 font-medium">Available for</div>
-                <div className="font-bold text-slate-800">{(a.availability || []).join(', ') || '—'}</div>
+                <div className="text-slate-400 font-medium self-center">Available shifts</div>
+                <div className="flex flex-wrap gap-1.5 items-center">
+                  {availabilityShiftsList.length > 0 ? (
+                    availabilityShiftsList.map((shift, idx) => (
+                      <span
+                        key={idx}
+                        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-emerald-50 text-emerald-800 border border-emerald-200/80 font-semibold text-[11px]"
+                      >
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
+                        {formatShiftName(shift)}
+                      </span>
+                    ))
+                  ) : (
+                    <span className="font-bold text-slate-800">
+                      {(a.availability || []).join(', ') || '—'}
+                    </span>
+                  )}
+                </div>
               </div>
+            </div>
+
+            {/* Staff Availability & Calendar Slots Section */}
+            <div className="pt-5 border-t border-slate-100 space-y-3">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1.5">
+                <div className="flex items-center gap-2">
+                  <div className="w-7 h-7 rounded-lg bg-[#0A2342]/5 text-[#0A2342] flex items-center justify-center shrink-0">
+                    <RiCalendarLine className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-bold text-slate-900 leading-none">
+                      Staff Availability &amp; Calendar Slots
+                    </h3>
+                    <p className="text-[11px] text-slate-400 font-medium mt-0.5">
+                      Specific dates and time intervals selected by staff
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  {availabilitySlotsList.length > 0 && (
+                    <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-800 text-[11px] font-bold border border-emerald-200/80">
+                      <RiTimeLine className="w-3.5 h-3.5 text-emerald-600" />
+                      <span>
+                        {availabilitySlotsList.length} date{availabilitySlotsList.length === 1 ? '' : 's'} scheduled
+                      </span>
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              {availabilitySlotsList.length > 0 ? (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
+                  {availabilitySlotsList.map((entry, idx) => {
+                    const dateMeta = formatSlotDate(entry.displayDate || entry.date);
+                    return (
+                      <div
+                        key={idx}
+                        className="p-3.5 rounded-xl border border-slate-200/90 bg-slate-50/60 hover:bg-white hover:border-[#0A2342]/30 hover:shadow-2xs transition-all space-y-2.5"
+                      >
+                        {/* Date Card Header */}
+                        <div className="flex items-center justify-between gap-2 pb-2 border-b border-slate-200/70">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0" />
+                            <span className="font-extrabold text-xs text-slate-900 truncate">
+                              {dateMeta.fullDateStr || dateMeta.mainDate}
+                            </span>
+                          </div>
+                          <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-white text-slate-600 border border-slate-200 shrink-0">
+                            {entry.slots.length} slot{entry.slots.length === 1 ? '' : 's'}
+                          </span>
+                        </div>
+
+                        {/* Time Slot Chips */}
+                        <div className="flex flex-wrap gap-2">
+                          {entry.slots.map((slotStr, sIdx) => (
+                            <div
+                              key={sIdx}
+                              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-white border border-slate-200 text-xs font-semibold text-slate-800 shadow-2xs"
+                            >
+                              <RiTimeLine className="w-3.5 h-3.5 text-[#0A2342]/70 shrink-0" />
+                              <span>{slotStr}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="p-4 rounded-xl border border-dashed border-slate-200 bg-slate-50/50 flex flex-col items-center justify-center text-center space-y-1.5">
+                  <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-slate-400">
+                    <RiCalendarEventLine className="w-4 h-4" />
+                  </div>
+                  <div className="text-xs font-bold text-slate-700">
+                    No custom calendar date slots defined yet
+                  </div>
+                  <div className="text-[11px] text-slate-400 max-w-sm">
+                    {availabilityShiftsList.length > 0 ? (
+                      <span>
+                        Staff is currently available for standard shift(s):{' '}
+                        <strong className="text-slate-600">
+                          {availabilityShiftsList.map(formatShiftName).join(', ')}
+                        </strong>
+                        . Date-specific slots can be defined from the staff app.
+                      </span>
+                    ) : (
+                      'Staff can choose dates and define specific time slots (e.g. 06:00 AM – 08:00 AM) through the mobile app.'
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Emergency Contact */}

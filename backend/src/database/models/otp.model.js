@@ -39,6 +39,11 @@ module.exports = (sequelize) => {
     verificationToken: {
       type: DataTypes.STRING(255),
       allowNull: true
+    },
+    attempts: {
+      type: DataTypes.INTEGER,
+      defaultValue: 0,
+      allowNull: false
     }
   }, {
     tableName: 'otps',

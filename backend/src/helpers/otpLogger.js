@@ -10,7 +10,7 @@ const logOtpToTerminal = ({
   otp = "",
   purpose = "login",
   role = null,
-  expiresInMinutes = 10,
+  expiresInMinutes = 3,
 }) => {
   const isEmail = String(channel).toUpperCase() === "EMAIL";
   const icon = isEmail ? "📧" : "📱";

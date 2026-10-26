@@ -2,6 +2,15 @@ const { Op } = require("sequelize");
 const { sequelize, User, Staff, Client, Booking } = require("../database/models");
 const { errorResponse, successResponse } = require("../utills/responseHandler");
 const { generateStaffId } = require("../helpers/generateStaffID");
+const {
+  checkAndMarkDateExceededBookings,
+  getDateExceededBookings: fetchDateExceededBookings,
+} = require("../services/bookingExpiry.service");
+const {
+  processStaffAvailabilitySlots,
+  hasAvailabilitySlotsInput,
+} = require("../helpers/availabilitySlots.helper");
+
 
 /**
  * Helper to build lookup condition by either primary key id or staffId string
@@ -46,7 +55,7 @@ const getStaffRequests = async (req, res) => {
       onDuty,
       search,
       page = 1,
-      limit = 10,
+      limit = 100,
       sortBy = "createdAt",
       sortOrder = "DESC",
     } = req.query;
@@ -91,6 +100,10 @@ const getStaffRequests = async (req, res) => {
       ];
     }
 
+    const ALLOWED_STAFF_SORT = ['id', 'createdAt', 'updatedAt', 'staffId', 'city', 'approval', 'docs', 'onDuty', 'regNo'];
+    const safeStaffSortBy = ALLOWED_STAFF_SORT.includes(sortBy) ? sortBy : 'createdAt';
+    const safeStaffSortOrder = String(sortOrder).toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
+
     const { count, rows: staffRequests } = await Staff.findAndCountAll({
       where: staffWhere,
       include: [
@@ -102,7 +115,7 @@ const getStaffRequests = async (req, res) => {
           required: false,
         },
       ],
-      order: [[sortBy, sortOrder.toUpperCase() === "ASC" ? "ASC" : "DESC"]],
+      order: [[safeStaffSortBy, safeStaffSortOrder]],
       limit: pageSize,
       offset,
       distinct: true,
@@ -651,21 +664,12 @@ const rejectStaffRequest = async (req, res) => {
       reason ||
       reviewNote ||
       note ||
-      ""
+      "Application rejected by care desk"
     ).trim();
 
     if (!id) {
       await transaction.rollback();
       return errorResponse(res, "Staff ID or request ID is required", 400);
-    }
-
-    if (!rejectionReason) {
-      await transaction.rollback();
-      return errorResponse(
-        res,
-        "Please provide a reason for rejecting the staff application. Reason cannot be blank.",
-        400,
-      );
     }
 
     const staff = await Staff.findOne({
@@ -1078,6 +1082,9 @@ const createAdminStaff = async (req, res) => {
         skills: parsedSkills,
         language: parsedLanguages,
         availability: parsedAvailability,
+        availabilitySlots: hasAvailabilitySlotsInput(req.body)
+          ? processStaffAvailabilitySlots(req.body, [])
+          : [],
         emergencyName: emergencyName ? String(emergencyName).trim() : null,
         emergencyPhone: emergencyPhone ? String(emergencyPhone).replace(/[^\d+]/g, "").trim() : null,
         emergencyRelation: emergencyRelation ? String(emergencyRelation).trim() : null,
@@ -1148,7 +1155,7 @@ const getClients = async (req, res) => {
       service,
       search,
       page = 1,
-      limit = 10,
+      limit = 100,
       sortBy = "createdAt",
       sortOrder = "DESC",
     } = req.query;
@@ -1192,6 +1199,10 @@ const getClients = async (req, res) => {
       ];
     }
 
+    const ALLOWED_CLIENT_SORT = ['id', 'createdAt', 'updatedAt', 'city', 'clientId'];
+    const safeClientSortBy = ALLOWED_CLIENT_SORT.includes(sortBy) ? sortBy : 'createdAt';
+    const safeClientSortOrder = String(sortOrder).toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
+
     const { count, rows: clients } = await Client.findAndCountAll({
       where: clientWhere,
       include: [
@@ -1202,7 +1213,7 @@ const getClients = async (req, res) => {
           required: false,
         },
       ],
-      order: [[sortBy, sortOrder.toUpperCase() === "ASC" ? "ASC" : "DESC"]],
+      order: [[safeClientSortBy, safeClientSortOrder]],
       limit: pageSize,
       offset,
       distinct: true,
@@ -1237,35 +1248,184 @@ const getClients = async (req, res) => {
 
 /**
  * 6. Fetch single client by clientId or primary key id
+ * Clean non-redundant response: Client personal details followed by bookings with patient information
  * GET /api/v1/admin/clients/:clientId
  */
 const getClientByClientId = async (req, res) => {
   try {
-    const { clientId } = req.params;
+    const clientIdParam = req.params.clientId || req.params.clientID || req.params.id;
 
-    if (!clientId) {
+    if (!clientIdParam) {
       return errorResponse(res, "Client ID or clientId string is required", 400);
     }
 
+    // 1. Fetch Client profile with associated User account
     const client = await Client.findOne({
-      where: buildClientLookupCondition(clientId),
+      where: buildClientLookupCondition(clientIdParam),
       include: [
         {
           model: User,
           as: "user",
-          attributes: ["id", "name", "email", "phone", "role", "isActive", "createdAt"],
+          attributes: ["id", "name", "email", "phone", "role", "isActive", "createdAt", "updatedAt"],
         },
       ],
     });
 
     if (!client) {
-      return errorResponse(res, `Client '${clientId}' not found`, 404);
+      return errorResponse(res, `Client '${clientIdParam}' not found`, 404);
     }
+
+    // 2. Build matching criteria for all bookings associated with this client
+    const bookingOrConditions = [];
+    if (client.clientId) {
+      bookingOrConditions.push({ clientId: client.clientId });
+    }
+    bookingOrConditions.push({ clientId: String(client.id) });
+    if (client.user && client.user.phone) {
+      bookingOrConditions.push({ clientPhone: client.user.phone });
+    }
+    if (client.emergencyPhone) {
+      bookingOrConditions.push({ clientPhone: client.emergencyPhone });
+    }
+
+    // 3. Fetch all bookings for this client
+    const bookings = await Booking.findAll({
+      where: {
+        [Op.or]: bookingOrConditions,
+      },
+      order: [["createdAt", "DESC"]],
+      include: [
+        {
+          model: Staff,
+          as: "assignedStaff",
+          required: false,
+          attributes: ["id", "staffId", "city", "area", "qualification"],
+          include: [
+            {
+              model: User,
+              as: "user",
+              required: false,
+              attributes: ["id", "name", "email", "phone"],
+            },
+          ],
+        },
+      ],
+    });
+
+    // 4. Format bookings — patient details depend on each specific booking
+    const formattedBookings = bookings.map((b) => {
+      const bJson = b.toJSON ? b.toJSON() : b;
+      return {
+        id: bJson.id,
+        code: bJson.code,
+        serviceId: bJson.serviceId,
+        service: bJson.service,
+        serviceName: bJson.serviceName,
+        categoryId: bJson.categoryId,
+        category: bJson.category,
+        plan: bJson.plan,
+        date: bJson.date,
+        time: bJson.time,
+        startDate: bJson.startDate || bJson.date,
+        endDate: bJson.endDate || bJson.startDate || bJson.date,
+        startTime: bJson.startTime || bJson.time,
+        endTime: bJson.endTime || null,
+        status: bJson.status,
+        price: bJson.price,
+        source: bJson.source,
+        notes: bJson.notes,
+        patient: {
+          name: bJson.patientName,
+          age: bJson.patientAge,
+          gender: bJson.patientGender,
+          relation: bJson.relation,
+          address: bJson.address,
+          area: bJson.area,
+          city: bJson.city,
+        },
+        staffId: bJson.staffId,
+        assignedStaff: bJson.assignedStaff
+          ? {
+              id: bJson.assignedStaff.id,
+              staffId: bJson.assignedStaff.staffId,
+              name: bJson.assignedStaff.user?.name || "Assigned Caregiver",
+              phone: bJson.assignedStaff.user?.phone || null,
+              qualification: bJson.assignedStaff.qualification,
+              city: bJson.assignedStaff.city,
+            }
+          : null,
+        confirmedBy: bJson.confirmedBy,
+        confirmedAt: bJson.confirmedAt,
+        assignedBy: bJson.assignedBy,
+        assignedAt: bJson.assignedAt,
+        checkInAt: bJson.checkInAt,
+        checkOutAt: bJson.checkOutAt,
+        tasks: bJson.tasks || [],
+        files: bJson.files || [],
+        reports: bJson.reports || [],
+        history: bJson.history || [],
+        createdAt: bJson.createdAt,
+        updatedAt: bJson.updatedAt,
+      };
+    });
+
+    // 5. Unique patient summary derived from the client's bookings
+    const patientMap = new Map();
+    formattedBookings.forEach((b) => {
+      if (b.patient && b.patient.name) {
+        const key = b.patient.name.trim().toLowerCase();
+        if (!patientMap.has(key)) {
+          patientMap.set(key, {
+            name: b.patient.name,
+            age: b.patient.age,
+            gender: b.patient.gender,
+            relation: b.patient.relation,
+            totalBookings: 1,
+            lastBookingCode: b.code,
+          });
+        } else {
+          patientMap.get(key).totalBookings += 1;
+        }
+      }
+    });
+    const patients = Array.from(patientMap.values());
+
+    // 6. Clean Client personal details (strictly client identity, no patient data)
+    const clientPersonalDetails = {
+      id: client.id,
+      clientId: client.clientId,
+      userId: client.userId,
+      name: client.user?.name || "Client",
+      email: client.user?.email || null,
+      phone: client.user?.phone || client.emergencyPhone || null,
+      city: client.city,
+      area: client.area,
+      address: client.address,
+      pincode: client.pincode,
+      landmark: client.landmark,
+      source: client.source,
+      preferredLanguage: client.preferredLanguage,
+      status: client.status,
+      emergencyContact: {
+        name: client.emergencyName || null,
+        phone: client.emergencyPhone || null,
+        relation: client.emergencyRelation || null,
+      },
+      createdAt: client.createdAt,
+      updatedAt: client.updatedAt,
+    };
+
+    const responseData = {
+      client: clientPersonalDetails,
+      patients,
+      totalBookings: formattedBookings.length,
+      bookings: formattedBookings,
+    };
 
     return successResponse(
       res,
-      client,
-      "Client details retrieved successfully",
+      responseData,
+      "Client details and bookings retrieved successfully",
     );
   } catch (error) {
     return errorResponse(
@@ -1292,10 +1452,15 @@ const getBookings = async (req, res) => {
       staffId,
       search,
       page = 1,
-      limit = 1000,
+      limit = 100,
       sortBy = "createdAt",
       sortOrder = "DESC",
     } = req.query;
+
+    // Automatically check and mark overdue unconfirmed bookings as 'date_exceeded'
+    await checkAndMarkDateExceededBookings({ city }).catch((err) => {
+      console.warn("Date exceeded check in getBookings warning:", err.message);
+    });
 
     const pageNumber = Math.max(1, parseInt(page, 10) || 1);
     const pageSize = Math.max(1, parseInt(limit, 10) || 10);
@@ -1303,15 +1468,23 @@ const getBookings = async (req, res) => {
 
     const todayStr = new Date().toISOString().split("T")[0];
 
+    const bookingWhere = {};
+    const andConditions = [];
+
     if (status && status !== "all") {
       if (status === "date_exceeded") {
-        bookingWhere[Op.or] = [
-          { status: "date_exceeded" },
-          {
-            date: { [Op.lt]: todayStr },
-            status: { [Op.notIn]: ["completed", "cancelled"] },
-          },
-        ];
+        andConditions.push({
+          [Op.or]: [
+            { status: "date_exceeded" },
+            {
+              [Op.or]: [
+                { endDate: { [Op.ne]: null, [Op.lt]: todayStr } },
+                { endDate: null, date: { [Op.lt]: todayStr } },
+              ],
+              status: { [Op.notIn]: ["completed", "cancelled"] },
+            },
+          ],
+        });
       } else {
         bookingWhere.status = status;
       }
@@ -1340,16 +1513,22 @@ const getBookings = async (req, res) => {
     // Search query across code, clientName, clientPhone, patientName, address, serviceName, notes
     if (search && search.trim()) {
       const searchTerm = `%${search.trim()}%`;
-      bookingWhere[Op.or] = [
-        { code: { [Op.like]: searchTerm } },
-        { clientName: { [Op.like]: searchTerm } },
-        { clientPhone: { [Op.like]: searchTerm } },
-        { patientName: { [Op.like]: searchTerm } },
-        { address: { [Op.like]: searchTerm } },
-        { serviceName: { [Op.like]: searchTerm } },
-        { notes: { [Op.like]: searchTerm } },
-        { staffId: { [Op.like]: searchTerm } },
-      ];
+      andConditions.push({
+        [Op.or]: [
+          { code: { [Op.like]: searchTerm } },
+          { clientName: { [Op.like]: searchTerm } },
+          { clientPhone: { [Op.like]: searchTerm } },
+          { patientName: { [Op.like]: searchTerm } },
+          { address: { [Op.like]: searchTerm } },
+          { serviceName: { [Op.like]: searchTerm } },
+          { notes: { [Op.like]: searchTerm } },
+          { staffId: { [Op.like]: searchTerm } },
+        ],
+      });
+    }
+
+    if (andConditions.length > 0) {
+      bookingWhere[Op.and] = andConditions;
     }
 
     const { count, rows: bookings } = await Booking.findAndCountAll({
@@ -1370,7 +1549,10 @@ const getBookings = async (req, res) => {
           ],
         },
       ],
-      order: [[sortBy, sortOrder.toUpperCase() === "ASC" ? "ASC" : "DESC"]],
+      order: [[
+        ['id', 'createdAt', 'updatedAt', 'bookingId', 'status', 'startDate', 'endDate', 'totalAmount', 'date'].includes(sortBy) ? sortBy : 'createdAt',
+        String(sortOrder).toUpperCase() === 'ASC' ? 'ASC' : 'DESC'
+      ]],
       limit: pageSize,
       offset,
       distinct: true,
@@ -1380,7 +1562,23 @@ const getBookings = async (req, res) => {
 
     const normalizedBookings = (bookings || []).map((b) => {
       const bObj = b.toJSON ? b.toJSON() : { ...b };
-      if (bObj.date && bObj.date < todayStr && !["completed", "cancelled"].includes(bObj.status)) {
+      bObj.startDate = bObj.startDate || bObj.date || null;
+      bObj.endDate = bObj.endDate || bObj.startDate || bObj.date || null;
+
+      let sTime = (bObj.startTime || "").trim();
+      let eTime = (bObj.endTime || "").trim();
+      if ((!sTime || !eTime) && bObj.time && typeof bObj.time === "string" && (bObj.time.includes("-") || bObj.time.includes("–") || bObj.time.includes("—"))) {
+        const parts = bObj.time.split(/[-–—]/).map((t) => t.trim());
+        if (parts.length >= 2) {
+          if (!sTime) sTime = parts[0];
+          if (!eTime) eTime = parts[1];
+        }
+      }
+      bObj.startTime = sTime || bObj.time || null;
+      bObj.endTime = eTime || null;
+
+      const cmpDate = bObj.endDate || bObj.date;
+      if (cmpDate && cmpDate < todayStr && !["completed", "cancelled"].includes(bObj.status)) {
         bObj.status = "date_exceeded";
       }
       return bObj;
@@ -1449,7 +1647,25 @@ const getBookingById = async (req, res) => {
 
     const todayStr = new Date().toISOString().split("T")[0];
     const bObj = booking.toJSON ? booking.toJSON() : { ...booking };
-    if (bObj.date && bObj.date < todayStr && !["completed", "cancelled"].includes(bObj.status)) {
+
+    // Guarantee that startDate, endDate, startTime, and endTime are always populated and clean
+    bObj.startDate = bObj.startDate || bObj.date || null;
+    bObj.endDate = bObj.endDate || bObj.startDate || bObj.date || null;
+
+    let sTime = (bObj.startTime || "").trim();
+    let eTime = (bObj.endTime || "").trim();
+    if ((!sTime || !eTime) && bObj.time && typeof bObj.time === "string" && (bObj.time.includes("-") || bObj.time.includes("–") || bObj.time.includes("—"))) {
+      const parts = bObj.time.split(/[-–—]/).map((t) => t.trim());
+      if (parts.length >= 2) {
+        if (!sTime) sTime = parts[0];
+        if (!eTime) eTime = parts[1];
+      }
+    }
+    bObj.startTime = sTime || bObj.time || null;
+    bObj.endTime = eTime || null;
+
+    const cmpDate = bObj.endDate || bObj.date;
+    if (cmpDate && cmpDate < todayStr && !["completed", "cancelled"].includes(bObj.status)) {
       bObj.status = "date_exceeded";
     }
 
@@ -1464,6 +1680,54 @@ const getBookingById = async (req, res) => {
       error.message || "Failed to fetch booking details",
       500,
       error,
+    );
+  }
+};
+
+/**
+ * 7.1 Process and mark all overdue unconfirmed bookings as 'date_exceeded'
+ * POST /api/v1/admin/bookings/mark-date-exceeded
+ */
+const markDateExceededBookings = async (req, res) => {
+  try {
+    const { city } = req.body || req.query || {};
+    const result = await checkAndMarkDateExceededBookings({ city });
+
+    return successResponse(
+      res,
+      result,
+      `Processed date-exceeded bookings successfully. ${result.updatedCount} booking(s) marked as date exceeded.`
+    );
+  } catch (error) {
+    return errorResponse(
+      res,
+      error.message || "Failed to mark date-exceeded bookings",
+      500,
+      error
+    );
+  }
+};
+
+/**
+ * 7.2 Fetch all bookings with status 'date_exceeded'
+ * GET /api/v1/admin/bookings/date-exceeded
+ */
+const getDateExceededBookings = async (req, res) => {
+  try {
+    const { city, search, page, limit } = req.query;
+    const result = await fetchDateExceededBookings({ city, search, page, limit });
+
+    return successResponse(
+      res,
+      result,
+      "Date-exceeded bookings retrieved successfully"
+    );
+  } catch (error) {
+    return errorResponse(
+      res,
+      error.message || "Failed to fetch date-exceeded bookings",
+      500,
+      error
     );
   }
 };
@@ -1486,6 +1750,8 @@ module.exports = {
   getClientByClientId,
   getBookings,
   getBookingById,
+  markDateExceededBookings,
+  getDateExceededBookings,
   getEnquiries,
   getEnquiryById,
 };

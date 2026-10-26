@@ -17,7 +17,8 @@ import {
 import { Icon } from '../../constants/icons';
 import { DatabaseLoader } from '../common/DatabaseLoader';
 import { useStore } from '../../context/StoreContext';
-import { bookingAPI, cancellationAPI } from '../../services/api';
+import { Link } from 'react-router-dom';
+import { bookingAPI, cancellationAPI, getStaffDocumentViewUrl } from '../../services/api';
 import { openDocument } from '../../services/documentViewer';
 import {
   fmtDate,
@@ -33,6 +34,74 @@ import {
   DEFAULT_CITIES
 } from '../../constants/data';
 import visitReportNurseImg from '../../assets/visit-report-nurse.png';
+
+/**
+ * Helper to extract documents list for a staff member and generate view document API URLs
+ */
+const getStaffDocumentsList = (staffObj) => {
+  if (!staffObj) return [];
+  let files = staffObj.files || staffObj.raw?.files || {};
+  if (typeof files === 'string') {
+    try {
+      files = JSON.parse(files);
+    } catch {
+      files = {};
+    }
+  }
+
+  const DOC_DEFS = [
+    { key: 'idProof', label: 'ID Proof', aliases: ['id_proof', 'idproof', 'aadhar', 'aadharCard', 'photo_id'] },
+    { key: 'qualification', label: 'Qualification Certificate', aliases: ['qualification_certificate', 'certificate', 'qualificationCertificate', 'qualificationcert'] },
+    { key: 'experience', label: 'Experience Letter', aliases: ['experience_letter', 'experienceletter', 'experienceLetter'] },
+    { key: 'police', label: 'Police Verification', aliases: ['police_verification', 'policeverification', 'policeVerification'] },
+  ];
+
+  const results = [];
+  const staffIdentifier = staffObj.staffId || staffObj.id || staffObj.backendId;
+
+  DOC_DEFS.forEach((def) => {
+    let fileItem = files[def.key];
+    if (!fileItem && Array.isArray(def.aliases)) {
+      for (const alias of def.aliases) {
+        if (files[alias]) {
+          fileItem = files[alias];
+          break;
+        }
+      }
+    }
+
+    if (!fileItem && Array.isArray(files)) {
+      fileItem = files.find((f) => f && (f.k === def.key || f.key === def.key || def.aliases.includes(f.k || f.key)));
+    }
+
+    if (fileItem) {
+      const fileSrc = typeof fileItem === 'string' ? fileItem : (fileItem.url || fileItem.data || '');
+      const fileName = (typeof fileItem === 'object' && (fileItem.name || fileItem.filename))
+        ? (fileItem.name || fileItem.filename)
+        : `${def.label}.pdf`;
+      const isPdf = typeof fileItem === 'object' ? fileItem.isPdf : /\.pdf($|\?)/i.test(fileSrc);
+
+      const viewUrl = getStaffDocumentViewUrl({
+        url: fileSrc.startsWith('http') ? fileSrc : undefined,
+        staffId: staffIdentifier,
+        fileKey: def.key,
+        filename: fileName,
+        format: isPdf ? 'pdf' : undefined,
+      }) || fileSrc;
+
+      results.push({
+        key: def.key,
+        label: def.label,
+        name: fileName,
+        url: viewUrl,
+        isPdf,
+        raw: fileItem,
+      });
+    }
+  });
+
+  return results;
+};
 
 export function BookingDetail({ bookingId, onBack, onShowToast }) {
   const {
@@ -182,58 +251,27 @@ export function BookingDetail({ bookingId, onBack, onShowToast }) {
       ? { ...bInitial, status: 'date_exceeded' }
       : bInitial;
 
-  // Loading state when initial detail hasn't arrived
-  if (bookingDetailLoading && !b) {
-    return (
-      <div className="p-4 sm:p-6 lg:p-7 w-full max-w-[1400px] mx-auto space-y-4">
-        <button
-          type="button"
-          onClick={onBack}
-          className="h-9 px-3.5 inline-flex items-center gap-1.5 rounded-lg bg-white border border-slate-200 text-xs font-bold text-slate-700 hover:bg-slate-50 transition cursor-pointer shadow-2xs"
-        >
-          <Icon name="back" size={16} />
-          <span>Back</span>
-        </button>
-        <div className="bg-white rounded-2xl border border-slate-200/90 shadow-2xs overflow-hidden">
-          <DatabaseLoader
-            title="Fetching Booking Details from Database..."
-            subtitle="Connecting to Eldoria backend server"
-          />
-        </div>
-      </div>
-    );
-  }
-
-  // Not found fallback
-  if (!b) {
-    return (
-      <div className="p-4 sm:p-6 lg:p-7 w-full max-w-[1400px] mx-auto space-y-4">
-        <button
-          type="button"
-          onClick={onBack}
-          className="h-9 px-3.5 inline-flex items-center gap-1.5 rounded-lg bg-white border border-slate-200 text-xs font-bold text-slate-700 hover:bg-slate-50 transition cursor-pointer shadow-2xs"
-        >
-          <Icon name="back" size={16} />
-          <span>Back</span>
-        </button>
-        <div className="bg-white rounded-2xl p-10 border border-slate-200 text-center text-slate-500 font-bold text-sm shadow-2xs">
-          {bookingDetailError || 'Booking not found'}
-        </div>
-      </div>
-    );
-  }
-
   const s = svcB(b);
-  const st = b.assignedStaff
+  const st = b?.assignedStaff
     ? {
         id: b.assignedStaff.id || b.assignedStaff.staffId,
+        staffId: b.assignedStaff.staffId || b.assignedStaff.id,
         name: b.assignedStaff.user?.name || b.assignedStaff.name || 'Staff Member',
         phone: b.assignedStaff.user?.phone || b.assignedStaff.phone || '',
         role: b.assignedStaff.qualification || b.assignedStaff.role || 'Caregiver',
         city: b.assignedStaff.city,
-        area: b.assignedStaff.area
+        area: b.assignedStaff.area,
+        files: b.assignedStaff.files || {},
+        raw: b.assignedStaff,
       }
-    : data?.staff?.[b.staffId];
+    : data?.staff?.[b?.staffId]
+    ? {
+        ...data.staff[b.staffId],
+        id: data.staff[b.staffId].id || b.staffId,
+        staffId: data.staff[b.staffId].staffId || b.staffId,
+        files: data.staff[b.staffId].files || {},
+      }
+    : null;
 
   const safeArray = (arr) => {
     if (!arr) return [];
@@ -252,8 +290,8 @@ export function BookingDetail({ bookingId, onBack, onShowToast }) {
   const availableStaffList = safeArray(availableStaff);
   const backendStaffList = safeArray(backendStaffRequests);
   const allStaffRaw = safeArray(staffList());
-  const bc = String(b.city || bCity(b) || DEFAULT_CITIES[0].id).toLowerCase().trim();
-  const bookingArea = (b.area || '').trim();
+  const bc = String(b?.city || bCity(b) || DEFAULT_CITIES[0].id).toLowerCase().trim();
+  const bookingArea = (b?.area || '').trim();
 
   // Helper to normalize text and match area strings intelligently
   const isAreaMatch = (staffArea, targetArea) => {
@@ -401,16 +439,45 @@ export function BookingDetail({ bookingId, onBack, onShowToast }) {
     return data?.staff?.[by]?.name || by;
   };
 
-  const statusObj = ST[b.status] || { label: b.status, cls: 'bg-[#FEF5E7] text-[#9A5B07]' };
+  const statusObj = ST[b?.status] || { label: b?.status || 'requested', cls: 'bg-[#FEF5E7] text-[#9A5B07]' };
   const statusLabel = statusObj.label.toLowerCase();
 
-  const serviceDisplayName = b.serviceName || s?.name || b.service || 'Service';
+  const serviceDisplayName = b?.serviceName || s?.name || b?.service || 'Service';
 
-  const msg = `Hello ${b.clientName}, your Eldoria ${serviceDisplayName} booking ${b.code} for ${
-    b.patientName
-  } is ${statusLabel} for ${fmtDate(b.date)} at ${b.time}.${
-    st ? ` Your caregiver: ${st.name} (+91 ${st.phone}).` : ''
-  } – Eldoria Care at Home`;
+  let startTimeVal = (b?.startTime || '').trim();
+  let endTimeVal = (b?.endTime || '').trim();
+
+  // If start/end time not set directly, parse from b.time string like "09:00 AM - 09:00 PM"
+  if ((!startTimeVal || !endTimeVal) && b?.time && typeof b.time === 'string' && (b.time.includes('-') || b.time.includes('–') || b.time.includes('—'))) {
+    const timeParts = b.time.split(/[-–—]/).map((t) => t.trim());
+    if (timeParts.length >= 2) {
+      if (!startTimeVal) startTimeVal = timeParts[0];
+      if (!endTimeVal) endTimeVal = timeParts[1];
+    }
+  }
+
+  const startDateRaw = b?.startDate || b?.date || '';
+  const endDateRaw = b?.endDate || b?.startDate || b?.date || '';
+  const startDateDisplay = startDateRaw ? fmtDate(startDateRaw) : '—';
+  const endDateDisplay = endDateRaw ? fmtDate(endDateRaw) : '—';
+
+  const scheduleDateDisplay = b?.endDate && b.endDate !== (b?.startDate || b?.date)
+    ? `${startDateDisplay} – ${endDateDisplay}`
+    : startDateDisplay;
+  const scheduleTimeDisplay = startTimeVal && endTimeVal
+    ? `${startTimeVal} – ${endTimeVal}`
+    : (startTimeVal || endTimeVal || b?.time || '');
+  const scheduleFullDisplay = scheduleTimeDisplay
+    ? `${scheduleDateDisplay}, ${scheduleTimeDisplay}`
+    : scheduleDateDisplay;
+
+  const msg = b
+    ? `Hello ${b.clientName || 'Client'}, your Eldoria ${serviceDisplayName} booking ${b.code || ''} for ${
+        b.patientName || 'Patient'
+      } is ${statusLabel} for ${scheduleFullDisplay}.${
+        st ? ` Your caregiver: ${st.name} (+91 ${st.phone}).` : ''
+      } – Eldoria Care at Home`
+    : '';
 
   const nextStepMap = {
     requested: ['confirmed', 'Confirm request'],
@@ -419,18 +486,18 @@ export function BookingDetail({ bookingId, onBack, onShowToast }) {
     on_the_way: null, // Controlled by caregiver from the Staff App
     in_progress: null, // Controlled by caregiver from the Staff App
   };
-  const next = nextStepMap[b.status];
+  const next = b?.status ? nextStepMap[b.status] : null;
 
   const handleAssignStaff = async (staffIdentifier) => {
     if (!staffIdentifier) return;
-    const bid = b.id || b.code || bookingId;
+    const bid = b?.id || b?.code || bookingId;
     setActionLoading(true);
     try {
       // 1. Call backend API PATCH /api/v1/admin/booking/:id/assign
       const res = await bookingAPI.assignStaff(bid, { staffId: staffIdentifier });
       // 2. Dispatch store state
       assignStaff(bid, staffIdentifier);
-      assign(b.id || bookingId, staffIdentifier, 'admin');
+      assign(b?.id || bookingId, staffIdentifier, 'admin');
       // 3. Refresh live details
       await fetchBookingById(bid);
       onShowToast?.(res?.message || 'Caregiver assigned successfully');
@@ -486,6 +553,7 @@ export function BookingDetail({ bookingId, onBack, onShowToast }) {
         docs: fromAvailable.docs || 'verified',
         onDuty: Boolean(fromAvailable.onDuty),
         score: fromAvailable.matchMeta?.matchScore || fromAvailable.score,
+        files: filesObj,
         photo:
           fromAvailable.photo ||
           filesObj?.photo?.url ||
@@ -519,6 +587,7 @@ export function BookingDetail({ bookingId, onBack, onShowToast }) {
         languages: fromBackend.languages || fromBackend.language || '',
         docs: fromBackend.docs || 'verified',
         onDuty: Boolean(fromBackend.onDuty),
+        files: filesObj,
         photo:
           fromBackend.photo ||
           filesObj?.photo?.url ||
@@ -554,6 +623,7 @@ export function BookingDetail({ bookingId, onBack, onShowToast }) {
         languages: candidate.languages || candidate.language || '',
         docs: candidate.docs || 'verified',
         onDuty: Boolean(candidate.onDuty),
+        files: filesObj,
         photo:
           candidate.photo ||
           filesObj?.photo?.url ||
@@ -566,11 +636,32 @@ export function BookingDetail({ bookingId, onBack, onShowToast }) {
 
     return {
       id: cleanId,
+      staffId: cleanId,
       name: 'Staff Member',
       role: 'Caregiver',
-      city: bc
+      city: bc,
+      files: {},
     };
   };
+
+  // Resolved assigned staff with comprehensive files and details
+  const assignedStaffResolved = useMemo(() => {
+    const sid = b?.staffId || b?.assignedStaff?.staffId || b?.assignedStaff?.id;
+    if (!sid) return null;
+    const resolved = findStaffMember(sid);
+    const fallbackFiles =
+      resolved?.files ||
+      b?.assignedStaff?.files ||
+      data?.staff?.[sid]?.files ||
+      {};
+    if (resolved) {
+      return {
+        ...resolved,
+        files: fallbackFiles,
+      };
+    }
+    return st ? { ...st, files: st.files || fallbackFiles } : null;
+  }, [b?.staffId, b?.assignedStaff, st, allStaff, availableStaffList, backendStaffList, data?.staff]);
 
   const handleConfirmModalAssign = async () => {
     if (!staffForAssignModal?.id) return;
@@ -580,14 +671,14 @@ export function BookingDetail({ bookingId, onBack, onShowToast }) {
   };
 
   const handleUnassignStaff = async () => {
-    const bid = b.id || b.code || bookingId;
+    const bid = b?.id || b?.code || bookingId;
     setActionLoading(true);
     try {
       // 1. Call backend API PATCH /api/v1/admin/booking/:id/unassign
       const res = await bookingAPI.unassignStaff(bid);
       // 2. Dispatch store state
       unassignStaff(bid);
-      unassign(b.id || bookingId);
+      unassign(b?.id || bookingId);
       // 3. Refresh live details
       await fetchBookingById(bid);
       // 4. Re-fetch available staff pool
@@ -747,8 +838,8 @@ export function BookingDetail({ bookingId, onBack, onShowToast }) {
     );
   };
 
-  const idx = FLOW.indexOf(b.status);
-  const when = (sName) => (b.history || []).filter((h) => h.status === sName).slice(-1)[0];
+  const idx = b?.status ? FLOW.indexOf(b.status) : -1;
+  const when = (sName) => (b?.history || []).filter((h) => h.status === sName).slice(-1)[0];
 
   const formatFileSize = (bytes) => {
     if (!bytes || isNaN(bytes)) return '';
@@ -759,6 +850,7 @@ export function BookingDetail({ bookingId, onBack, onShowToast }) {
   };
 
   const getReportsList = () => {
+    if (!b) return [];
     let raw = b.reports;
     if (typeof raw === 'string') {
       try {
@@ -798,6 +890,46 @@ export function BookingDetail({ bookingId, onBack, onShowToast }) {
   const reportsList = getReportsList();
   const report = reportsList.length > 0 ? reportsList[reportsList.length - 1] : null;
 
+  // Loading state when initial detail hasn't arrived
+  if (bookingDetailLoading && !b) {
+    return (
+      <div className="p-4 sm:p-6 lg:p-7 w-full max-w-[1400px] mx-auto space-y-4">
+        <button
+          type="button"
+          onClick={onBack}
+          className="h-9 px-3.5 inline-flex items-center gap-1.5 rounded-lg bg-white border border-slate-200 text-xs font-bold text-slate-700 hover:bg-slate-50 transition cursor-pointer shadow-2xs"
+        >
+          <Icon name="back" size={16} />
+          <span>Back</span>
+        </button>
+        <div className="bg-white rounded-2xl border border-slate-200/90 shadow-2xs overflow-hidden">
+          <DatabaseLoader
+            title="Fetching Booking Details from Database..."
+            subtitle="Connecting to Eldoria backend server"
+          />
+        </div>
+      </div>
+    );
+  }
+
+  // Not found fallback
+  if (!b) {
+    return (
+      <div className="p-4 sm:p-6 lg:p-7 w-full max-w-[1400px] mx-auto space-y-4">
+        <button
+          type="button"
+          onClick={onBack}
+          className="h-9 px-3.5 inline-flex items-center gap-1.5 rounded-lg bg-white border border-slate-200 text-xs font-bold text-slate-700 hover:bg-slate-50 transition cursor-pointer shadow-2xs"
+        >
+          <Icon name="back" size={16} />
+          <span>Back</span>
+        </button>
+        <div className="bg-white rounded-2xl p-10 border border-slate-200 text-center text-slate-500 font-bold text-sm shadow-2xs">
+          {bookingDetailError || 'Booking not found'}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="p-4 sm:p-6 lg:p-4 w-full max-w-[1400px] mx-auto space-y-4">
@@ -893,7 +1025,36 @@ export function BookingDetail({ bookingId, onBack, onShowToast }) {
 
             <dt className="text-slate-500 font-medium">When</dt>
             <dd className="font-semibold text-slate-900">
-              {fmtDate(b.date)}, {b.time}
+              {scheduleFullDisplay}
+            </dd>
+
+            <dt className="text-slate-500 font-medium">Start Date</dt>
+            <dd className="font-semibold text-slate-900 flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0 inline-block"></span>
+              <span>{startDateDisplay}</span>
+            </dd>
+
+            <dt className="text-slate-500 font-medium">End Date</dt>
+            <dd className="font-semibold text-slate-900 flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-blue-500 shrink-0 inline-block"></span>
+              <span>{endDateDisplay}</span>
+              {endDateRaw && startDateRaw && endDateRaw === startDateRaw && (
+                <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-slate-100 text-slate-600">
+                  1-Day Visit
+                </span>
+              )}
+            </dd>
+
+            <dt className="text-slate-500 font-medium">Start Time</dt>
+            <dd className="font-semibold text-slate-900 flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0 inline-block"></span>
+              <span>{startTimeVal || b.time || '—'}</span>
+            </dd>
+
+            <dt className="text-slate-500 font-medium">End Time</dt>
+            <dd className="font-semibold text-slate-900 flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-blue-500 shrink-0 inline-block"></span>
+              <span>{endTimeVal || '—'}</span>
             </dd>
 
             <dt className="text-slate-500 font-medium">Area</dt>
@@ -974,32 +1135,43 @@ export function BookingDetail({ bookingId, onBack, onShowToast }) {
                 </span>
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                {b.files.map((f, i) => (
-                  <div
-                    key={f.id || i}
-                    className="flex items-center justify-between p-2.5 rounded-lg border border-slate-200 bg-slate-50 shadow-2xs"
-                  >
-                    <div className="min-w-0 flex items-center gap-2">
-                   <Icon
-  name="fileText"
-  size={14}
-  className="text-blue-500 shrink-0"
-/>
-                      <span className="text-xs font-medium text-slate-800 truncate" title={f.name}>
-                        {f.name || `Document ${i + 1}`}
-                      </span>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => openDocument(f)}
-                      className="text-[11px] font-bold text-[#0E2F5A] hover:underline flex items-center gap-1 shrink-0 ml-2 cursor-pointer"
-                      title="View document in new tab"
+                {b.files.map((f, i) => {
+                  const fileSrc = f.url || f.data || '';
+                  const fileName = f.name || `Medical_Document_${i + 1}`;
+                  const docUrl = getStaffDocumentViewUrl({
+                    url: fileSrc.startsWith('http') ? fileSrc : undefined,
+                    publicId: f.publicId || f.id,
+                    filename: fileName,
+                  }) || fileSrc;
+
+                  return (
+                    <div
+                      key={f.id || i}
+                      className="flex items-center justify-between p-2.5 rounded-lg border border-slate-200 bg-slate-50 shadow-2xs"
                     >
-                      <span>View</span>
-                      <Icon name="external" size={11} className="text-blue-500 shrink-0" />
-                    </button>
-                  </div>
-                ))}
+                      <div className="min-w-0 flex items-center gap-2">
+                        <Icon
+                          name="fileText"
+                          size={14}
+                          className="text-blue-500 shrink-0"
+                        />
+                        <span className="text-xs font-medium text-slate-800 truncate" title={fileName}>
+                          {fileName}
+                        </span>
+                      </div>
+                      <a
+                        href={docUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-[11px] font-bold text-[#0E2F5A] hover:underline flex items-center gap-1 shrink-0 ml-2 cursor-pointer select-none"
+                        title="View document in new tab"
+                      >
+                        <span>View</span>
+                        <Icon name="external" size={11} className="text-blue-500 shrink-0" />
+                      </a>
+                    </div>
+                  );
+                })}
               </div>
             </div>
           )}
@@ -1280,7 +1452,7 @@ export function BookingDetail({ bookingId, onBack, onShowToast }) {
                             >
                               {/* Image Thumbnail with Overlay */}
                               <a
-                                href={photoUrl}
+                                href={getStaffDocumentViewUrl({ url: photoUrl, filename: photoName }) || photoUrl}
                                 target="_blank"
                                 rel="noopener noreferrer"
                                 className="relative block aspect-[4/3] bg-slate-100 overflow-hidden cursor-pointer"
@@ -1322,7 +1494,7 @@ export function BookingDetail({ bookingId, onBack, onShowToast }) {
 
                                 {/* Open in new tab button */}
                                 <a
-                                  href={photoUrl}
+                                  href={getStaffDocumentViewUrl({ url: photoUrl, filename: photoName }) || photoUrl}
                                   target="_blank"
                                   rel="noopener noreferrer"
                                   className="w-full h-8 rounded-lg bg-[#E4ECF7] hover:bg-[#D5E3F5] text-[#0E2F5A] text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer shadow-2xs"
@@ -1365,10 +1537,11 @@ export function BookingDetail({ bookingId, onBack, onShowToast }) {
                               </div>
                             </div>
                             <a
-                              href={file.url}
+                              href={getStaffDocumentViewUrl({ url: file.url, filename: file.name }) || file.url}
                               target="_blank"
                               rel="noopener noreferrer"
                               className="h-7 px-3 rounded-md bg-[#0E2F5A] hover:bg-[#0A2342] text-white text-[11px] font-bold transition flex items-center gap-1 shrink-0"
+                              title="Open document in new tab"
                             >
                               <Icon name="external" size={11} />
                               <span>Open</span>
@@ -1411,7 +1584,7 @@ export function BookingDetail({ bookingId, onBack, onShowToast }) {
             )}
 
             {st && (
-              <div className="p-3 rounded-lg bg-slate-50 border border-slate-200/90 space-y-1.5 text-xs">
+              <div className="p-3 rounded-lg bg-slate-50 border border-slate-200/90 space-y-2 text-xs">
                 <div className="flex items-center justify-between">
                   <span className="font-bold text-slate-900 text-xs sm:text-[13px]">{st.name}</span>
                   <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-[#E4ECF7] text-[#0E2F5A]">
@@ -1430,6 +1603,50 @@ export function BookingDetail({ bookingId, onBack, onShowToast }) {
                     <span className="font-bold text-slate-800 capitalize">{cityName(st.city || bc)}</span>
                   </div>
                 )}
+
+                {/* Staff Documents with View API Link Tags */}
+                {(() => {
+                  const staffDocs = getStaffDocumentsList(assignedStaffResolved || st);
+                  return (
+                    <div className="pt-2 border-t border-slate-200/70 space-y-1.5">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
+                          Staff Documents ({staffDocs.length})
+                        </span>
+                        <Link
+                          to={`/staff/${st.id || st.staffId}`}
+                          className="text-[10px] font-bold text-[#0E2F5A] hover:underline flex items-center gap-0.5"
+                          title="Open staff profile"
+                        >
+                          <span>Profile ↗</span>
+                        </Link>
+                      </div>
+
+                      {staffDocs.length > 0 ? (
+                        <div className="flex flex-wrap gap-1.5">
+                          {staffDocs.map((doc) => (
+                            <a
+                              key={doc.key}
+                              href={doc.url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-white hover:bg-slate-100 border border-slate-200 text-slate-800 text-[10px] font-bold transition shadow-2xs hover:text-[#0E2F5A] select-none"
+                              title={`View ${doc.label} in new tab`}
+                            >
+                              <Icon name="fileText" size={11} className="text-[#0E2F5A]" />
+                              <span>{doc.label}</span>
+                              <Icon name="external" size={9} className="text-slate-400" />
+                            </a>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="text-[10px] text-slate-400 italic">
+                          No uploaded documents on record
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
               </div>
             )}
 
@@ -2173,7 +2390,7 @@ export function BookingDetail({ bookingId, onBack, onShowToast }) {
                       Area: <strong className="text-slate-900">{b.area || '—'}</strong>, <span className="capitalize">{b.cityName || cityName(bc)}</span>
                     </span>
                     <span className="text-slate-300">|</span>
-                    <span className="text-slate-600 font-medium text-xs">🕒 {fmtDate(b.date)}, {b.time}</span>
+                    <span className="text-slate-600 font-medium text-xs">🕒 {scheduleFullDisplay}</span>
                   </div>
                   {b.staffId && b.staffId !== staffForAssignModal.id && (
                     <span className="text-[10px] font-bold text-amber-800 bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
@@ -2259,16 +2476,46 @@ export function BookingDetail({ bookingId, onBack, onShowToast }) {
                       </a>
                     </div>
 
-                    {/* Duty & Doc Verification Box */}
-                    <div className="p-2 rounded-lg bg-slate-50 border border-slate-200/80 text-center space-y-0.5">
-                      <div className="font-bold text-slate-800 text-[11px]">
-                        {staffForAssignModal.docs === 'verified' ? '✓ Document Verified' : '⏳ Pending Verification'}
-                      </div>
-                      {staffForAssignModal.regNo && (
-                        <div className="font-mono text-[10px] text-slate-500">
-                          Reg: {staffForAssignModal.regNo}
+                    {/* Duty & Doc Verification Box + Documents Links */}
+                    <div className="p-2 rounded-lg bg-slate-50 border border-slate-200/80 space-y-2">
+                      <div className="text-center space-y-0.5">
+                        <div className="font-bold text-slate-800 text-[11px]">
+                          {staffForAssignModal.docs === 'verified' ? '✓ Document Verified' : '⏳ Pending Verification'}
                         </div>
-                      )}
+                        {staffForAssignModal.regNo && (
+                          <div className="font-mono text-[10px] text-slate-500">
+                            Reg: {staffForAssignModal.regNo}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Staff Documents list in modal with link tags */}
+                      {(() => {
+                        const modalStaffDocs = getStaffDocumentsList(staffForAssignModal);
+                        if (modalStaffDocs.length === 0) return null;
+                        return (
+                          <div className="pt-1.5 border-t border-slate-200/80 space-y-1">
+                            <span className="text-[9px] font-bold text-slate-500 uppercase tracking-wider block text-left">
+                              Verified Documents ({modalStaffDocs.length})
+                            </span>
+                            <div className="flex flex-col gap-1">
+                              {modalStaffDocs.map((doc) => (
+                                <a
+                                  key={doc.key}
+                                  href={doc.url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="w-full text-left px-2 py-1 rounded bg-white hover:bg-slate-100 border border-slate-200 text-slate-800 text-[10px] font-semibold flex items-center justify-between gap-1 transition shadow-2xs hover:text-[#0E2F5A] select-none"
+                                  title={`View ${doc.label} in new tab`}
+                                >
+                                  <span className="truncate">{doc.label}</span>
+                                  <Icon name="external" size={10} className="text-slate-400 shrink-0" />
+                                </a>
+                              ))}
+                            </div>
+                          </div>
+                        );
+                      })()}
                     </div>
                   </div>
 

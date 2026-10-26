@@ -306,9 +306,17 @@ const getNotifyMeStatus = async (req, res) => {
  */
 const getClientNotifications = async (req, res) => {
   try {
-    const rawPhone = req.user?.phone || req.query.phone || "";
-    const cleanPhone = cleanPhoneNumber(rawPhone);
-    const userId = req.user?.id || req.query.userId || null;
+    let cleanPhone = "";
+    let userId = null;
+
+    if (req.user && req.user.role !== 'admin') {
+      cleanPhone = cleanPhoneNumber(req.user.phone || "");
+      userId = req.user.id || null;
+    } else {
+      const rawPhone = req.user?.phone || req.query.phone || "";
+      cleanPhone = cleanPhoneNumber(rawPhone);
+      userId = req.user?.id || req.query.userId || null;
+    }
 
     if (!cleanPhone && !userId) {
       return errorResponse(
@@ -318,7 +326,7 @@ const getClientNotifications = async (req, res) => {
       );
     }
 
-    const { unreadOnly = "false", page = 1, limit = 20 } = req.query;
+    const { unreadOnly = "false", page = 1, limit = 100 } = req.query;
     const pageNum = Math.max(1, parseInt(page, 10) || 1);
     const pageSize = Math.min(50, Math.max(1, parseInt(limit, 10) || 20));
     const offset = (pageNum - 1) * pageSize;
@@ -407,9 +415,17 @@ const markNotificationAsRead = async (req, res) => {
  */
 const markAllNotificationsAsRead = async (req, res) => {
   try {
-    const rawPhone = req.user?.phone || req.body?.phone || req.query?.phone;
-    const cleanPhone = cleanPhoneNumber(rawPhone);
-    const userId = req.user?.id || null;
+    let cleanPhone = "";
+    let userId = null;
+
+    if (req.user && req.user.role !== 'admin') {
+      cleanPhone = cleanPhoneNumber(req.user.phone || "");
+      userId = req.user.id || null;
+    } else {
+      const rawPhone = req.user?.phone || req.body?.phone || req.query?.phone;
+      cleanPhone = cleanPhoneNumber(rawPhone);
+      userId = req.user?.id || null;
+    }
 
     if (!cleanPhone && !userId) {
       return errorResponse(res, "User authentication or phone is required", 400);
@@ -460,7 +476,7 @@ const getAdminNotifyRequests = async (req, res) => {
       city,
       search,
       page = 1,
-      limit = 50,
+      limit = 100,
     } = req.query;
 
     const where = {};

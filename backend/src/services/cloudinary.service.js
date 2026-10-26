@@ -8,6 +8,8 @@ const ALLOWED_MIME_TYPES = [
   'image/png',
   'image/webp',
   'image/gif',
+  'application/octet-stream',
+  'binary',
 ];
 
 const ALLOWED_EXTENSIONS = ['.pdf', '.jpg', '.jpeg', '.png', '.webp', '.gif'];
@@ -19,18 +21,20 @@ const ALLOWED_EXTENSIONS = ['.pdf', '.jpg', '.jpeg', '.png', '.webp', '.gif'];
  * @returns {boolean}
  */
 const isValidDocumentType = (mimetype = '', originalname = '') => {
-  if (mimetype) {
-    const isMimeAllowed = ALLOWED_MIME_TYPES.includes(mimetype.toLowerCase());
-    if (!isMimeAllowed) return false;
-    return true;
+  if (!mimetype && !originalname) return false;
+
+  const mime = (mimetype || '').toLowerCase().trim();
+  const ext = path.extname(originalname || '').toLowerCase().trim();
+
+  const isExtAllowed = ext ? ALLOWED_EXTENSIONS.includes(ext) : false;
+  const isMimeAllowed = mime ? ALLOWED_MIME_TYPES.includes(mime) : false;
+
+  // If extension is explicitly forbidden (e.g. .exe, .php, etc.), reject
+  if (ext && !isExtAllowed) {
+    return false;
   }
-  if (originalname) {
-    const ext = path.extname(originalname).toLowerCase();
-    if (ALLOWED_EXTENSIONS.includes(ext)) {
-      return true;
-    }
-  }
-  return false;
+
+  return isExtAllowed || isMimeAllowed;
 };
 
 /**
@@ -106,6 +110,7 @@ const uploadStaffDocument = async (fileInput, options = {}) => {
     uploadedAt: new Date().toISOString(),
   };
 };
+
 
 /**
  * Uploads a file buffer directly to Cloudinary via stream.
@@ -351,12 +356,38 @@ const uploadMedicalFilesToCloudinary = async (req, options = {}) => {
       fileUrl = `data:${mimetype};base64,${file.buffer.toString('base64')}`;
     }
 
+    const rawKey = file.fieldname || 'document';
+    const cleanKey = rawKey.replace(/^files[\.\[_]/, '').replace(/\]$/, '') || rawKey;
+
+    // Check if user provided custom friendly title in body (e.g. files.bpReport: "BP Report" or bpReport: "BP Report")
+    let docTitle = '';
+    if (req.body) {
+      if (typeof req.body[rawKey] === 'string' && req.body[rawKey].trim()) {
+        docTitle = req.body[rawKey].trim();
+      } else if (typeof req.body[cleanKey] === 'string' && req.body[cleanKey].trim()) {
+        docTitle = req.body[cleanKey].trim();
+      } else if (req.body.files && typeof req.body.files === 'object' && typeof req.body.files[cleanKey] === 'string') {
+        docTitle = req.body.files[cleanKey].trim();
+      }
+    }
+
+    if (!docTitle && cleanKey && cleanKey !== 'file' && cleanKey !== 'files') {
+      docTitle = cleanKey
+        .replace(/([A-Z])/g, ' $1')
+        .replace(/^./, (str) => str.toUpperCase())
+        .trim();
+    }
+
     uploadedFiles.push({
       id: `med_${Date.now().toString(36)}_${Math.random().toString(36).substring(2, 7)}`,
-      name: originalname,
+      name: docTitle || originalname,
+      fileName: originalname,
+      key: cleanKey,
+      category: cleanKey,
       type: mimetype,
       size: file.size || 0,
       url: fileUrl,
+      fileUrl: fileUrl,
       data: fileUrl,
       publicId,
       uploadedAt: new Date().toISOString(),

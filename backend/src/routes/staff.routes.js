@@ -25,6 +25,8 @@ const {
 
 // Document viewing & streaming (bypasses Cloudinary PDF/ACL restrictions)
 router.get("/document/view", viewStaffDocument);
+router.get("/documents/view", viewStaffDocument);
+router.get("/:staffId/files/:fileKey/view", viewStaffDocument);
 
 
 // Step 1: Send OTP to phone for staff registration

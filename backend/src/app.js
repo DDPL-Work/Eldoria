@@ -1,53 +1,49 @@
 const express = require('express');
 const cors = require('cors');
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
 const apiRoutes = require('./routes');
 const { errorHandler, notFoundHandler } = require('./middlewares/errorHandler');
 const { getHealthStatus } = require('./controllers/health.controller');
 
 const app = express();
 
-// Dynamic CORS configuration
-const allowedOrigins = [
-  'http://localhost:5173',
-  'http://localhost:5174',
-  'http://localhost:3000',
-  'http://localhost:5000',
-  'http://127.0.0.1:5173',
-  'http://127.0.0.1:5174',
-  'http://127.0.0.1:3000',
-  'https://eldoria-admin.vercel.app',
-  ...(process.env.CORS_ORIGIN ? process.env.CORS_ORIGIN.split(',').map((s) => s.trim()) : []),
-];
+// HTTP Security Headers & Identity Masking (SEC-12)
+app.use(helmet({
+  crossOriginResourcePolicy: { policy: 'cross-origin' },
+}));
+app.disable('x-powered-by');
 
-app.use(
-  cors({
-    origin: function (origin, callback) {
-      if (!origin) return callback(null, true);
-      if (
-        allowedOrigins.includes(origin) ||
-        process.env.CORS_ORIGIN === '*' ||
-        /^http:\/\/(localhost|127\.0\.0\.1):\d+$/.test(origin) ||
-        origin.endsWith('.vercel.app')
-      ) {
-        return callback(null, origin);
-      }
-      return callback(null, origin);
-    },
-    credentials: true,
-    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: [
-      'Content-Type',
-      'Authorization',
-      'X-Requested-With',
-      'staffid',
-      'x-staff-id',
-      'Accept',
-    ],
-  })
-);
+// CORS configuration (SEC-12)
+const corsOrigin = process.env.CORS_ORIGIN || process.env.FRONTEND_URL_PROD || process.env.FRONTEND_URL_DEV;
+app.use(cors({
+  origin: corsOrigin === '*' ? true : corsOrigin.split(',').map((o) => o.trim()),
+  credentials: true,
+}));
 
-app.use(express.json({ limit: '50mb' }));
-app.use(express.urlencoded({ extended: true, limit: '50mb' }));
+// Body Limits: 2MB limit prevents payload flooding / DoS attacks (SEC-07)
+app.use(express.json({ limit: '2mb' }));
+app.use(express.urlencoded({ extended: true, limit: '2mb' }));
+
+// Auth & OTP Rate Limiter (SEC-08): 30 requests per 15 minutes per IP (skipped during test runs)
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 30,
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  skip: () => process.env.NODE_ENV === 'test',
+  message: {
+    success: false,
+    message: 'Too many authentication attempts. Please try again after 15 minutes.',
+  },
+});
+
+app.use('/api/v1/auth/send-otp', authLimiter);
+app.use('/api/v1/auth/verify-otp', authLimiter);
+app.use('/api/v1/client/send-otp', authLimiter);
+app.use('/api/v1/client/verify-otp', authLimiter);
+app.use('/api/v1/client/login', authLimiter);
+app.use('/api/v1/admin/login', authLimiter);
 
 // Root welcome route
 app.get('/', (req, res) => {

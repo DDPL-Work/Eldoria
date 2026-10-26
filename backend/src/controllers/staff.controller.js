@@ -4,7 +4,16 @@ const { errorResponse, successResponse } = require("../utills/responseHandler");
 const https = require("https");
 const http = require("http");
 const { generateStaffId } = require("../helpers/generateStaffID");
-const { uploadStaffFilesToCloudinary, getAuthenticatedDownloadUrl } = require("../services/cloudinary.service");
+const {
+  uploadStaffDocument,
+  uploadStaffFilesToCloudinary,
+  deleteFromCloudinary,
+  getAuthenticatedDownloadUrl,
+} = require("../services/cloudinary.service");
+const {
+  processStaffAvailabilitySlots,
+  hasAvailabilitySlotsInput,
+} = require("../helpers/availabilitySlots.helper");
 
 /**
  * Helper to normalize staff uploaded documents:
@@ -62,13 +71,19 @@ const normalizeStaffFiles = (inputFiles = {}) => {
       fileObj.verified || fileObj.status === "verified",
     );
 
+    const dataUrl = fileObj.secure_url || fileObj.url || fileObj.data || "";
     normalized[key] = {
+      ...fileObj,
       id: docId,
       key,
       name: fileObj.name || `${key}.jpg`,
       type: fileObj.type || "image/jpeg",
       size: Number(fileObj.size) || 0,
-      data: fileObj.data || fileObj.url || "",
+      data: dataUrl,
+      url: fileObj.url || dataUrl,
+      secure_url: fileObj.secure_url || dataUrl,
+      public_id: fileObj.public_id || fileObj.publicId || null,
+      publicId: fileObj.publicId || fileObj.public_id || null,
       status: isVerified ? "verified" : fileObj.status || "pending",
       verified: isVerified,
       uploadedAt: fileObj.uploadedAt || new Date().toISOString(),
@@ -318,7 +333,28 @@ const staffRegistration = async (req, res) => {
     );
 
     // Normalize documents: assign unique id, status, verified flag, and initialize docChecks
-    const cloudinaryFiles = await uploadStaffFilesToCloudinary(req);
+    let cloudinaryFiles = {};
+    if (files && typeof files === "object" && Object.keys(files).length > 0) {
+      try {
+        const fileEntries = Array.isArray(files)
+          ? files.map((f, i) => [f.k || f.key || `doc_${i}`, f])
+          : Object.entries(files);
+
+        for (const [key, fileData] of fileEntries) {
+          if (!fileData) continue;
+          const cleanKey = key.replace(/^files[\.\[_]/, "").replace(/\]$/, "") || key;
+          const uploaded = await uploadStaffDocument(fileData, { docKey: cleanKey });
+          cloudinaryFiles[cleanKey] = uploaded;
+        }
+      } catch (uploadErr) {
+        if (transaction && !transaction.finished) {
+          await transaction.rollback();
+        }
+        return errorResponse(res, `Staff document upload failed: ${uploadErr.message}`, 400, uploadErr);
+      }
+    } else {
+      cloudinaryFiles = await uploadStaffFilesToCloudinary(req);
+    }
 
     const { files: normalizedFiles, docChecks: initialDocChecks } =
       normalizeStaffFiles(cloudinaryFiles);
@@ -347,6 +383,9 @@ const staffRegistration = async (req, res) => {
           : availability
             ? [availability]
             : [],
+        availabilitySlots: hasAvailabilitySlotsInput(req.body)
+          ? processStaffAvailabilitySlots(req.body, [])
+          : [],
         emergencyName: emergencyName || null,
         emergencyPhone: emergencyPhone || null,
         emergencyRelation: emergencyRelation || null,
@@ -397,7 +436,9 @@ const staffRegistration = async (req, res) => {
         user: sanitizedUser,
         staff: staffData,
       },
-      "Staff registered successfully",
+      Object.keys(cloudinaryFiles || {}).length > 0
+        ? "Staff registered successfully with Cloudinary documents"
+        : "Staff registered successfully",
       201,
     );
   } catch (error) {
@@ -513,11 +554,38 @@ const updateStaffApplication = async (req, res) => {
     const updatedFiles = { ...cleanExistingFiles };
     const updatedDocChecks = { ...cleanExistingDocChecks };
 
-    const cloudinaryFiles = await uploadStaffFilesToCloudinary(req);
-    const combinedFiles = {
-      ...(files && typeof files === "object" ? files : {}),
-      ...cloudinaryFiles,
-    };
+    let newUploadedFiles = {};
+    if (files && typeof files === "object" && Object.keys(files).length > 0) {
+      try {
+        const fileEntries = Array.isArray(files)
+          ? files.map((f, i) => [f.k || f.key || `doc_${i}`, f])
+          : Object.entries(files);
+
+        for (const [key, fileData] of fileEntries) {
+          if (!fileData) continue;
+          const cleanKey = key.replace(/^files[\.\[_]/, "").replace(/\]$/, "") || key;
+          const oldFile = staff.files?.[cleanKey] || staff.files?.[key];
+          if (oldFile && (oldFile.public_id || oldFile.publicId)) {
+            const pubId = oldFile.public_id || oldFile.publicId;
+            const resType = oldFile.resource_type || "image";
+            try {
+              await deleteFromCloudinary(pubId, resType);
+            } catch (_) {}
+          }
+          const uploaded = await uploadStaffDocument(fileData, { docKey: cleanKey });
+          newUploadedFiles[cleanKey] = uploaded;
+        }
+      } catch (uploadErr) {
+        if (transaction && !transaction.finished) {
+          await transaction.rollback();
+        }
+        return errorResponse(res, `Failed to upload updated document: ${uploadErr.message}`, 400, uploadErr);
+      }
+    } else {
+      newUploadedFiles = await uploadStaffFilesToCloudinary(req);
+    }
+
+    const combinedFiles = newUploadedFiles;
 
     if (Object.keys(combinedFiles).length > 0) {
       const { files: normalizedNewFiles } = normalizeStaffFiles(combinedFiles);
@@ -570,6 +638,9 @@ const updateStaffApplication = async (req, res) => {
             ? availability
             : [availability]
           : staff.availability,
+        availabilitySlots: hasAvailabilitySlotsInput(req.body)
+          ? processStaffAvailabilitySlots(req.body, staff.availabilitySlots)
+          : staff.availabilitySlots,
         language: language
           ? Array.isArray(language)
             ? language
@@ -679,6 +750,8 @@ const trackApplication = async (req, res) => {
         "submittedAt",
         "approvedAt",
         "rejectedAt",
+        "availability",
+        "availabilitySlots",
         "createdAt",
         "updatedAt",
       ],
@@ -757,12 +830,36 @@ const viewStaffDocument = async (req, res) => {
     const fileKey = req.params.fileKey || req.params.docKey || req.query.fileKey;
 
     if (staffId && fileKey) {
-      const staff = await Staff.findOne({ where: { staffId } });
-      const doc = staff?.files?.[fileKey];
+      const isNumeric = !isNaN(Number(staffId));
+      const lookupCondition = isNumeric
+        ? { [Op.or]: [{ id: Number(staffId) }, { staffId: String(staffId) }] }
+        : { staffId: String(staffId) };
+      const staff = await Staff.findOne({ where: lookupCondition });
+      let staffFiles = staff?.files;
+      if (typeof staffFiles === "string") {
+        try {
+          staffFiles = JSON.parse(staffFiles);
+        } catch (_) {
+          staffFiles = {};
+        }
+      }
+      const keyAliases = {
+        id_proof: "idProof",
+        idproof: "idProof",
+        photo_id: "idProof",
+        qualification_certificate: "qualification",
+        certificate: "qualification",
+        experience_letter: "experience",
+        experienceletter: "experience",
+        police_verification: "police",
+        policeverification: "police",
+      };
+      const resolvedKey = keyAliases[fileKey] || fileKey;
+      const doc = staffFiles?.[fileKey] || staffFiles?.[resolvedKey];
       if (doc) {
         publicId = doc.publicId || publicId;
-        filename = doc.name || filename;
-        if (doc.type === "application/pdf") format = "pdf";
+        filename = doc.name || doc.filename || filename;
+        if (doc.type === "application/pdf" || doc.isPdf) format = "pdf";
         if (!publicId && (doc.data || doc.url)) {
           const match = (doc.data || doc.url).match(/\/upload\/(?:v\d+\/)?([^\.\?]+)(?:\.([a-zA-Z0-9]+))?/);
           if (match) {
@@ -795,6 +892,11 @@ const viewStaffDocument = async (req, res) => {
           publicId = lastDot !== -1 ? part.slice(0, lastDot) : part;
           if (!format && lastDot !== -1) format = part.slice(lastDot + 1);
         }
+      }
+
+      // If url is external or not on Cloudinary, stream/redirect directly
+      if (!publicId && (parsedUrl.startsWith("http://") || parsedUrl.startsWith("https://"))) {
+        return res.redirect(parsedUrl);
       }
     }
 

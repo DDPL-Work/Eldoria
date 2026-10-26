@@ -4,6 +4,11 @@ const { Op } = require("sequelize");
 const { sequelize, User, Staff, Otp, Client } = require("../database/models");
 const { successResponse, errorResponse } = require("../utills/responseHandler");
 const { logOtpToTerminal } = require("../helpers/otpLogger");
+const { getJwtSecret, JWT_EXPIRES_IN } = require("../configs/jwt.config");
+const {
+  processStaffAvailabilitySlots,
+  hasAvailabilitySlotsInput,
+} = require("../helpers/availabilitySlots.helper");
 
 /**
  * Standardize phone number format (digits only, e.g. 10 digits)
@@ -83,9 +88,9 @@ const sendOtp = async (req, res) => {
       }
     }
 
-    // Generate 6-digit OTP (e.g. 100000 - 999999)
-    const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
-    const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes expiry
+    // Generate cryptographically secure 6-digit OTP (e.g. 100000 - 999999) (SEC-05)
+    const otpCode = crypto.randomInt(100000, 1000000).toString();
+    const expiresAt = new Date(Date.now() + 3 * 60 * 1000); // 3 minutes expiry
 
     // Invalidate previous unverified OTPs for this phone & purpose
     await Otp.update(
@@ -118,7 +123,7 @@ const sendOtp = async (req, res) => {
       otp: otpCode,
       purpose: otpPurpose,
       role: role || "user",
-      expiresInMinutes: 10,
+      expiresInMinutes: 3,
     });
 
     return successResponse(
@@ -126,9 +131,9 @@ const sendOtp = async (req, res) => {
       {
         phone: cleanPhone,
         purpose: otpPurpose,
-        expiresInSeconds: 600,
-        // In non-production environments, provide OTP in response for easy testing
-        otp: process.env.NODE_ENV === "production" ? undefined : otpCode,
+        expiresInSeconds: 180,
+        // Only return OTP in API body during local development or test
+        otp: (process.env.NODE_ENV === "development" || process.env.NODE_ENV === "test") ? otpCode : undefined,
       },
       `OTP sent successfully to ${cleanPhone}`,
     );
@@ -160,11 +165,10 @@ const verifyOtp = async (req, res) => {
     const cleanPhone = normalizePhone(phone);
     const cleanOtp = String(otp).trim();
 
-    // Find the latest valid matching OTP record
-    const otpRecord = await Otp.findOne({
+    // Find the latest active unverified OTP record
+    const activeOtp = await Otp.findOne({
       where: {
         phone: cleanPhone,
-        otp: cleanOtp,
         purpose,
         isVerified: false,
         expiresAt: {
@@ -174,13 +178,48 @@ const verifyOtp = async (req, res) => {
       order: [["id", "DESC"]],
     });
 
-    if (!otpRecord) {
+    if (!activeOtp) {
       return errorResponse(
         res,
         "Invalid or expired OTP. Please enter the correct OTP or request a new one.",
         400,
       );
     }
+
+    // Check brute force lockout (SEC-06)
+    if (activeOtp.attempts >= 5) {
+      await activeOtp.update({ isVerified: true });
+      return errorResponse(
+        res,
+        "Maximum verification attempts exceeded. This OTP has been invalidated for security. Please request a new OTP.",
+        429,
+      );
+    }
+
+    if (activeOtp.otp !== cleanOtp) {
+      const nextAttempts = (activeOtp.attempts || 0) + 1;
+      const isBurned = nextAttempts >= 5;
+      await activeOtp.update({
+        attempts: nextAttempts,
+        isVerified: isBurned,
+      });
+
+      if (isBurned) {
+        return errorResponse(
+          res,
+          "Maximum verification attempts exceeded. This OTP has been invalidated for security. Please request a new OTP.",
+          429,
+        );
+      }
+
+      return errorResponse(
+        res,
+        `Invalid OTP. You have ${5 - nextAttempts} attempt(s) remaining.`,
+        400,
+      );
+    }
+
+    const otpRecord = activeOtp;
 
     // Mark OTP as verified
     otpRecord.isVerified = true;
@@ -266,9 +305,8 @@ const verifyOtp = async (req, res) => {
       .update(`${user.id}:${user.email || user.phone}:${salt}:${Date.now()}`)
       .digest("hex");
 
-    const jwtSecret =
-      process.env.JWT_SECRET || "eldoria_super_secret_jwt_key_2026";
-    const jwtExpiresIn = process.env.JWT_EXPIRES_IN || "7d";
+    const jwtSecret = getJwtSecret();
+    const jwtExpiresIn = JWT_EXPIRES_IN;
 
     const token = jwt.sign(
       {
@@ -306,6 +344,7 @@ const verifyOtp = async (req, res) => {
 
     if (user.role === "staff" && staffProfile) {
       responseData.staffProfile = staffProfile;
+      responseData.availabilitySlots = staffProfile.availabilitySlots || [];
     }
 
     if (user.role === "client" && user.clientProfile) {
@@ -528,6 +567,7 @@ const getProfile = async (req, res) => {
       profile: currentProfile,
       staffProfile: fullUser.role === "staff" ? staffProfile : null,
       clientProfile: fullUser.role === "client" ? clientProfile : null,
+      availabilitySlots: fullUser.role === "staff" ? (staffProfile?.availabilitySlots || []) : undefined,
     };
 
     return successResponse(
@@ -626,6 +666,12 @@ const updateProfile = async (req, res) => {
       skills,
       language,
       availability,
+      availabilitySlots,
+      slots,
+      timeSlots,
+      date,
+      dates,
+      replaceSlots,
       onDuty,
       // Client profile specific fields
       pincode,
@@ -741,10 +787,24 @@ const updateProfile = async (req, res) => {
         staffUpdateData.skills = Array.isArray(skills) ? skills : [];
       if (language !== undefined)
         staffUpdateData.language = Array.isArray(language) ? language : [];
-      if (availability !== undefined)
-        staffUpdateData.availability = Array.isArray(availability)
-          ? availability
-          : [];
+      if (hasAvailabilitySlotsInput(req.body)) {
+        const existingSlots = staff?.availabilitySlots || [];
+        staffUpdateData.availabilitySlots = processStaffAvailabilitySlots(
+          req.body,
+          existingSlots,
+          { replace: Boolean(replaceSlots) }
+        );
+      }
+      if (availability !== undefined) {
+        if (Array.isArray(availability)) {
+          const shiftTags = availability.filter((x) => typeof x === "string");
+          if (shiftTags.length > 0) {
+            staffUpdateData.availability = shiftTags;
+          }
+        } else if (typeof availability === "string") {
+          staffUpdateData.availability = [availability];
+        }
+      }
       if (emergencyName !== undefined)
         staffUpdateData.emergencyName = emergencyName;
       if (emergencyPhone !== undefined)
@@ -910,6 +970,7 @@ const updateProfile = async (req, res) => {
       profile: currentProfile,
       staffProfile: updatedUser.role === "staff" ? staffProfile : null,
       clientProfile: updatedUser.role === "client" ? clientProfile : null,
+      availabilitySlots: updatedUser.role === "staff" ? (staffProfile?.availabilitySlots || []) : undefined,
     };
 
     return successResponse(res, responseData, "Profile updated successfully");
@@ -1013,9 +1074,9 @@ const sendChangePhoneOtp = async (req, res) => {
       );
     }
 
-    // Generate 6-digit OTP code
-    const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
-    const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes expiry
+    // Generate cryptographically secure 6-digit OTP code (SEC-05)
+    const otpCode = crypto.randomInt(100000, 1000000).toString();
+    const expiresAt = new Date(Date.now() + 3 * 60 * 1000); // 3 minutes expiry
 
     // Invalidate previous unverified OTPs for this phone & purpose
     await Otp.update(
@@ -1044,7 +1105,7 @@ const sendChangePhoneOtp = async (req, res) => {
       otp: otpCode,
       purpose: "phone_update",
       role: req.user?.role || "user",
-      expiresInMinutes: 10,
+      expiresInMinutes: 3,
     });
 
     return successResponse(
@@ -1052,8 +1113,8 @@ const sendChangePhoneOtp = async (req, res) => {
       {
         newPhone: cleanNewPhone,
         purpose: "phone_update",
-        expiresInSeconds: 600,
-        otp: process.env.NODE_ENV === "production" ? undefined : otpCode,
+        expiresInSeconds: 180,
+        otp: (process.env.NODE_ENV === "development" || process.env.NODE_ENV === "test") ? otpCode : undefined,
       },
       `OTP for mobile number change sent successfully to ${cleanNewPhone}`,
     );
@@ -1239,9 +1300,8 @@ const updateMobileNumber = async (req, res) => {
       .update(`${user.id}:${user.email || user.phone}:${salt}:${Date.now()}`)
       .digest("hex");
 
-    const jwtSecret =
-      process.env.JWT_SECRET || "eldoria_super_secret_jwt_key_2026";
-    const jwtExpiresIn = process.env.JWT_EXPIRES_IN || "7d";
+    const jwtSecret = getJwtSecret();
+    const jwtExpiresIn = JWT_EXPIRES_IN;
 
     const newToken = jwt.sign(
       {

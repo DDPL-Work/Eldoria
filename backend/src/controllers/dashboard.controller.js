@@ -1,6 +1,7 @@
 const { Op } = require('sequelize');
 const { Booking, Enquiry, Staff, User, sequelize } = require('../database/models');
 const { successResponse, errorResponse } = require('../utills/responseHandler');
+const { checkAndMarkDateExceededBookings } = require('../services/bookingExpiry.service');
 
 /**
  * Standard city map for formatted display names
@@ -60,6 +61,11 @@ const getDashboardData = async (req, res) => {
     const selectedCity = String(city).trim().toLowerCase();
     const todayStr = getTodayISO();
 
+    // Automatically check and mark overdue unconfirmed bookings as 'date_exceeded'
+    await checkAndMarkDateExceededBookings({ city }).catch((err) => {
+      console.warn('Date exceeded check warning in dashboard:', err.message);
+    });
+
     // 1. Prepare City Filters
     const isCityFiltered = selectedCity !== 'all' && selectedCity !== '';
     const bookingCityWhere = isCityFiltered ? { city: selectedCity } : {};
@@ -116,17 +122,27 @@ const getDashboardData = async (req, res) => {
     );
     const countUnassigned = unassignedBookings.length;
 
-    const dateExceededBookings = bookings.filter(
-      (b) => b.status === 'date_exceeded' || (Boolean(b.date) && b.date < todayStr && !['completed', 'cancelled'].includes(b.status))
-    );
+    const dateExceededBookings = bookings.filter((b) => {
+      const cmpDate = b.endDate || b.date;
+      return (
+        b.status === 'date_exceeded' ||
+        (Boolean(cmpDate) && cmpDate < todayStr && !['completed', 'cancelled'].includes(b.status))
+      );
+    });
     const countDateExceeded = dateExceededBookings.length;
 
     // 6. Needs Action Queue (status IN requested, confirmed)
     const queueBookings = bookings.filter((b) => ['requested', 'confirmed'].includes(b.status));
 
     const needsAction = queueBookings.slice(0, 15).map((b) => {
-      const isToday = b.date === todayStr;
-      const whenFormatted = isToday ? `Today, ${b.time}` : `${b.date}, ${b.time}`;
+      const sDate = b.startDate || b.date;
+      const eDate = b.endDate || sDate;
+      const sTime = b.startTime || b.time;
+      const eTime = b.endTime || null;
+      const isToday = sDate === todayStr;
+      const datePart = (eDate && eDate !== sDate) ? `${sDate} to ${eDate}` : (isToday ? 'Today' : sDate);
+      const timePart = eTime ? `${sTime} - ${eTime}` : sTime;
+      const whenFormatted = timePart ? `${datePart}, ${timePart}` : datePart;
 
       return {
         id: b.id,
@@ -145,6 +161,10 @@ const getDashboardData = async (req, res) => {
         address: b.address,
         date: b.date,
         time: b.time,
+        startDate: sDate,
+        endDate: eDate,
+        startTime: sTime,
+        endTime: eTime,
         isToday,
         whenFormatted,
         source: b.source || 'App',
@@ -213,6 +233,7 @@ const getDashboardData = async (req, res) => {
     const byCity = targetCityIds.map((cid) => {
       const cBookings = allCityBookings.filter((b) => (b.city || 'mumbai').toLowerCase() === cid);
       const cNewReq = cBookings.filter((b) => b.status === 'requested').length;
+      const cDateExceeded = cBookings.filter((b) => b.status === 'date_exceeded').length;
       const cOpen = cBookings.filter((b) => !['completed', 'cancelled'].includes(b.status)).length;
       const cVisitsToday = cBookings.filter((b) => b.date === todayStr && b.status !== 'cancelled').length;
       const cUnassigned = cBookings.filter(
@@ -229,6 +250,7 @@ const getDashboardData = async (req, res) => {
         id: cid,
         name: getCityDisplayName(cid),
         newReq: cNewReq,
+        dateExceeded: cDateExceeded,
         openBookings: cOpen,
         visitsToday: cVisitsToday,
         unassigned: cUnassigned,
@@ -251,7 +273,8 @@ const getDashboardData = async (req, res) => {
       dateString: `${dayName}, ${dateNum} ${monthName} ${year}`,
       title: `Care desk${selectedCity !== 'all' ? ` · ${getCityDisplayName(selectedCity)}` : ''}`,
       subtitle: `${countNewReq} new request${countNewReq === 1 ? '' : 's'} waiting for confirmation`,
-      newRequestsCount: countNewReq
+      newRequestsCount: countNewReq,
+      dateExceededCount: countDateExceeded
     };
 
     // Construct response payload
@@ -264,6 +287,11 @@ const getDashboardData = async (req, res) => {
           count: countNewReq,
           label: 'New requests',
           sublabel: 'Awaiting confirmation'
+        },
+        dateExceeded: {
+          count: countDateExceeded,
+          label: 'Date exceeded',
+          sublabel: 'Scheduled date passed with no action'
         },
         visitsToday: {
           count: countTodayVisits,
@@ -316,7 +344,7 @@ const getBookings = async (req, res) => {
       date,
       search,
       page = 1,
-      limit = 20
+      limit = 100
     } = req.query;
 
     const pageNum = Math.max(1, parseInt(page, 10) || 1);

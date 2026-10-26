@@ -1,5 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
-import { authAPI } from '../../services/api';
+import api, { authAPI as rawAuthAPI } from '../../services/api';
+
+const authAPI = rawAuthAPI || api?.authAPI || api?.auth;
 
 // ==================== SVGs MATCHING UNTITLED UI REFERENCE ====================
 

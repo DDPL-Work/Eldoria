@@ -621,8 +621,12 @@ export function ClientDetail({ clientId, onBack, onShowToast }) {
                             When (Day & Time)
                           </span>
                           <span className="font-bold text-slate-900 flex items-center gap-1.5 mt-1 text-xs">
-                            <Icon name="cal" size={13} className="text-[#0E2F5A] shrink-0" />
-                            {formatBookingDate(b.date)}{b.time ? `, ${b.time}` : ''}
+                            {b.endDate && b.endDate !== (b.startDate || b.date)
+                              ? `${formatBookingDate(b.startDate || b.date)} – ${formatBookingDate(b.endDate)}`
+                              : formatBookingDate(b.startDate || b.date)}
+                            {b.startTime && b.endTime
+                              ? `, ${b.startTime} – ${b.endTime}`
+                              : (b.time ? `, ${b.time}` : '')}
                           </span>
                         </div>
 

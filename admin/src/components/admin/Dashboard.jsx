@@ -516,10 +516,18 @@ export function Dashboard({ onTab, onOpenBooking, onNewBooking }) {
                   </tr>
                 ) : (
                   queue.slice(0, 8).map((b) => {
-                    const isToday = b.isToday ?? (b.date === t);
+                    const sDate = b.startDate || b.date;
+                    const eDate = b.endDate || sDate;
+                    const isToday = b.isToday ?? (sDate === t);
+                    const datePart = (eDate && eDate !== sDate)
+                      ? `${fmtDate(sDate)} – ${fmtDate(eDate)}`
+                      : (isToday ? 'Today' : fmtDate(sDate));
+                    const timePart = b.startTime && b.endTime
+                      ? `${b.startTime} – ${b.endTime}`
+                      : (b.time || b.startTime || '');
                     const whenFormatted =
                       b.whenFormatted ||
-                      (isToday ? `Today, ${b.time}` : `${fmtDate(b.date)}, ${b.time}`);
+                      (timePart ? `${datePart}, ${timePart}` : datePart);
 
                     const displayCity = b.cityName || cityName(bCity(b) || b.city);
                     const displayService = b.serviceName || svcB(b)?.name || b.service || 'Service';
