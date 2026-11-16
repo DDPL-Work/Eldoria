@@ -66,8 +66,8 @@ const syncQueue = [];
 let isProcessingQueue = false;
 
 const isSyncEnabled = () => {
-  // Sync is enabled by default if ENABLE_AIVEN_SYNC or ENABLE_DB_SYNC is true
-  const flag = process.env.ENABLE_AIVEN_SYNC || process.env.ENABLE_DB_SYNC;
+  // Sync is enabled by default if ENABLE_TIDB_SYNC, ENABLE_DB_SYNC, or ENABLE_AIVEN_SYNC is true
+  const flag = process.env.ENABLE_TIDB_SYNC || process.env.ENABLE_DB_SYNC || process.env.ENABLE_AIVEN_SYNC;
   return flag === 'true';
 };
 
@@ -173,9 +173,10 @@ const attachAivenSyncHooks = (db) => {
     return;
   }
 
+  const cloudName = process.env.TIDB_HOST ? 'TiDB Cloud' : 'Cloud MySQL';
   const directionLabel = isLocal
-    ? 'Local MySQL ➡️ Aiven Cloud'
-    : 'Aiven Cloud ➡️ Local MySQL';
+    ? `Local MySQL ➡️ ${cloudName}`
+    : `${cloudName} ➡️ Local MySQL`;
 
   console.log(`🔄 Automatic real-time background sync [${directionLabel}] enabled on all database actions.`);
 

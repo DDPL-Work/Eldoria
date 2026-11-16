@@ -144,18 +144,21 @@ db.syncDatabase = async (options = {}) => {
       console.log("✅ Database migrations up-to-date (no pending migrations).");
     }
 
-    // Also ensure migrations are applied on target sync connection (e.g. Aiven Cloud) if sync is enabled
+    // Also ensure migrations are applied on target sync connection if sync is enabled
     try {
-      const { isLocal, getAivenSequelize } = require("../../configs/db.config");
-      const targetSeq = isLocal ? getAivenSequelize() : null;
-      if (targetSeq) {
-        const aivenApplied = await migrateUp(targetSeq);
-        if (aivenApplied.length > 0) {
-          console.log(`✅ Aiven Cloud database migrations applied: ${aivenApplied.join(", ")}`);
+      const isSyncEnabled = process.env.ENABLE_AIVEN_SYNC === 'true' || process.env.ENABLE_DB_SYNC === 'true';
+      if (isSyncEnabled) {
+        const { isLocal, getCloudSequelize } = require("../../configs/db.config");
+        const targetSeq = isLocal ? getCloudSequelize() : null;
+        if (targetSeq) {
+          const aivenApplied = await migrateUp(targetSeq);
+          if (aivenApplied.length > 0) {
+            console.log(`✅ Remote database migrations applied: ${aivenApplied.join(", ")}`);
+          }
         }
       }
     } catch (aivenMigErr) {
-      console.warn("⚠️ Aiven Cloud migration check note:", aivenMigErr.message);
+      console.warn("⚠️ Remote database migration check note:", aivenMigErr.message);
     }
 
     // Optional model sync if explicitly requested (e.g. { force: true } or { alter: true })
