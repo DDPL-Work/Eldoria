@@ -5,8 +5,27 @@ const rateLimit = require('express-rate-limit');
 const apiRoutes = require('./routes');
 const { errorHandler, notFoundHandler } = require('./middlewares/errorHandler');
 const { getHealthStatus } = require('./controllers/health.controller');
+const { initSentry } = require('./services/sentry.service');
+const logger = require('./utills/logger');
 
 const app = express();
+
+// Initialize Sentry error tracking for Express
+initSentry(app);
+
+// Structured HTTP Request Logger (skips health check noise)
+app.use((req, res, next) => {
+  const start = Date.now();
+  res.on('finish', () => {
+    const isHealthEndpoint = req.originalUrl === '/api/health' || req.originalUrl === '/api/v1/health' || req.originalUrl === '/';
+    if (!isHealthEndpoint && res.statusCode >= 400) {
+      logger.warn(`${req.method} ${req.originalUrl} ${res.statusCode} (${Date.now() - start}ms)`);
+    } else if (!isHealthEndpoint) {
+      logger.http(`${req.method} ${req.originalUrl} ${res.statusCode} (${Date.now() - start}ms)`);
+    }
+  });
+  next();
+});
 
 // HTTP Security Headers & Identity Masking (SEC-12)
 app.use(helmet({

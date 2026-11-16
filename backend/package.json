@@ -11,14 +11,18 @@
     "build": "echo 'Build successful'",
     "dev": "nodemon src/server.js",
     "test": "jest",
+    "lint": "eslint .",
     "db:migrate": "node scripts/db-migrate.js",
     "db:migrate:undo": "node scripts/db-migrate-undo.js",
     "db:seed:admin": "node src/Seed/admin.seed.js",
+    "db:sync:tidb": "node scripts/sync-to-tidb.js",
+    "db:pull:tidb": "node scripts/pull-from-tidb.js",
     "db:sync:aiven": "node scripts/sync-to-aiven.js",
     "db:pull:aiven": "node scripts/pull-from-aiven.js",
     "db:sync:both": "node -e \"require('./src/services/dbSync.service').syncBothDatabases()\""
   },
   "dependencies": {
+    "@sentry/node": "^11.9.0",
     "bcryptjs": "^3.0.3",
     "cloudinary": "^2.11.0",
     "cors": "^2.8.6",
@@ -29,9 +33,12 @@
     "jsonwebtoken": "^9.0.3",
     "multer": "^2.4.0",
     "mysql2": "^3.24.5",
-    "sequelize": "^6.37.8"
+    "node-cron": "^4.6.0",
+    "sequelize": "^6.37.8",
+    "winston": "^3.19.0"
   },
   "devDependencies": {
+    "eslint": "^10.13.0",
     "jest": "^30.5.2",
     "nodemon": "^3.1.14",
     "sequelize-cli": "^6.6.5"

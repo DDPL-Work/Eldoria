@@ -8,6 +8,7 @@ const staffRoutes = require('./staff.routes');
 const clientRoutes = require('./client.routes');
 const settingRoutes = require('./setting.routes');
 const cancellationRoutes = require('./cancellation.routes');
+const cronRoutes = require('./cron.routes');
 const { getPublicLiveCities } = require('../controllers/city.controller');
 const {
   getPublicServices,
@@ -71,5 +72,8 @@ router.patch('/staff-confirm/:staffId', verifyToken, requireAdmin, toggleStaffCa
 
 // Booking cancellation flow routes
 router.use('/cancellation', cancellationRoutes);
+
+// Scheduled automation & external cron ping routes
+router.use('/cron', cronRoutes);
 
 module.exports = router;
